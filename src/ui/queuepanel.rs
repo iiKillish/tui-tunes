@@ -176,19 +176,22 @@ impl QueuePanel {
     }
 }
 
-/// Rows needed to list items with these sources: two per item, plus a header (and a blank line
-/// before every header but the first) wherever the source changes.
+/// Rows an item takes: title and artists, then a blank row before whatever comes next.
+const ITEM_ROWS: usize = 3;
+
+/// Rows needed to list items with these sources: [ITEM_ROWS] per item (without the last one's
+/// blank row), plus a header wherever the source changes.
 fn rows_needed(sources: &[Option<Arc<str>>]) -> usize {
     let mut rows = 0;
     let mut previous: Option<&Option<Arc<str>>> = None;
     for source in sources {
         if previous != Some(source) {
-            rows += if previous.is_some() { 2 } else { 1 };
+            rows += 1;
             previous = Some(source);
         }
-        rows += 2;
+        rows += ITEM_ROWS;
     }
-    rows
+    rows.saturating_sub(1)
 }
 
 /// The furthest the list can usefully scroll: the first start position from which the rest fits
@@ -312,7 +315,7 @@ impl View for QueuePanel {
                     .take(2)
                     .for_each(|r| *r = Some(index));
             }
-            y += 3;
+            y += ITEM_ROWS;
         }
 
         let upcoming = self.queue.upcoming(MAX_UPCOMING);
@@ -336,9 +339,7 @@ impl View for QueuePanel {
                 break;
             }
             if previous_source.as_ref() != Some(&source) {
-                if previous_source.is_some() {
-                    y += 1;
-                }
+                // A header plus at least one item has to fit.
                 if y + 3 > size.y {
                     break;
                 }
@@ -364,7 +365,7 @@ impl View for QueuePanel {
                 .skip(y)
                 .take(2)
                 .for_each(|r| *r = Some(*index));
-            y += 2;
+            y += ITEM_ROWS;
         }
 
         *self.row_items.write().unwrap() = rows;
@@ -430,23 +431,24 @@ mod tests {
     }
 
     #[test]
-    fn test_rows_needed_counts_headers() {
-        // header + 2 items, then gap + header + 1 item.
+    fn test_rows_needed_counts_headers_and_gaps() {
+        // header, item, gap, item, gap, header, item (the last item's gap isn't needed).
         let s = sources(&[Some("A"), Some("A"), None]);
-        assert_eq!(rows_needed(&s), 1 + 4 + 2 + 2);
+        assert_eq!(rows_needed(&s), 1 + 3 + 3 + 1 + 2);
     }
 
     #[test]
     fn test_no_scrolling_when_everything_fits() {
+        // header + 3 items with gaps between = 1 + 3 + 3 + 2 rows.
         let s = sources(&[Some("A"); 3]);
-        assert_eq!(max_scroll(&s, 7), 0);
+        assert_eq!(max_scroll(&s, 9), 0);
         assert_eq!(max_scroll(&s, 50), 0);
     }
 
     #[test]
     fn test_scrolls_only_until_the_last_item_is_at_the_bottom() {
-        // 10 items from one source need 21 rows; 9 rows fit a header and 4 items.
+        // 10 rows fit a header and 3 items (1 + 3 + 3 + 2 = 9), not 4 (12).
         let s = sources(&[Some("A"); 10]);
-        assert_eq!(max_scroll(&s, 9), 6);
+        assert_eq!(max_scroll(&s, 10), 7);
     }
 }
