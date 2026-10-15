@@ -35,6 +35,8 @@ pub struct ItemList<I: ListItem + Clone> {
     numbered: bool,
     /// Show a small cover before each item that has one.
     thumbnails: bool,
+    /// Whether tracks show their album in a column of its own.
+    album_column: bool,
     /// Name of what these items are (an album, playlist…), recorded in the queue when playing
     /// from this list so Up next can show "Next from: …".
     source: Option<String>,
@@ -54,6 +56,7 @@ impl<I: ListItem + Clone> ItemList<I> {
             area: Rect::default(),
             numbered: false,
             thumbnails: true,
+            album_column: true,
             source: None,
             search: String::new(),
             matches: Vec::new(),
@@ -69,6 +72,12 @@ impl<I: ListItem + Clone> ItemList<I> {
     /// No covers before the items, e.g. for an album's tracks, which all share one.
     pub fn without_thumbnails(mut self) -> Self {
         self.thumbnails = false;
+        self
+    }
+
+    /// No album column, e.g. on an album's own page.
+    pub fn without_album(mut self) -> Self {
+        self.album_column = false;
         self
     }
 
@@ -227,8 +236,24 @@ impl<I: ListItem + Clone> ItemList<I> {
                 x += thumb + 1;
             }
 
-            let left = item.display_left(&ctx.library);
-            let center = item.display_center(&ctx.library);
+            // Tracks (design R2): the title, then the artists dimmed, then the album in its own
+            // column (left out on album pages). Other items use their own display text.
+            let (left, artists, center) = match item.track() {
+                Some(track) => (
+                    track.title.clone(),
+                    track.artists.join(", "),
+                    if self.album_column {
+                        track.album.clone().unwrap_or_default()
+                    } else {
+                        String::new()
+                    },
+                ),
+                None => (
+                    item.display_left(&ctx.library),
+                    String::new(),
+                    item.display_center(&ctx.library),
+                ),
+            };
             let right = item.display_right(&ctx.library);
             let right_width = width(&right);
             let end = area.right().saturating_sub(1);
@@ -236,22 +261,32 @@ impl<I: ListItem + Clone> ItemList<I> {
             put(buf, right_x, y, &right, right_width, style);
 
             let room = usize::from(right_x.saturating_sub(x + 1));
-            if center.is_empty() {
-                put(
-                    buf,
-                    x,
-                    y,
-                    &left,
-                    room,
-                    if playing || index == self.selected {
-                        bold(style)
-                    } else {
-                        style
-                    },
-                );
+            let title_style = if playing || index == self.selected {
+                bold(style)
             } else {
-                let left_room = room * 6 / 10;
-                put(buf, x, y, &left, left_room.saturating_sub(1), style);
+                style
+            };
+            let dim_style = if index == self.selected || playing {
+                style
+            } else {
+                styles
+                    .secondary()
+                    .bg(style.bg.unwrap_or(ctx.palette.background))
+            };
+            let left_room = if center.is_empty() {
+                room
+            } else {
+                room * 6 / 10
+            };
+            let written = put(buf, x, y, &left, left_room.saturating_sub(1), title_style);
+            if !artists.is_empty() {
+                let artists_x = x + written as u16 + 2;
+                let artists_room = left_room.saturating_sub(written + 3);
+                if artists_room > 3 {
+                    put(buf, artists_x, y, &artists, artists_room, dim_style);
+                }
+            }
+            if !center.is_empty() {
                 let center_x = x + left_room as u16;
                 let center_room = usize::from(right_x.saturating_sub(center_x + 1));
                 let center_style = if index == self.selected {

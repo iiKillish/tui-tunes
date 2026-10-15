@@ -26,6 +26,7 @@ impl AlbumPage {
         let list = ItemList::new(Arc::new(RwLock::new(tracks)))
             .numbered()
             .without_thumbnails()
+            .without_album()
             .with_source(&album.title);
         Self { album, list }
     }

@@ -27,7 +27,8 @@ use crate::tui::widgets::list::ItemList;
 use crate::tui::widgets::tabs::Tabbed;
 
 /// Results asked for at a time.
-const PAGE_SIZE: u32 = 50;
+/// Results per request: Spotify allows at most 10 per search (since its 2026 API changes).
+const PAGE_SIZE: u32 = 10;
 /// Cards in each row of the All tab.
 const PER_ROW: usize = 10;
 
