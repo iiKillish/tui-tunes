@@ -101,6 +101,10 @@ pub struct ConfigValues {
     pub library_tabs: Option<Vec<LibraryTab>>,
     pub hide_display_names: Option<bool>,
     pub ap_port: Option<u16>,
+    /// Client ID of your own Spotify developer app, used for Web API requests instead of
+    /// ncspot's shared one (which is frequently rate limited). The app must have
+    /// `http://127.0.0.1:8989/login` registered as a redirect URI.
+    pub client_id: Option<String>,
 }
 
 /// The ncspot theme.

@@ -46,7 +46,7 @@ impl Default for WebApi {
             ..Default::default()
         };
         let api = AuthCodeSpotify::with_config(
-            rspotify::Credentials::new(crate::authentication::NCSPOT_CLIENT_ID, ""),
+            rspotify::Credentials::new(crate::authentication::web_api_client_id(), ""),
             rspotify::OAuth::default(),
             config,
         );

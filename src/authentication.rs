@@ -1,6 +1,7 @@
 use std::fs;
 use std::net::TcpListener;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use librespot_core::authentication::Credentials as RespotCredentials;
 use librespot_core::cache::Cache;
@@ -12,6 +13,46 @@ use crate::spotify::Spotify;
 
 pub const SPOTIFY_CLIENT_ID: &str = "65b708073fc0480ea92a077233ca87bd";
 pub const NCSPOT_CLIENT_ID: &str = "d420a117a32841c2b3474932e49fb54b";
+
+/// Redirect URI used with a user-supplied client ID. It has to match one registered for that
+/// app exactly, so unlike the shared client it can't use a random free port.
+const CUSTOM_CLIENT_REDIRECT_URI: &str = "http://127.0.0.1:8989/login";
+
+static CUSTOM_WEB_API_CLIENT_ID: OnceLock<Option<String>> = OnceLock::new();
+
+/// Use `client_id` (from the `client_id` config value) for the Web API instead of ncspot's
+/// shared client ID. Must be called before any Web API client is created.
+pub fn set_web_api_client_id(client_id: Option<String>) {
+    let client_id = client_id.map(|id| id.trim().to_string()).filter(|id| !id.is_empty());
+    if let Some(id) = &client_id {
+        info!("Using custom Web API client ID {id}");
+    }
+    let _ = CUSTOM_WEB_API_CLIENT_ID.set(client_id);
+}
+
+fn custom_web_api_client_id() -> Option<&'static str> {
+    CUSTOM_WEB_API_CLIENT_ID.get().and_then(|id| id.as_deref())
+}
+
+/// Client ID used for Web API requests.
+pub fn web_api_client_id() -> &'static str {
+    custom_web_api_client_id().unwrap_or(NCSPOT_CLIENT_ID)
+}
+
+fn web_api_redirect_uri() -> String {
+    match custom_web_api_client_id() {
+        Some(_) => CUSTOM_CLIENT_REDIRECT_URI.to_string(),
+        None => get_client_redirect_uri(),
+    }
+}
+
+/// Tokens are tied to the client ID that issued them, so a custom client keeps its own cache file.
+fn rspotify_token_path() -> PathBuf {
+    match custom_web_api_client_id() {
+        Some(id) => config::cache_path(&format!("rspotify_token_{id}.json")),
+        None => config::cache_path("rspotify_token.json"),
+    }
+}
 
 static OAUTH_SCOPES: &[&str] = &[
     "playlist-modify",
@@ -122,7 +163,7 @@ pub fn create_credentials() -> Result<RespotCredentials, String> {
 }
 
 pub fn get_rspotify_token() -> Result<rspotify::Token, String> {
-    let path = config::cache_path("rspotify_token.json");
+    let path = rspotify_token_path();
     let token = if let Ok(token_json) = fs::read_to_string(&path) {
         serde_json::from_str::<rspotify::Token>(&token_json).ok()
     } else {
@@ -141,8 +182,8 @@ pub fn get_rspotify_token() -> Result<rspotify::Token, String> {
         if let Some(refresh_token) = refresh_token {
             info!("Access token expired, attempting to refresh..");
             let client_builder = OAuthClientBuilder::new(
-                NCSPOT_CLIENT_ID,
-                &get_client_redirect_uri(),
+                web_api_client_id(),
+                &web_api_redirect_uri(),
                 NCSPOT_OAUTH_SCOPES.to_vec(),
             );
             if let Ok(oauth_client) = client_builder.build() {
@@ -171,8 +212,8 @@ pub fn create_rspotify_token() -> Result<rspotify::Token, String> {
     );
 
     let client_builder = OAuthClientBuilder::new(
-        NCSPOT_CLIENT_ID,
-        &get_client_redirect_uri(),
+        web_api_client_id(),
+        &web_api_redirect_uri(),
         NCSPOT_OAUTH_SCOPES.to_vec(),
     );
     let oauth_client = client_builder.build().map_err(|e| e.to_string())?;
