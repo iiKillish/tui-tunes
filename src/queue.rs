@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
 
 use log::{debug, info};
@@ -40,8 +41,12 @@ pub struct Queue {
     /// The internal data, which doesn't change with shuffle or repeat. This is
     /// the raw data only.
     pub queue: Arc<RwLock<Vec<Playable>>>,
-    /// The playback order of the queue, as indices into `self.queue`.
+    /// The playback order of the queue, as indices into `self.queue`. Shuffling reorders
+    /// `self.queue` itself (see [Queue::generate_random_order]), so this is only set by queue
+    /// state saved by older versions.
     random_order: RwLock<Option<Vec<usize>>>,
+    /// The queue as it was before shuffling, so turning shuffle off can restore that order.
+    unshuffled: RwLock<Option<Vec<Playable>>>,
     current_track: RwLock<Option<usize>>,
     spotify: Spotify,
     cfg: Arc<Config>,
@@ -57,6 +62,7 @@ impl Queue {
             spotify: spotify.clone(),
             current_track: RwLock::new(queue_state.current_track),
             random_order: RwLock::new(queue_state.random_order),
+            unshuffled: RwLock::new(None),
             cfg,
             library,
         }
@@ -227,9 +233,8 @@ impl Queue {
             }
         }
 
-        if self.get_shuffle() {
-            self.generate_random_order();
-        }
+        // Shuffling reorders the queue itself, so a removal leaves the remaining (already
+        // shuffled) order intact rather than reshuffling everything.
     }
 
     /// Clear all the items from the queue and stop playback.
@@ -243,6 +248,7 @@ impl Queue {
         if let Some(o) = random_order.as_mut() {
             o.clear()
         }
+        *self.unshuffled.write().unwrap() = None;
     }
 
     /// The amount of items in `self.queue`.
@@ -425,23 +431,70 @@ impl Queue {
         self.random_order.read().unwrap().clone()
     }
 
-    /// (Re)generate the random shuffle order.
+    /// Shuffle the queue: reorder `self.queue` so the current item comes first, followed by the
+    /// rest in random order. Reordering the queue itself (rather than keeping a separate play
+    /// order) means the queue view shows the order things will actually play in. The order
+    /// before the first shuffle is kept so [Queue::set_shuffle] can restore it.
     fn generate_random_order(&self) {
-        let q = self.queue.read().unwrap();
-        let mut order: Vec<usize> = Vec::with_capacity(q.len());
-        let mut random: Vec<usize> = (0..q.len()).collect();
+        let mut random_order = self.random_order.write().unwrap();
+        let mut q = self.queue.write().unwrap();
+        let mut current = self.current_track.write().unwrap();
 
-        if let Some(current) = *self.current_track.read().unwrap() {
-            order.push(current);
-            random.remove(current);
+        let mut unshuffled = self.unshuffled.write().unwrap();
+        if unshuffled.is_none() {
+            *unshuffled = Some(q.clone());
         }
 
-        let mut rng = rand::rng();
-        random.shuffle(&mut rng);
-        order.extend(random);
+        let mut shuffled: Vec<Playable> = Vec::with_capacity(q.len());
+        let mut rest: Vec<Playable> = Vec::with_capacity(q.len());
+        for (i, track) in q.drain(..).enumerate() {
+            if Some(i) == *current {
+                shuffled.push(track);
+            } else {
+                rest.push(track);
+            }
+        }
+        rest.shuffle(&mut rand::rng());
+        shuffled.extend(rest);
 
+        *q = shuffled;
+        if current.is_some() {
+            *current = Some(0);
+        }
+        *random_order = None;
+    }
+
+    /// Undo [Queue::generate_random_order]: put the queue back in its order from before
+    /// shuffling. Items added while shuffled keep their place at the end, removed ones stay
+    /// removed, and the current item keeps playing.
+    fn restore_unshuffled_order(&self) {
         let mut random_order = self.random_order.write().unwrap();
-        *random_order = Some(order);
+        let mut q = self.queue.write().unwrap();
+        let mut current = self.current_track.write().unwrap();
+        *random_order = None;
+
+        let Some(original) = self.unshuffled.write().unwrap().take() else {
+            return;
+        };
+
+        // Match by URI, consuming positions so duplicate tracks map one-to-one.
+        let mut positions: HashMap<String, VecDeque<usize>> = HashMap::new();
+        for (i, track) in q.iter().enumerate() {
+            positions.entry(track.uri()).or_default().push_back(i);
+        }
+        let mut taken = vec![false; q.len()];
+        let mut order: Vec<usize> = Vec::with_capacity(q.len());
+        for track in &original {
+            if let Some(i) = positions.get_mut(&track.uri()).and_then(|p| p.pop_front()) {
+                taken[i] = true;
+                order.push(i);
+            }
+        }
+        order.extend((0..q.len()).filter(|&i| !taken[i]));
+
+        *current = current.and_then(|c| order.iter().position(|&i| i == c));
+        let mut slots: Vec<Option<Playable>> = q.drain(..).map(Some).collect();
+        *q = order.iter().filter_map(|&i| slots[i].take()).collect();
     }
 
     /// Set the current shuffle behavior.
@@ -450,8 +503,7 @@ impl Queue {
         if new {
             self.generate_random_order();
         } else {
-            let mut random_order = self.random_order.write().unwrap();
-            *random_order = None;
+            self.restore_unshuffled_order();
         }
     }
 
@@ -564,6 +616,7 @@ mod tests {
         Queue {
             queue: Arc::new(RwLock::new(tracks)),
             random_order: RwLock::new(None),
+            unshuffled: RwLock::new(None),
             current_track: RwLock::new(current),
             spotify,
             cfg,
@@ -772,41 +825,32 @@ mod tests {
             Some(1),
         );
         q.set_shuffle(true);
-        let order = q.get_random_order().expect("random_order should be Some");
-        assert_eq!(order.len(), 4);
-        // Current track (index 1) must be first.
-        assert_eq!(order[0], 1);
-        // All queue indices appear exactly once.
+        // Shuffling reorders the queue itself: current track (id_1) first, every track once.
+        let order = ids(&q);
+        assert_eq!(order[0], "id_1");
         let mut sorted = order.clone();
         sorted.sort_unstable();
-        assert_eq!(sorted, [0, 1, 2, 3]);
+        assert_eq!(sorted, ["id_0", "id_1", "id_2", "id_3"]);
     }
 
     #[test]
     fn test_shuffle_disable_clears_order() {
         let q = make_queue(vec![make_track(0), make_track(1)], Some(0));
         q.set_shuffle(true);
-        assert!(q.get_random_order().is_some());
         q.set_shuffle(false);
         assert!(q.get_random_order().is_none());
+        assert_eq!(ids(&q), ["id_0", "id_1"]);
     }
 
     #[test]
     fn test_append_in_shuffle_mode_maintains_valid_order() {
-        // After appending to a shuffled queue, random_order must contain every
-        // queue index exactly once.
+        // Appending to a shuffled queue adds the track at the end of the (shuffled) order.
         let q = make_queue(vec![make_track(0), make_track(1)], Some(0));
         q.set_shuffle(true);
         q.append(make_track(2));
-        let order = q.get_random_order().expect("random_order should be Some");
+        let order = ids(&q);
         assert_eq!(order.len(), 3);
-        let mut sorted = order.clone();
-        sorted.sort_unstable();
-        assert_eq!(
-            sorted,
-            [0, 1, 2],
-            "random_order must contain every queue index once"
-        );
+        assert_eq!(order[2], "id_2");
     }
 
     // --- clear ---
@@ -819,11 +863,110 @@ mod tests {
     }
 
     #[test]
-    fn test_clear_empties_random_order_when_shuffled() {
+    fn test_clear_when_shuffled() {
         let q = make_queue(vec![make_track(0), make_track(1), make_track(2)], Some(1));
         q.set_shuffle(true);
         q.clear();
-        // clear() clears the order contents but leaves it as Some([]).
-        assert_eq!(q.get_random_order(), Some(vec![]));
+        assert_eq!(q.len(), 0);
+        // Shuffling reorders the queue itself, so there's no separate play order.
+        assert_eq!(q.get_random_order(), None);
+        assert!(q.unshuffled.read().unwrap().is_none());
+    }
+
+    // --- shuffle reorders the queue itself ---
+
+    fn ids(q: &Queue) -> Vec<String> {
+        q.queue
+            .read()
+            .unwrap()
+            .iter()
+            .map(|p| track_id(p).to_string())
+            .collect()
+    }
+
+    fn make_tracks(n: u32) -> Vec<Playable> {
+        (0..n).map(make_track).collect()
+    }
+
+    #[test]
+    fn test_shuffle_puts_current_first_and_keeps_tracks() {
+        let q = make_queue(make_tracks(20), Some(7));
+        q.set_shuffle(true);
+
+        assert_eq!(q.get_current_index(), Some(0));
+        assert_eq!(track_id(&q.get_current().unwrap()), "id_7");
+        assert_eq!(q.get_random_order(), None);
+
+        let mut sorted = ids(&q);
+        sorted.sort();
+        let mut expected: Vec<String> = (0..20).map(|i| format!("id_{i}")).collect();
+        expected.sort();
+        assert_eq!(sorted, expected);
+    }
+
+    #[test]
+    fn test_shuffle_plays_in_displayed_order() {
+        let q = make_queue(make_tracks(10), Some(3));
+        q.set_shuffle(true);
+        // With the queue itself shuffled, playback order is simply the list order.
+        assert_eq!(q.next_index(), Some(1));
+        assert_eq!(q.previous_index(), None);
+    }
+
+    #[test]
+    fn test_unshuffle_restores_original_order_and_current() {
+        let q = make_queue(make_tracks(10), Some(3));
+        q.set_shuffle(true);
+        q.set_shuffle(false);
+
+        let expected: Vec<String> = (0..10).map(|i| format!("id_{i}")).collect();
+        assert_eq!(ids(&q), expected);
+        assert_eq!(q.get_current_index(), Some(3));
+        assert_eq!(track_id(&q.get_current().unwrap()), "id_3");
+    }
+
+    #[test]
+    fn test_unshuffle_follows_current_track() {
+        let q = make_queue(make_tracks(10), Some(3));
+        q.set_shuffle(true);
+        // Move on a few tracks while shuffled.
+        *q.current_track.write().unwrap() = Some(4);
+        let playing = track_id(&q.get_current().unwrap()).to_string();
+
+        q.set_shuffle(false);
+        assert_eq!(track_id(&q.get_current().unwrap()), playing);
+    }
+
+    #[test]
+    fn test_unshuffle_keeps_added_and_drops_removed() {
+        let q = make_queue(make_tracks(5), Some(0));
+        q.set_shuffle(true);
+        q.append(make_track(99));
+        let removed_index = ids(&q).iter().position(|id| id == "id_2").unwrap();
+        q.remove(removed_index);
+
+        q.set_shuffle(false);
+        assert_eq!(ids(&q), vec!["id_0", "id_1", "id_3", "id_4", "id_99"]);
+    }
+
+    #[test]
+    fn test_unshuffle_handles_duplicate_tracks() {
+        let q = make_queue(
+            vec![make_track(1), make_track(2), make_track(1), make_track(3)],
+            Some(0),
+        );
+        q.set_shuffle(true);
+        q.set_shuffle(false);
+        assert_eq!(ids(&q), vec!["id_1", "id_2", "id_1", "id_3"]);
+    }
+
+    #[test]
+    fn test_remove_while_shuffled_keeps_remaining_order() {
+        let q = make_queue(make_tracks(10), Some(0));
+        q.set_shuffle(true);
+        let mut before = ids(&q);
+        q.remove(5);
+        before.remove(5);
+        assert_eq!(ids(&q), before);
     }
 }
