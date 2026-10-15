@@ -179,6 +179,8 @@ pub struct CardGrid {
     /// As drawn last: cards per row, rows of cards (grid) or sections (rows) that fit.
     columns: usize,
     visible: usize,
+    /// Rows of the covers as drawn last (they shrink to fit two rows of cards).
+    cover: u16,
     /// Where each card was drawn last, with its section and index, for clicks.
     card_areas: Vec<(Rect, usize, usize)>,
     /// Matches of the last `/` search (section, card), and which one is selected.
@@ -201,6 +203,7 @@ impl CardGrid {
             first_row: 0,
             columns: 1,
             visible: 1,
+            cover: COVER_ROWS,
             card_areas: Vec::new(),
             jump_matches: Vec::new(),
             jump_index: 0,
@@ -237,31 +240,43 @@ impl CardGrid {
         sections.get(self.section)?.cards.get(self.card)
     }
 
-    /// Width in cells of a card's cover, or 0 if covers can't be shown.
-    fn cover_width() -> u16 {
-        if images::supported() {
-            images::square_width(COVER_ROWS)
+    /// Width in cells of a cover `cover` rows tall (0: no covers).
+    fn cover_width(cover: u16) -> u16 {
+        if cover > 0 {
+            images::square_width(cover)
         } else {
             0
         }
     }
 
-    fn cover_rows() -> u16 {
-        if images::supported() { COVER_ROWS } else { 0 }
-    }
-
-    fn card_width() -> u16 {
-        Self::cover_width().max(MIN_CARD_WIDTH)
+    fn card_width(cover: u16) -> u16 {
+        Self::cover_width(cover).max(MIN_CARD_WIDTH)
     }
 
     /// Rows of one card and the blank row under it: the cover, title and subtitle, a gap.
-    fn card_rows() -> u16 {
-        Self::cover_rows() + 3
+    fn card_rows(cover: u16) -> u16 {
+        cover + 3
+    }
+
+    /// Rows of the covers in an area `height` tall: [COVER_ROWS], smaller (down to 3) when that
+    /// would leave room for only one row of cards, or 0 without images.
+    fn fit_cover_rows(height: u16, layout: CardLayout) -> u16 {
+        if !images::supported() {
+            return 0;
+        }
+        // Rows needed besides the covers for two rows of cards.
+        let other = match layout {
+            CardLayout::Rows => 2 * (1 + 3),
+            CardLayout::Grid => 2 * 3 + 2,
+        };
+        (height.saturating_sub(other) / 2).clamp(3, COVER_ROWS)
     }
 
     /// Draw `card` with its top-left corner at (`x`, `y`).
+    #[allow(clippy::too_many_arguments)]
     fn draw_card(
         buf: &mut Buffer,
+        cover: u16,
         card: &Card,
         x: u16,
         y: u16,
@@ -270,10 +285,10 @@ impl CardGrid {
         ctx: &Ctx,
     ) {
         let styles = Styles(&ctx.palette);
-        let card_width = Self::card_width();
-        let cover_rows = Self::cover_rows();
+        let card_width = Self::card_width(cover);
+        let cover_rows = cover;
         if cover_rows > 0 {
-            let cover = Rect::new(x, y, Self::cover_width(), cover_rows);
+            let cover = Rect::new(x, y, Self::cover_width(cover), cover_rows);
             match card.cover_url() {
                 Some(url) => images::cover(&url, cover),
                 None => {
@@ -349,12 +364,14 @@ impl CardGrid {
         focused: bool,
     ) {
         let buf = frame.buffer_mut();
-        let card_rows = Self::card_rows();
+        let cover = Self::fit_cover_rows(area.height, CardLayout::Rows);
+        self.cover = cover;
+        let card_rows = Self::card_rows(cover);
         // A title row, the cards; the last section's blank row may be cut off.
         let section_rows = 1 + card_rows;
         self.visible = usize::from((area.height + 1) / section_rows).max(1);
         self.first_section = scroll_to(self.first_section, self.section, self.visible);
-        self.columns = columns_for(area.width, Self::card_width());
+        self.columns = columns_for(area.width, Self::card_width(cover));
         self.first_cards.resize(sections.len(), 0);
 
         for (s, section) in sections.iter().enumerate().skip(self.first_section) {
@@ -375,11 +392,11 @@ impl CardGrid {
                 .skip(first)
                 .take(self.columns)
             {
-                let x = area.x + MARGIN + (c - first) as u16 * (Self::card_width() + CARD_GAP);
+                let x = area.x + MARGIN + (c - first) as u16 * (Self::card_width(cover) + CARD_GAP);
                 let selected = s == self.section && c == self.card;
-                Self::draw_card(buf, card, x, top + 1, selected, focused, ctx);
+                Self::draw_card(buf, cover, card, x, top + 1, selected, focused, ctx);
                 self.card_areas.push((
-                    Rect::new(x, top + 1, Self::card_width(), card_rows - 1),
+                    Rect::new(x, top + 1, Self::card_width(cover), card_rows - 1),
                     s,
                     c,
                 ));
@@ -404,8 +421,10 @@ impl CardGrid {
             Self::draw_section_title(buf, area, &section.title, top, ctx);
             top += 2;
         }
-        let card_rows = Self::card_rows();
-        let card_width = Self::card_width();
+        let cover = Self::fit_cover_rows(area.bottom().saturating_sub(top), CardLayout::Grid);
+        self.cover = cover;
+        let card_rows = Self::card_rows(cover);
+        let card_width = Self::card_width(cover);
         self.columns = columns_for(area.width, card_width);
         self.visible = usize::from((area.bottom().saturating_sub(top) + 1) / card_rows).max(1);
         self.first_row = scroll_to(self.first_row, self.card / self.columns, self.visible);
@@ -423,7 +442,7 @@ impl CardGrid {
             if y + card_rows - 1 > area.bottom() {
                 break;
             }
-            Self::draw_card(buf, card, x, y, c == self.card, focused, ctx);
+            Self::draw_card(buf, cover, card, x, y, c == self.card, focused, ctx);
             self.card_areas
                 .push((Rect::new(x, y, card_width, card_rows - 1), 0, c));
         }
