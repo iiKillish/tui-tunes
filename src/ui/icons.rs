@@ -18,11 +18,6 @@ pub enum Icon {
 
 /// A shape in a unit square (x right, y down, both 0..1).
 enum Shape {
-    Circle {
-        cx: f32,
-        cy: f32,
-        r: f32,
-    },
     Rect {
         x0: f32,
         y0: f32,
@@ -51,7 +46,6 @@ enum Shape {
 impl Shape {
     fn contains(&self, x: f32, y: f32) -> bool {
         match *self {
-            Self::Circle { cx, cy, r } => (x - cx).powi(2) + (y - cy).powi(2) <= r * r,
             Self::Rect { x0, y0, x1, y1 } => (x0..=x1).contains(&x) && (y0..=y1).contains(&y),
             Self::Polygon(ref points) => {
                 // Even-odd ray casting.
@@ -98,33 +92,28 @@ const STROKE: f32 = 0.08;
 
 /// Shapes making up `icon`, and shapes cut out of them.
 fn shapes(icon: Icon) -> (Vec<Shape>, Vec<Shape>) {
-    use Shape::{Arc, Circle, Line, Polygon, Rect};
-    let disc = || Circle {
-        cx: 0.5,
-        cy: 0.5,
-        r: 0.48,
-    };
+    use Shape::{Arc, Line, Polygon, Rect};
     match icon {
         Icon::Play => (
-            vec![disc()],
-            vec![Polygon(vec![(0.40, 0.30), (0.40, 0.70), (0.73, 0.50)])],
+            vec![Polygon(vec![(0.27, 0.20), (0.27, 0.80), (0.80, 0.50)])],
+            vec![],
         ),
         Icon::Pause => (
-            vec![disc()],
             vec![
                 Rect {
-                    x0: 0.36,
-                    y0: 0.31,
-                    x1: 0.45,
-                    y1: 0.69,
+                    x0: 0.28,
+                    y0: 0.22,
+                    x1: 0.42,
+                    y1: 0.78,
                 },
                 Rect {
-                    x0: 0.55,
-                    y0: 0.31,
-                    x1: 0.64,
-                    y1: 0.69,
+                    x0: 0.58,
+                    y0: 0.22,
+                    x1: 0.72,
+                    y1: 0.78,
                 },
             ],
+            vec![],
         ),
         Icon::Previous => (
             vec![
@@ -249,19 +238,19 @@ mod tests {
     }
 
     #[test]
-    fn test_play_is_a_disc_with_a_triangle_cut_out() {
+    fn test_play_is_a_solid_triangle() {
         let image = render(Icon::Play, 64, 64, [255, 255, 255]);
-        assert_eq!(alpha_at(&image, 0.5, 0.15), 255, "disc");
-        assert_eq!(alpha_at(&image, 0.5, 0.5), 0, "triangle cut out");
-        assert_eq!(alpha_at(&image, 0.02, 0.02), 0, "outside the disc");
+        assert_eq!(alpha_at(&image, 0.45, 0.5), 255, "inside the triangle");
+        assert_eq!(alpha_at(&image, 0.9, 0.2), 0, "outside the triangle");
     }
 
     #[test]
     fn test_icons_are_centered_in_wide_images() {
         // 2:1 image: the icon is drawn in the middle square only.
         let image = render(Icon::Pause, 128, 64, [255, 255, 255]);
-        assert_eq!(alpha_at(&image, 0.05, 0.5), 0);
-        assert_eq!(alpha_at(&image, 0.5, 0.1), 255);
+        // Left bar sits at 0.28-0.42 of the middle square, i.e. 0.39-0.46 of the full width.
+        assert_eq!(alpha_at(&image, 0.42, 0.5), 255);
+        assert_eq!(alpha_at(&image, 0.1, 0.5), 0);
     }
 
     #[test]

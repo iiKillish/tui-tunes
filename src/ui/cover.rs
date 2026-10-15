@@ -28,6 +28,8 @@ pub struct CoverView {
 /// of cursive: views call [CoverRenderer::draw_cover] while drawing to say where the cover should
 /// go, and the main loop calls [CoverRenderer::render_to_terminal] after cursive has drawn.
 pub struct CoverRenderer {
+    /// Kitty image ID, so this cover can be removed without touching other images.
+    image_id: u32,
     loading: Arc<RwLock<HashSet<String>>>,
     desired_cover: RwLock<Option<CoverRequest>>,
     rendered_cover: RwLock<Option<CoverRequest>>,
@@ -48,7 +50,7 @@ impl CoverView {
         Self {
             queue,
             library,
-            cover: CoverRenderer::new(config),
+            cover: CoverRenderer::new(config, COVER_VIEW_IMAGE_ID),
         }
     }
 
@@ -58,7 +60,8 @@ impl CoverView {
 }
 
 impl CoverRenderer {
-    pub fn new(config: &Config) -> Self {
+    /// `image_id` identifies this renderer's image in the terminal; each renderer needs its own.
+    pub fn new(config: &Config, image_id: u32) -> Self {
         // Determine size of window both in pixels and chars
         let (rows, cols, xpixels, ypixels) = unsafe {
             let mut query: (u16, u16, u16, u16) = (0, 0, 0, 0);
@@ -82,6 +85,7 @@ impl CoverRenderer {
         debug!("Determined font size: {}x{}", font_size.x, font_size.y);
 
         Self {
+            image_id,
             loading: Arc::new(RwLock::new(HashSet::new())),
             desired_cover: RwLock::new(None),
             rendered_cover: RwLock::new(None),
@@ -129,6 +133,28 @@ impl CoverRenderer {
             offset: draw_offset,
             size,
         });
+    }
+
+    /// Remove the cover drawn at `offset`/`size`.
+    fn clear_terminal_area(&self, offset: Vec2, size: Vec2) {
+        // With Kitty graphics deleting the image is enough. Writing over the cells as well would
+        // wipe text cursive has drawn there since, without cursive knowing.
+        if kitty_supported() {
+            let _ = kitty_delete(self.image_id);
+            return;
+        }
+        // Other protocols/fallbacks put the image in the cells, so overwrite them.
+        let mut stdout = std::io::stdout();
+        for y in offset.y..offset.y + size.y {
+            let _ = write!(
+                stdout,
+                "\x1b[{};{}H{}",
+                y + 1,
+                offset.x + 1,
+                " ".repeat(size.x)
+            );
+        }
+        let _ = stdout.flush();
     }
 
     /// Request that no cover is drawn.
@@ -191,11 +217,11 @@ impl CoverRenderer {
         }
 
         if let Some(rendered) = rendered_cover.as_ref() {
-            clear_terminal_area(rendered.offset, rendered.size);
+            self.clear_terminal_area(rendered.offset, rendered.size);
         }
 
         if let Some(cover) = desired_cover.as_ref()
-            && let Err(e) = render_cover_to_terminal(cover, self.font_size)
+            && let Err(e) = render_cover_to_terminal(cover, self.font_size, self.image_id)
         {
             error!("Failed to draw cover: {e}");
             return;
@@ -205,13 +231,17 @@ impl CoverRenderer {
     }
 }
 
-fn render_cover_to_terminal(cover: &CoverRequest, font_size: Vec2) -> Result<(), viuer::ViuError> {
+fn render_cover_to_terminal(
+    cover: &CoverRequest,
+    font_size: Vec2,
+    image_id: u32,
+) -> Result<(), viuer::ViuError> {
     let image = image::ImageReader::open(&cover.path)?
         .with_guessed_format()?
         .decode()?;
 
     if kitty_supported() {
-        return Ok(render_kitty(&image, cover, font_size)?);
+        return Ok(render_kitty(&image, cover, font_size, image_id)?);
     }
 
     let config = viuer::Config {
@@ -243,6 +273,7 @@ fn render_kitty(
     image: &image::DynamicImage,
     cover: &CoverRequest,
     font_size: Vec2,
+    image_id: u32,
 ) -> std::io::Result<()> {
     // Send about as many pixels as will be shown rather than the full-size cover.
     let width = (cover.size.x * font_size.x).max(1) as u32;
@@ -250,11 +281,19 @@ fn render_kitty(
     let pixels = image
         .resize(width, height, image::imageops::FilterType::Triangle)
         .to_rgba8();
-    kitty_place(&pixels, cover.offset, cover.size)
+    kitty_place(&pixels, cover.offset, cover.size, image_id)
 }
 
-/// Place `pixels` over `cells` terminal cells at `offset` with the Kitty graphics protocol,
-/// without moving the cursor (`C=1`) or asking the terminal for a reply (`q=2`).
+/// Kitty image IDs used by ncspot. Images are deleted by ID: deleting "whatever covers this cell"
+/// removes more than that in some terminals (Ghostty takes out neighbouring images too).
+pub(crate) const COVER_VIEW_IMAGE_ID: u32 = 1;
+pub(crate) const NOW_PLAYING_COVER_IMAGE_ID: u32 = 2;
+/// First of the player bar's control icon IDs (one per button).
+pub(crate) const CONTROL_ICON_IMAGE_ID: u32 = 10;
+
+/// Place `pixels` over `cells` terminal cells at `offset` with the Kitty graphics protocol as
+/// image `image_id` (replacing any image with that ID), without moving the cursor (`C=1`) or
+/// asking the terminal for a reply (`q=2`).
 ///
 /// viuer instead lets the image move the cursor and then prints a newline, which scrolls the
 /// terminal when the image is at the bottom of the screen (as the player bar's cover is). Cursive
@@ -263,10 +302,12 @@ pub(crate) fn kitty_place(
     pixels: &image::RgbaImage,
     offset: Vec2,
     cells: Vec2,
+    image_id: u32,
 ) -> std::io::Result<()> {
     let data = base64_encode(pixels.as_raw());
 
     let mut out: Vec<u8> = Vec::with_capacity(data.len() + 256);
+    write!(out, "\x1b_Ga=d,d=I,i={image_id},q=2\x1b\\")?;
     // Save the cursor, move to the top-left cell, and restore the cursor afterwards.
     write!(out, "\x1b7\x1b[{};{}H", offset.y + 1, offset.x + 1)?;
     let chunks: Vec<&[u8]> = data.as_bytes().chunks(4096).collect();
@@ -275,7 +316,7 @@ pub(crate) fn kitty_place(
         if i == 0 {
             write!(
                 out,
-                "\x1b_Ga=T,f=32,s={},v={},c={},r={},C=1,q=2,m={more};",
+                "\x1b_Ga=T,i={image_id},f=32,s={},v={},c={},r={},C=1,q=2,m={more};",
                 pixels.width(),
                 pixels.height(),
                 cells.x,
@@ -294,16 +335,10 @@ pub(crate) fn kitty_place(
     stdout.flush()
 }
 
-/// Delete the Kitty image placed over the cell at `offset` (only that one, so the cover and the
-/// player bar's icons don't remove each other).
-pub(crate) fn kitty_delete_at(offset: Vec2) -> std::io::Result<()> {
+/// Delete Kitty image `image_id` and its placements.
+pub(crate) fn kitty_delete(image_id: u32) -> std::io::Result<()> {
     let mut stdout = std::io::stdout().lock();
-    write!(
-        stdout,
-        "\x1b_Ga=d,d=P,x={},y={},q=2\x1b\\",
-        offset.x + 1,
-        offset.y + 1
-    )?;
+    write!(stdout, "\x1b_Ga=d,d=I,i={image_id},q=2\x1b\\")?;
     stdout.flush()
 }
 
@@ -361,27 +396,6 @@ fn fit_image_to_cells(
             (available_size.x as f32 * cell_aspect / image_aspect).floor() as usize;
         Vec2::new(available_size.x, std::cmp::max(1, height_for_full_width))
     }
-}
-
-fn clear_terminal_area(offset: Vec2, size: Vec2) {
-    let mut stdout = std::io::stdout();
-
-    // Remove the Kitty image placed in this area (not all images: the cover view and the
-    // now-playing card each draw one), then overwrite the cells used by other
-    // protocols/fallbacks.
-    if can_use_kitty_graphics() {
-        let _ = kitty_delete_at(offset);
-    }
-    for y in offset.y..offset.y + size.y {
-        let _ = write!(
-            stdout,
-            "\x1b[{};{}H{}",
-            y + 1,
-            offset.x + 1,
-            " ".repeat(size.x)
-        );
-    }
-    let _ = stdout.flush();
 }
 
 fn to_u16(value: usize) -> Result<u16, viuer::ViuError> {

@@ -20,7 +20,10 @@ use crate::model::playable::Playable;
 use crate::queue::{Queue, RepeatSetting};
 use crate::spotify::{PlayerEvent, Spotify, VOLUME_PERCENT};
 #[cfg(feature = "cover")]
-use crate::ui::cover::{CoverRenderer, kitty_delete_at, kitty_place, kitty_supported};
+use crate::ui::cover::{
+    CONTROL_ICON_IMAGE_ID, CoverRenderer, NOW_PLAYING_COVER_IMAGE_ID, kitty_delete, kitty_place,
+    kitty_supported,
+};
 #[cfg(feature = "cover")]
 use crate::ui::icons::{self, Icon};
 use crate::utils::ms_to_hms;
@@ -98,6 +101,7 @@ pub struct NowPlaying {
 #[cfg(feature = "cover")]
 #[derive(Clone, PartialEq)]
 struct IconRequest {
+    image_id: u32,
     icon: Icon,
     color: [u8; 3],
     offset: Vec2,
@@ -135,14 +139,14 @@ impl IconLayer {
         // Remove icons that changed or went away before placing new ones (possibly in the same
         // cells, like play becoming pause).
         for old in rendered.iter().filter(|old| !desired.contains(old)) {
-            let _ = kitty_delete_at(old.offset);
+            let _ = kitty_delete(old.image_id);
         }
         let mut cache = self.cache.write().unwrap();
         for new in desired.iter().filter(|new| !rendered.contains(new)) {
             let image = cache
                 .entry((new.icon, new.color, new.pixels))
                 .or_insert_with(|| icons::render(new.icon, new.pixels.0, new.pixels.1, new.color));
-            if let Err(e) = kitty_place(image, new.offset, new.cells) {
+            if let Err(e) = kitty_place(image, new.offset, new.cells, new.image_id) {
                 log::error!("Failed to draw icon: {e}");
             }
         }
@@ -180,7 +184,7 @@ impl NowPlaying {
             show_cover: AtomicBool::new(true),
             last_size: Vec2::zero(),
             #[cfg(feature = "cover")]
-            cover: CoverRenderer::new(config),
+            cover: CoverRenderer::new(config, NOW_PLAYING_COVER_IMAGE_ID),
             #[cfg(feature = "cover")]
             icons: IconLayer::default(),
         }
@@ -516,6 +520,7 @@ impl View for NowPlaying {
                 let font = self.cover.font_size();
                 let cells = Vec2::new(geometry.button_width, geometry.button_rows);
                 icon_requests.push(IconRequest {
+                    image_id: CONTROL_ICON_IMAGE_ID + i as u32,
                     icon: self.control_image(*control),
                     color: rgb(palette[icon_color]),
                     offset: printer.offset + Vec2::new(slot_x, geometry.controls_row),
