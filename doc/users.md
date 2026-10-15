@@ -270,7 +270,7 @@ Possible configuration values are:
 | `[keybindings]`                 | Custom keybindings                                             | See [custom keybindings](#custom-keybindings)                                         |                     |
 | `ap_port`                       | Set ap-port for librespot (for restrictive firewalls)          | `80`, `443`, `4070`                                                                   |                     |
 | `client_id`                     | Client ID of your own Spotify app for Web API requests<sup>[5]</sup> | String                                                                          | ncspot's shared ID |
-| `now_playing_height`            | Rows of the now-playing card above the status bar (0 hides it) | Number                                                                                | `8`                 |
+| `now_playing_height`            | Rows of the player bar that replaces the status bar (0: use the status bar) | Number                                                               | `5`                 |
 
 1. If built with the `cover` feature.
 2. By default the statusbar will show a play icon when a track is playing and
