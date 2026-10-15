@@ -121,7 +121,14 @@ fn test_keys_commands_and_clicks_dont_panic() {
 fn print_layout() {
     let mut app = app();
     let mut terminal = Terminal::new(TestBackend::new(75, 60)).unwrap();
-    app.run(&Command::Focus("library".into()));
-    terminal.draw(|frame| app.draw(frame)).unwrap();
-    println!("{}", screen_text(&terminal));
+    for screen in ["home", "search", "library", "queue", "lyrics"] {
+        app.run(&Command::Focus(screen.into()));
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let text = screen_text(&terminal);
+        // The page part only, under the player.
+        println!("===== {screen}");
+        for line in text.lines().skip(24).take(14) {
+            println!("{}", line.trim_end());
+        }
+    }
 }
