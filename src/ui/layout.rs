@@ -20,11 +20,16 @@ use crate::config::{self, Config};
 use crate::events;
 use crate::ext_traits::CursiveExt;
 use crate::traits::{IntoBoxedViewExt, ViewExt};
+use crate::ui::nowplaying::NowPlaying;
+
+/// Smallest number of content rows to keep when showing the now-playing card.
+const MIN_CONTENT_ROWS_WITH_NOW_PLAYING: usize = 8;
 
 pub struct Layout {
     screens: HashMap<String, Box<dyn ViewExt>>,
     stack: HashMap<String, Vec<Box<dyn ViewExt>>>,
     statusbar: Box<dyn View>,
+    now_playing: Option<NowPlaying>,
     focus: Option<String>,
     previous_focus: Option<String>,
     cmdline: EditView,
@@ -94,6 +99,7 @@ impl Layout {
             screens: HashMap::new(),
             stack: HashMap::new(),
             statusbar: status.into_boxed_view(),
+            now_playing: None,
             focus: None,
             previous_focus: None,
             cmdline: command_line_input,
@@ -104,6 +110,36 @@ impl Layout {
             ev: ev.clone(),
             theme,
             configuration,
+        }
+    }
+
+    /// Show `view` between the screen content and the status bar.
+    pub fn now_playing(mut self, view: NowPlaying) -> Self {
+        self.now_playing = Some(view);
+        self
+    }
+
+    /// Rows taken by the now-playing card in a layout `total_rows` tall. It's hidden on the cover
+    /// screen (which already shows the cover) and when the window is too short.
+    fn now_playing_height(&self, total_rows: usize) -> usize {
+        let Some(card) = &self.now_playing else {
+            return 0;
+        };
+        let height = card.height();
+        if height == 0
+            || self.focus.as_deref() == Some("cover")
+            || total_rows < height + 3 + MIN_CONTENT_ROWS_WITH_NOW_PLAYING
+        {
+            return 0;
+        }
+        height
+    }
+
+    /// Draw the now-playing card's cover in the terminal; see [NowPlaying::render_to_terminal].
+    #[cfg(feature = "cover")]
+    pub fn render_now_playing(&self, obscured: bool) {
+        if let Some(card) = &self.now_playing {
+            card.render_to_terminal(obscured);
         }
     }
 
@@ -299,6 +335,8 @@ impl View for Layout {
             .map(|screen| screen.title())
             .unwrap_or_default();
 
+        let now_playing_height = self.now_playing_height(printer.size.y);
+
         if let Some(view) = self.get_top_view() {
             // back button + title
             if !self.is_current_stack_empty() {
@@ -321,9 +359,27 @@ impl View for Layout {
             // screen content
             let printer = &printer
                 .offset((0, 1))
-                .cropped((printer.size.x, printer.size.y - 3 - cmdline_height))
+                .cropped((
+                    printer.size.x,
+                    printer.size.y - 3 - cmdline_height - now_playing_height,
+                ))
                 .focused(true);
             view.draw(printer);
+        }
+
+        if let Some(card) = &self.now_playing {
+            if now_playing_height > 0 {
+                card.draw(
+                    &printer
+                        .offset((
+                            0,
+                            printer.size.y - 2 - cmdline_height - now_playing_height,
+                        ))
+                        .cropped((printer.size.x, now_playing_height)),
+                );
+            } else {
+                card.hide();
+            }
         }
 
         self.statusbar
@@ -357,8 +413,13 @@ impl View for Layout {
 
         self.cmdline.layout(Vec2::new(size.x, 1));
 
+        let now_playing_height = self.now_playing_height(size.y);
+        if let Some(card) = self.now_playing.as_mut() {
+            card.layout(Vec2::new(size.x, now_playing_height));
+        }
+
         if let Some(view) = self.get_current_view_mut() {
-            view.layout(Vec2::new(size.x, size.y - 3));
+            view.layout(Vec2::new(size.x, size.y - 3 - now_playing_height));
         }
     }
 
@@ -444,6 +505,17 @@ impl View for Layout {
                     self.statusbar.on_event(
                         event.relativized(Vec2::new(0, self.last_size.y - 2 - cmdline_height)),
                     );
+                    return EventResult::consumed();
+                }
+
+                let now_playing_height = self.now_playing_height(self.last_size.y);
+                if now_playing_height > 0
+                    && position.y
+                        >= self
+                            .last_size
+                            .y
+                            .saturating_sub(2 + cmdline_height + now_playing_height)
+                {
                     return EventResult::consumed();
                 }
 

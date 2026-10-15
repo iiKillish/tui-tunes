@@ -21,6 +21,13 @@ use crate::ui::artist::ArtistView;
 pub struct CoverView {
     queue: Arc<Queue>,
     library: Arc<Library>,
+    cover: CoverRenderer,
+}
+
+/// Draws album art straight to the terminal (Kitty, iTerm2 or Sixel graphics via viuer), outside
+/// of cursive: views call [CoverRenderer::draw_cover] while drawing to say where the cover should
+/// go, and the main loop calls [CoverRenderer::render_to_terminal] after cursive has drawn.
+pub struct CoverRenderer {
     loading: Arc<RwLock<HashSet<String>>>,
     desired_cover: RwLock<Option<CoverRequest>>,
     rendered_cover: RwLock<Option<CoverRequest>>,
@@ -38,6 +45,20 @@ struct CoverRequest {
 
 impl CoverView {
     pub fn new(queue: Arc<Queue>, library: Arc<Library>, config: &Config) -> Self {
+        Self {
+            queue,
+            library,
+            cover: CoverRenderer::new(config),
+        }
+    }
+
+    pub fn render_to_terminal(&self) {
+        self.cover.render_to_terminal();
+    }
+}
+
+impl CoverRenderer {
+    pub fn new(config: &Config) -> Self {
         // Determine size of window both in pixels and chars
         let (rows, cols, xpixels, ypixels) = unsafe {
             let mut query: (u16, u16, u16, u16) = (0, 0, 0, 0);
@@ -61,8 +82,6 @@ impl CoverView {
         debug!("Determined font size: {}x{}", font_size.x, font_size.y);
 
         Self {
-            queue,
-            library,
             loading: Arc::new(RwLock::new(HashSet::new())),
             desired_cover: RwLock::new(None),
             rendered_cover: RwLock::new(None),
@@ -71,7 +90,13 @@ impl CoverView {
         }
     }
 
-    fn draw_cover(&self, url: String, mut draw_offset: Vec2, draw_size: Vec2) {
+    /// Size of a terminal cell in pixels (or at least its aspect ratio).
+    pub fn font_size(&self) -> Vec2 {
+        self.font_size
+    }
+
+    /// Request the cover at `url` to be drawn centered within the given area of the terminal.
+    pub fn draw_cover(&self, url: String, mut draw_offset: Vec2, draw_size: Vec2) {
         if draw_size.x <= 1 || draw_size.y <= 1 {
             return;
         }
@@ -106,7 +131,8 @@ impl CoverView {
         });
     }
 
-    fn clear_cover(&self) {
+    /// Request that no cover is drawn.
+    pub fn clear_cover(&self) {
         let mut desired_cover = self.desired_cover.write().unwrap();
         *desired_cover = None;
     }
@@ -239,10 +265,16 @@ fn fit_image_to_cells(
 fn clear_terminal_area(offset: Vec2, size: Vec2) {
     let mut stdout = std::io::stdout();
 
-    // Remove stateful Kitty graphics where that protocol is available, then
-    // overwrite the cells used by other protocols/fallbacks.
+    // Remove the Kitty image placed in this area (not all images: the cover view and the
+    // now-playing card each draw one), then overwrite the cells used by other
+    // protocols/fallbacks.
     if can_use_kitty_graphics() {
-        let _ = stdout.write_all(b"\x1b_Ga=d,d=A\x1b\\");
+        let _ = write!(
+            stdout,
+            "\x1b_Ga=d,d=P,x={},y={},q=2\x1b\\",
+            offset.x + 1,
+            offset.y + 1
+        );
     }
     for y in offset.y..offset.y + size.y {
         let _ = write!(
@@ -284,9 +316,9 @@ impl View for CoverView {
         let cover_url = self.queue.get_current().and_then(|t| t.cover_url());
 
         if let Some(url) = cover_url {
-            self.draw_cover(url, printer.offset, printer.size);
+            self.cover.draw_cover(url, printer.offset, printer.size);
         } else {
-            self.clear_cover();
+            self.cover.clear_cover();
         }
     }
 
@@ -301,8 +333,8 @@ impl ViewExt for CoverView {
     }
 
     fn on_leave(&self) {
-        self.clear_cover();
-        self.render_to_terminal();
+        self.cover.clear_cover();
+        self.cover.render_to_terminal();
     }
 
     fn on_command(&mut self, _s: &mut Cursive, cmd: &Command) -> Result<CommandResult, String> {

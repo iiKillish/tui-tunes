@@ -105,6 +105,8 @@ pub struct ConfigValues {
     /// ncspot's shared one (which is frequently rate limited). The app must have
     /// `http://127.0.0.1:8989/login` registered as a redirect URI.
     pub client_id: Option<String>,
+    /// Height in rows of the now-playing card above the status bar; 0 hides it.
+    pub now_playing_height: Option<usize>,
 }
 
 /// The ncspot theme.

@@ -269,6 +269,8 @@ Possible configuration values are:
 | `[theme]`                       | Custom theme                                                   | See [custom theme](#theming)                                                          |                     |
 | `[keybindings]`                 | Custom keybindings                                             | See [custom keybindings](#custom-keybindings)                                         |                     |
 | `ap_port`                       | Set ap-port for librespot (for restrictive firewalls)          | `80`, `443`, `4070`                                                                   |                     |
+| `client_id`                     | Client ID of your own Spotify app for Web API requests<sup>[5]</sup> | String                                                                          | ncspot's shared ID |
+| `now_playing_height`            | Rows of the now-playing card above the status bar (0 hides it) | Number                                                                                | `8`                 |
 
 1. If built with the `cover` feature.
 2. By default the statusbar will show a play icon when a track is playing and
@@ -276,6 +278,9 @@ Possible configuration values are:
    is reversed.
 3. Run `ncspot -h` for a list of devices.
 4. If built with the `notify` feature.
+5. ncspot's shared client ID is often rate limited. Create an app at
+   https://developer.spotify.com/dashboard with the redirect URI `http://127.0.0.1:8989/login`
+   and set its client ID here; you'll be asked to authorize it once.
 
 ### Custom Keybindings
 Keybindings can be configured in `[keybindings]` section in `config.toml`.

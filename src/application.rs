@@ -203,8 +203,12 @@ impl Application {
 
         let status = ui::statusbar::StatusBar::new(queue.clone(), Arc::clone(&library));
 
+        let now_playing =
+            ui::nowplaying::NowPlaying::new(queue.clone(), library.clone(), &configuration);
+
         let mut layout =
             ui::layout::Layout::new(status, &event_manager, theme, Arc::clone(&configuration))
+                .now_playing(now_playing)
                 .screen("search", search.with_name("search"))
                 .screen("library", libraryview.with_name("library"))
                 .screen("queue", queueview);
@@ -251,6 +255,16 @@ impl Application {
                 .call_on_name("cover", |view: &mut ui::cover::CoverView| {
                     view.render_to_terminal();
                 });
+            #[cfg(feature = "cover")]
+            {
+                // Dialogs and menus are separate layers on top of the layout; terminal images
+                // would be drawn over them.
+                let obscured = self.cursive.screen().len() > 1;
+                self.cursive
+                    .call_on_name("main", |layout: &mut ui::layout::Layout| {
+                        layout.render_now_playing(obscured);
+                    });
+            }
             #[cfg(unix)]
             for signal in signals.pending() {
                 if signal == SIGTERM || signal == SIGHUP {
