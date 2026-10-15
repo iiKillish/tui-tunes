@@ -312,9 +312,12 @@ impl MprisPlayer {
         self.queue.get_current().is_some()
     }
 
-    #[zbus(property)]
+    /// Per the MPRIS spec this describes an intrinsic capability and isn't expected to change, so
+    /// clients cache it (no change signal is defined for it). Reporting `false` whenever nothing
+    /// was loaded at startup made clients treat ncspot as uncontrollable for the whole session.
+    #[zbus(property(emits_changed_signal = "const"))]
     fn can_control(&self) -> bool {
-        self.queue.get_current().is_some()
+        true
     }
 
     #[zbus(signal)]
@@ -516,6 +519,20 @@ impl MprisManager {
         Self { tx }
     }
 
+    /// The Can* properties depend on the queue and current track, so announce them whenever
+    /// playback status or metadata change. Clients cache properties and only refresh them on
+    /// PropertiesChanged, so without this they keep the values from when they first connected.
+    async fn emit_capabilities_changed(
+        player: &MprisPlayer,
+        ctx: &SignalEmitter<'_>,
+    ) -> zbus::Result<()> {
+        player.can_play_changed(ctx).await?;
+        player.can_pause_changed(ctx).await?;
+        player.can_seek_changed(ctx).await?;
+        player.can_go_next_changed(ctx).await?;
+        player.can_go_previous_changed(ctx).await
+    }
+
     async fn serve(
         mut rx: UnboundedReceiverStream<MprisCommand>,
         root: MprisRoot,
@@ -539,6 +556,7 @@ impl MprisManager {
             match rx.next().await {
                 Some(MprisCommand::EmitPlaybackStatus) => {
                     player_iface.playback_status_changed(ctx).await?;
+                    Self::emit_capabilities_changed(&player_iface, ctx).await?;
                 }
                 Some(MprisCommand::EmitVolumeStatus) => {
                     info!("sending MPRIS volume update signal");
@@ -546,6 +564,7 @@ impl MprisManager {
                 }
                 Some(MprisCommand::EmitMetadataStatus) => {
                     player_iface.metadata_changed(ctx).await?;
+                    Self::emit_capabilities_changed(&player_iface, ctx).await?;
                 }
                 Some(MprisCommand::EmitSeekedStatus(pos)) => {
                     info!("sending MPRIS seeked signal");
