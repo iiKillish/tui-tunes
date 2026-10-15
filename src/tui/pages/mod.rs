@@ -6,10 +6,12 @@ pub mod category;
 pub mod home;
 pub mod library;
 pub mod liked;
+pub mod loading;
 pub mod lyrics;
 pub mod playlist;
 pub mod queue;
 pub mod search;
+pub mod search_results;
 pub mod show;
 
 use ratatui::Frame;
@@ -63,33 +65,5 @@ impl<I: ListItem + Clone> Page for ListPage<I> {
 
     fn mouse(&mut self, event: MouseEvent, ctx: &Ctx) -> Outcome {
         self.list.mouse(event, ctx)
-    }
-}
-
-/// A page that only shows a message (for screens that aren't built yet).
-pub struct MessagePage {
-    pub title: String,
-    pub message: String,
-}
-
-impl Page for MessagePage {
-    fn title(&self) -> String {
-        self.title.clone()
-    }
-
-    fn draw(&mut self, frame: &mut Frame, area: Rect, ctx: &Ctx, _focused: bool) {
-        let styles = crate::tui::style::Styles(&ctx.palette);
-        crate::tui::style::put(
-            frame.buffer_mut(),
-            area.x + 2,
-            area.y + 1,
-            &self.message,
-            usize::from(area.width.saturating_sub(4)),
-            styles.secondary(),
-        );
-    }
-
-    fn command(&mut self, _cmd: &Command, _ctx: &Ctx) -> Outcome {
-        Outcome::Ignored
     }
 }

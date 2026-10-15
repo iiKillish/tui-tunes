@@ -65,10 +65,6 @@ impl Tabbed {
         self.tabs.push((label.into(), page));
     }
 
-    pub fn select(&mut self, index: usize) {
-        self.current = index.min(self.tabs.len().saturating_sub(1));
-    }
-
     fn switch(&mut self, next: bool, ctx: &Ctx) {
         let len = self.tabs.len();
         if len == 0 {
