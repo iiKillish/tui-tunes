@@ -277,6 +277,17 @@ impl App {
                 self.set_screen("queue");
             }
             Command::Panel(PanelAction::Focus) => {}
+            // Pages without tabs of their own: move between the main screens instead.
+            Command::Tab(next) => {
+                let len = self.screens.len();
+                let index = if *next {
+                    (self.current + 1) % len
+                } else {
+                    (self.current + len - 1) % len
+                };
+                let id = self.screens[index].id;
+                self.set_screen(id);
+            }
             Command::Search(term) => {
                 self.set_screen("search");
                 self.screen().stack.clear();
