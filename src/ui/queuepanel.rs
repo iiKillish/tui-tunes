@@ -24,8 +24,10 @@ pub struct QueuePanel {
     queue: Arc<Queue>,
     library: Arc<Library>,
     width: usize,
-    /// Number of upcoming items scrolled past.
+    /// Number of upcoming items scrolled past, and the most that's useful (beyond that the list
+    /// would end before the bottom of the panel).
     scroll: AtomicUsize,
+    max_scroll: AtomicUsize,
     /// For each row drawn last, the queue index of the item shown there (for clicks).
     row_items: RwLock<Vec<Option<usize>>>,
 }
@@ -37,6 +39,7 @@ impl QueuePanel {
             library,
             width: config.values().queue_panel_width.unwrap_or(DEFAULT_WIDTH),
             scroll: AtomicUsize::new(0),
+            max_scroll: AtomicUsize::new(0),
             row_items: RwLock::new(Vec::new()),
         }
     }
@@ -45,6 +48,29 @@ impl QueuePanel {
     pub fn width(&self) -> usize {
         self.width
     }
+}
+
+/// Rows needed to list items with these sources: two per item, plus a header (and a blank line
+/// before every header but the first) wherever the source changes.
+fn rows_needed(sources: &[Option<Arc<str>>]) -> usize {
+    let mut rows = 0;
+    let mut previous: Option<&Option<Arc<str>>> = None;
+    for source in sources {
+        if previous != Some(source) {
+            rows += if previous.is_some() { 2 } else { 1 };
+            previous = Some(source);
+        }
+        rows += 2;
+    }
+    rows
+}
+
+/// The furthest the list can usefully scroll: the first start position from which the rest fits
+/// in `rows`. 0 when everything fits.
+fn max_scroll(sources: &[Option<Arc<str>>], rows: usize) -> usize {
+    (0..sources.len())
+        .find(|&start| rows_needed(&sources[start..]) <= rows)
+        .unwrap_or(sources.len().saturating_sub(1))
 }
 
 /// Cut `text` to at most `width` columns, ending with "…" if it was cut.
@@ -131,11 +157,14 @@ impl View for QueuePanel {
         }
 
         let upcoming = self.queue.upcoming(MAX_UPCOMING);
-        let scroll = self
-            .scroll
-            .load(Ordering::Relaxed)
-            .min(upcoming.len().saturating_sub(1));
+        let sources: Vec<Option<Arc<str>>> = upcoming
+            .iter()
+            .map(|(i, _)| self.queue.source(*i))
+            .collect();
+        let max_scroll = max_scroll(&sources, size.y.saturating_sub(y));
+        let scroll = self.scroll.load(Ordering::Relaxed).min(max_scroll);
         self.scroll.store(scroll, Ordering::Relaxed);
+        self.max_scroll.store(max_scroll, Ordering::Relaxed);
 
         if upcoming.is_empty() {
             line(printer, y, secondary, false, "Nothing up next");
@@ -143,11 +172,10 @@ impl View for QueuePanel {
 
         // Group consecutive items by source: a header whenever it changes (and at the top).
         let mut previous_source: Option<Option<Arc<str>>> = None;
-        for (index, track) in upcoming.iter().skip(scroll) {
+        for ((index, track), source) in upcoming.iter().zip(sources).skip(scroll) {
             if y + 2 > size.y {
                 break;
             }
-            let source = self.queue.source(*index);
             if previous_source.as_ref() != Some(&source) {
                 if previous_source.is_some() {
                     y += 1;
@@ -207,7 +235,11 @@ impl View for QueuePanel {
                 }
             }
             MouseEvent::WheelDown => {
-                self.scroll.fetch_add(1, Ordering::Relaxed);
+                // Only scroll while there's more below.
+                let scroll = self.scroll.load(Ordering::Relaxed);
+                if scroll < self.max_scroll.load(Ordering::Relaxed) {
+                    self.scroll.store(scroll + 1, Ordering::Relaxed);
+                }
             }
             MouseEvent::WheelUp => {
                 let scroll = self.scroll.load(Ordering::Relaxed);
@@ -217,5 +249,35 @@ impl View for QueuePanel {
             _ => {}
         }
         EventResult::Consumed(None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sources(names: &[Option<&str>]) -> Vec<Option<Arc<str>>> {
+        names.iter().map(|n| n.map(Arc::from)).collect()
+    }
+
+    #[test]
+    fn test_rows_needed_counts_headers() {
+        // header + 2 items, then gap + header + 1 item.
+        let s = sources(&[Some("A"), Some("A"), None]);
+        assert_eq!(rows_needed(&s), 1 + 4 + 2 + 2);
+    }
+
+    #[test]
+    fn test_no_scrolling_when_everything_fits() {
+        let s = sources(&[Some("A"); 3]);
+        assert_eq!(max_scroll(&s, 7), 0);
+        assert_eq!(max_scroll(&s, 50), 0);
+    }
+
+    #[test]
+    fn test_scrolls_only_until_the_last_item_is_at_the_bottom() {
+        // 10 items from one source need 21 rows; 9 rows fit a header and 4 items.
+        let s = sources(&[Some("A"); 10]);
+        assert_eq!(max_scroll(&s, 9), 6);
     }
 }
