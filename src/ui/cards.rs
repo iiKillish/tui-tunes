@@ -482,9 +482,6 @@ impl CardGrid {
         match (self.layout, mode) {
             (_, MoveMode::Left) if self.card == 0 => return false,
             (_, MoveMode::Right) if self.card + 1 >= len => return false,
-            (CardLayout::Grid, MoveMode::Left) if self.card.is_multiple_of(columns) => {
-                return false;
-            }
             (_, MoveMode::Left) => self.card = self.card.saturating_sub(step),
             (_, MoveMode::Right) => self.card = (self.card + step).min(len.saturating_sub(1)),
             (CardLayout::Rows, MoveMode::Up) => {
