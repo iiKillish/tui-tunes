@@ -58,6 +58,8 @@ struct Hits {
 #[derive(Default)]
 pub struct Player {
     hits: Hits,
+    /// The volume knob is being dragged.
+    dragging_volume: bool,
 }
 
 /// Whether the controls are drawn as (bigger) images.
@@ -207,6 +209,41 @@ impl Player {
             let style = if i < filled { full } else { empty };
             buf.set_string(area.x + i, area.y, "━", style);
         }
+    }
+
+    /// The volume bar with a knob (●) at the current level, which can be dragged.
+    fn draw_volume(frame: &mut Frame, area: Rect, fraction: f64, ctx: &Ctx, background: Style) {
+        Self::draw_bar(frame, area, fraction, ctx, background);
+        if area.width == 0 {
+            return;
+        }
+        let filled = (fraction.clamp(0.0, 1.0) * f64::from(area.width)).round() as u16;
+        let x = area.x + filled.saturating_sub(1).min(area.width - 1);
+        put(
+            frame.buffer_mut(),
+            x,
+            area.y,
+            "●",
+            1,
+            background.fg(ctx.palette.primary),
+        );
+    }
+
+    /// Whether a drag started on the player (the volume knob) is going on: it then gets every
+    /// mouse event, wherever the pointer is.
+    pub fn dragging(&self) -> bool {
+        self.dragging_volume
+    }
+
+    /// Set the volume from a pointer at column `x`, for the volume bar starting at `bar_x`.
+    fn set_volume_at(x: u16, bar_x: u16, ctx: &Ctx) {
+        let fraction = if x < bar_x {
+            0.0
+        } else {
+            (f64::from(x - bar_x + 1) / f64::from(VOLUME_BAR_WIDTH)).min(1.0)
+        };
+        ctx.spotify
+            .set_volume((f64::from(u16::MAX) * fraction) as u16, true);
     }
 
     /// The text lines: title (with the like button), artists, album. Centered in the hero.
@@ -453,7 +490,7 @@ impl Player {
                 background.fg(ctx.palette.primary),
             );
             let vbar = Rect::new(vx + 3, volume_row, VOLUME_BAR_WIDTH, 1);
-            Self::draw_bar(
+            Self::draw_volume(
                 frame,
                 vbar,
                 f64::from(ctx.spotify.volume()) / f64::from(u16::MAX),
@@ -618,7 +655,7 @@ impl Player {
                 background.fg(ctx.palette.primary),
             );
             let vbar = Rect::new(vx + 3, volume_row, VOLUME_BAR_WIDTH, 1);
-            Self::draw_bar(
+            Self::draw_volume(
                 frame,
                 vbar,
                 f64::from(ctx.spotify.volume()) / f64::from(u16::MAX),
@@ -757,7 +794,7 @@ impl Player {
                 2,
                 background.fg(ctx.palette.primary),
             );
-            Self::draw_bar(
+            Self::draw_volume(
                 frame,
                 Rect::new(vx + 3, mid, VOLUME_BAR_WIDTH, 1),
                 f64::from(ctx.spotify.volume()) / f64::from(u16::MAX),
@@ -816,13 +853,17 @@ impl Player {
                 } else if let Some(volume) = self.hits.volume.filter(|r| r.contains(at)) {
                     let bar_x = volume.x + 3;
                     if at.x >= bar_x {
-                        let fraction =
-                            (f64::from(at.x - bar_x + 1) / f64::from(VOLUME_BAR_WIDTH)).min(1.0);
-                        ctx.spotify
-                            .set_volume((f64::from(u16::MAX) * fraction) as u16, true);
+                        Self::set_volume_at(at.x, bar_x, ctx);
+                        self.dragging_volume = true;
                     }
                 }
             }
+            MouseEventKind::Drag(MouseButton::Left) if self.dragging_volume => {
+                if let Some(volume) = self.hits.volume {
+                    Self::set_volume_at(at.x, volume.x + 3, ctx);
+                }
+            }
+            MouseEventKind::Up(_) if self.dragging_volume => self.dragging_volume = false,
             MouseEventKind::ScrollUp if in_rect(&self.hits.volume) => {
                 ctx.spotify
                     .set_volume(ctx.spotify.volume().saturating_add(VOLUME_PERCENT), true);

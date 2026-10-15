@@ -486,7 +486,7 @@ impl App {
             return;
         }
         let click = matches!(event.kind, MouseEventKind::Down(MouseButton::Left));
-        if self.regions.player.contains(at) {
+        if self.regions.player.contains(at) || self.player.dragging() {
             let outcome = self.player.mouse(event, &ctx);
             self.apply(outcome, false);
             return;
