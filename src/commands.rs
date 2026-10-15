@@ -161,6 +161,7 @@ impl CommandManager {
                     );
                     s.queuestate.queue.clone_from(&queue);
                     s.queuestate.random_order = self.queue.get_random_order();
+                    s.queuestate.sources = self.queue.sources();
                     s.queuestate.current_track = self.queue.get_current_index();
                     s.queuestate.track_progress = self.spotify.get_current_progress();
                 });

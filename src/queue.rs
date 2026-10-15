@@ -60,7 +60,16 @@ pub struct Queue {
 impl Queue {
     pub fn new(spotify: Spotify, cfg: Arc<Config>, library: Arc<Library>) -> Self {
         let queue_state = cfg.state().queuestate.clone();
-        let sources = vec![None; queue_state.queue.len()];
+        // Saved sources only line up if there's one per saved item.
+        let sources = if queue_state.sources.len() == queue_state.queue.len() {
+            queue_state
+                .sources
+                .iter()
+                .map(|s| s.as_deref().map(Arc::from))
+                .collect()
+        } else {
+            vec![None; queue_state.queue.len()]
+        };
 
         Self {
             queue: Arc::new(RwLock::new(queue_state.queue)),
@@ -542,6 +551,15 @@ impl Queue {
         let mut slots: Vec<Option<(Playable, Option<Arc<str>>)>> =
             q.drain(..).zip(sources.drain(..)).map(Some).collect();
         (*q, *sources) = order.iter().filter_map(|&i| slots[i].take()).unzip();
+    }
+
+    /// Where each item was queued from, for saving the queue between sessions.
+    pub fn sources(&self) -> Vec<Option<String>> {
+        let len = self.queue.read().unwrap().len();
+        let sources = self.sources.read().unwrap();
+        (0..len)
+            .map(|i| sources.get(i).cloned().flatten().map(|s| s.to_string()))
+            .collect()
     }
 
     /// Where the item at `index` was queued from, if known.
@@ -1151,5 +1169,12 @@ mod tests {
 
         let q = make_queue(make_tracks(3), None);
         assert_eq!(q.upcoming(10).len(), 3);
+    }
+
+    #[test]
+    fn test_sources_for_saving_line_up_with_queue() {
+        let q = make_queue(make_tracks(2), Some(0));
+        q.append_next_from(&[make_track(5)], Some("Album"));
+        assert_eq!(q.sources(), [None, Some("Album".to_string()), None]);
     }
 }

@@ -157,6 +157,10 @@ pub struct QueueState {
     pub random_order: Option<Vec<usize>>,
     pub track_progress: std::time::Duration,
     pub queue: Vec<Playable>,
+    /// Where each queue item was queued from ("Next from: …" in the queue panel), parallel to
+    /// `queue`. Missing from state saved by older versions.
+    #[serde(default)]
+    pub sources: Vec<Option<String>>,
 }
 
 /// Runtime state that should be persisted accross sessions.
@@ -455,6 +459,20 @@ pub fn set_configuration_base_path(base_path: Option<PathBuf>) {
             fs::create_dir_all(&basepath).expect("could not create basepath directory");
         }
         *BASE_PATH.write().unwrap() = Some(basepath);
+    }
+}
+
+#[cfg(test)]
+mod queue_state_tests {
+    use super::QueueState;
+
+    #[test]
+    fn test_queue_state_without_sources_still_loads() {
+        // State saved before sources existed.
+        let old = r#"{"current_track":null,"random_order":null,
+            "track_progress":{"secs":0,"nanos":0},"queue":[]}"#;
+        let state: QueueState = serde_json::from_str(old).unwrap();
+        assert!(state.sources.is_empty());
     }
 }
 
