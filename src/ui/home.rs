@@ -231,6 +231,8 @@ pub struct HomeView {
     /// Selected section and card.
     section: usize,
     card: usize,
+    /// The card selected in each section when last in it, so each row keeps its position.
+    section_cards: Vec<usize>,
     /// First section shown, and the first card shown in each section.
     first_section: AtomicUsize,
     first_cards: RwLock<Vec<usize>>,
@@ -249,6 +251,7 @@ impl HomeView {
             loaded_at: RwLock::new(None),
             section: 0,
             card: 0,
+            section_cards: Vec::new(),
             first_section: AtomicUsize::new(0),
             first_cards: RwLock::new(Vec::new()),
             card_areas: RwLock::new(Vec::new()),
@@ -272,6 +275,19 @@ impl HomeView {
             *data.write().unwrap() = HomeData::Loaded(sections);
             library.trigger_redraw();
         });
+    }
+
+    /// Select `section`, at the card last selected there.
+    fn select_section(&mut self, section: usize) {
+        if section == self.section {
+            return;
+        }
+        if self.section_cards.len() <= self.section.max(section) {
+            self.section_cards.resize(self.section.max(section) + 1, 0);
+        }
+        self.section_cards[self.section] = self.card;
+        self.section = section;
+        self.card = self.section_cards[section];
     }
 
     fn with_sections<R>(&self, f: impl FnOnce(&[Section]) -> R) -> R {
@@ -518,7 +534,7 @@ impl View for HomeView {
                     },
                 );
                 if let Some((section, card)) = clicked {
-                    self.section = section;
+                    self.select_section(section);
                     self.card = card;
                     if let Some(view) = self.activate() {
                         return EventResult::Consumed(Some(Callback::from_fn_once(
@@ -529,10 +545,10 @@ impl View for HomeView {
                     }
                 }
             }
-            MouseEvent::WheelUp => self.section = self.section.saturating_sub(1),
+            MouseEvent::WheelUp => self.select_section(self.section.saturating_sub(1)),
             MouseEvent::WheelDown => {
                 let count = self.with_sections(<[Section]>::len);
-                self.section = (self.section + 1).min(count.saturating_sub(1));
+                self.select_section((self.section + 1).min(count.saturating_sub(1)));
             }
             _ => return EventResult::Ignored,
         }
@@ -585,10 +601,10 @@ impl ViewExt for HomeView {
         };
         match cmd {
             Command::Move(MoveMode::Up, amount) => {
-                self.section = self.section.saturating_sub(step(amount));
+                self.select_section(self.section.saturating_sub(step(amount)));
             }
             Command::Move(MoveMode::Down, amount) => {
-                self.section = self.section.saturating_add(step(amount)).min(last_section);
+                self.select_section(self.section.saturating_add(step(amount)).min(last_section));
             }
             Command::Move(MoveMode::Left, amount) => {
                 self.card = self.card.saturating_sub(step(amount));
