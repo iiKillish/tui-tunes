@@ -29,6 +29,23 @@ use crate::ui::pagination::{ApiPage, ApiResult};
 /// Longest rate-limit wait (seconds) honoured on the UI thread; see [WebApi::api_with_retry].
 const MAX_UI_THREAD_RATE_LIMIT_WAIT: u64 = 2;
 
+/// Until when (Unix time, seconds) Spotify asked us to stop sending requests, after a request
+/// from the UI was given up on because of it. Shown in the player bar.
+static RATE_LIMITED_UNTIL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+/// Seconds left until Spotify accepts requests again, if a UI request was recently given up on
+/// because of rate limiting.
+pub fn rate_limit_remaining() -> Option<u64> {
+    let until = RATE_LIMITED_UNTIL.load(std::sync::atomic::Ordering::Relaxed);
+    until.checked_sub(unix_now()).filter(|&s| s > 0)
+}
+
 /// Convenient wrapper around the rspotify web API functionality.
 #[derive(Clone)]
 pub struct WebApi {
@@ -138,6 +155,10 @@ impl WebApi {
                             if on_ui_thread && waiting_duration > MAX_UI_THREAD_RATE_LIMIT_WAIT {
                                 warn!(
                                     "rate limited for {waiting_duration}s; not blocking the UI, giving up on request"
+                                );
+                                RATE_LIMITED_UNTIL.store(
+                                    unix_now() + waiting_duration,
+                                    std::sync::atomic::Ordering::Relaxed,
                                 );
                                 return None;
                             }

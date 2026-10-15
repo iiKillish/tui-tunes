@@ -641,9 +641,18 @@ impl View for NowPlaying {
             if !*self.library.is_done.read().unwrap() {
                 status.push("updating library…".to_string());
             }
+            if let Some(seconds) = crate::spotify_api::rate_limit_remaining() {
+                status.push(format!("Spotify rate limit: try again in {seconds}s"));
+            }
             if !status.is_empty() {
+                // Right-aligned, reaching left as far as the playback controls if it has to.
+                let controls_end =
+                    geometry.controls_x + CONTROLS.len() * (geometry.button_width + BUTTON_GAP);
+                let room = size.x.saturating_sub(controls_end + 2);
+                let text = truncate(&status.join("  "), room);
+                let x = size.x.saturating_sub(text.width() + 2);
                 printer.with_color(secondary, |printer| {
-                    printer.print((volume_x, geometry.controls_row), &status.join("  "));
+                    printer.print((x, geometry.controls_row), &text);
                 });
             }
         }
