@@ -6,10 +6,12 @@ pub mod category;
 pub mod home;
 pub mod library;
 pub mod liked;
+pub mod loading;
 pub mod lyrics;
 pub mod playlist;
 pub mod queue;
 pub mod search;
+pub mod search_results;
 pub mod show;
 
 use ratatui::Frame;
