@@ -22,7 +22,9 @@ use crate::tui::images;
 #[cfg(feature = "cover")]
 use crate::tui::images::Source;
 use crate::tui::page::{Ctx, Outcome};
-use crate::tui::style::{Styles, bold, duration, fill, put, rgb, width};
+#[cfg(feature = "cover")]
+use crate::tui::style::rgb;
+use crate::tui::style::{Styles, bold, duration, fill, put, width};
 
 /// Rows the hero needs besides the cover: title, artist, album, gap, progress, times, controls
 /// (two rows as images), gap, volume, margins.

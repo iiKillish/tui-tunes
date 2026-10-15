@@ -6,6 +6,12 @@
 //! touching only images that changed. Images not requested in a frame are removed, so widgets
 //! that stop being drawn never have to clean up after themselves.
 
+// Without the `cover` feature there are no images: most of this compiles to nothing.
+#![cfg_attr(
+    not(feature = "cover"),
+    allow(unused_imports, unused_variables, dead_code)
+)]
+
 use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::PathBuf;
@@ -28,6 +34,7 @@ pub enum Source {
     Icon(Icon, [u8; 3]),
 }
 
+#[cfg(feature = "cover")]
 #[derive(Clone, PartialEq, Debug)]
 struct Request {
     source: Source,
@@ -36,6 +43,7 @@ struct Request {
     y_shift: u16,
 }
 
+#[cfg(feature = "cover")]
 #[derive(Clone, PartialEq, Debug)]
 struct Placed {
     id: u32,
@@ -43,8 +51,10 @@ struct Placed {
 }
 
 /// First Kitty image ID used; IDs are handed out per frame.
+#[cfg(feature = "cover")]
 const FIRST_IMAGE_ID: u32 = 1000;
 
+#[cfg(feature = "cover")]
 struct Layer {
     /// Requested for the frame being drawn, and whether a frame was drawn since the last render.
     frame: Vec<Request>,
@@ -57,9 +67,11 @@ struct Layer {
     cache: HashMap<(Source, u32, u32), image::RgbaImage>,
 }
 
+#[cfg(feature = "cover")]
 static LAYER: Mutex<Option<Layer>> = Mutex::new(None);
 static GENERATION: AtomicU64 = AtomicU64::new(0);
 
+#[cfg(feature = "cover")]
 fn with_layer<R>(f: impl FnOnce(&mut Layer) -> R) -> R {
     let mut layer = LAYER.lock().unwrap();
     f(layer.get_or_insert_with(|| Layer {
@@ -74,6 +86,7 @@ fn with_layer<R>(f: impl FnOnce(&mut Layer) -> R) -> R {
 
 /// Start a frame: forget the images asked for in the last one.
 pub fn begin_frame() {
+    #[cfg(feature = "cover")]
     with_layer(|layer| {
         layer.frame.clear();
         layer.frame_drawn = true;
@@ -86,6 +99,7 @@ pub fn request_image(source: Source, area: Rect, y_shift: u16) {
     if !supported() || area.is_empty() {
         return;
     }
+    #[cfg(feature = "cover")]
     with_layer(|layer| {
         layer.frame.push(Request {
             source,
@@ -104,9 +118,16 @@ pub fn cover(url: &str, area: Rect) {
 /// dialogs drawn over the page: images are always drawn over text). Call after ratatui has drawn.
 /// Covers still downloading are retried on the next call.
 pub fn render(overlays: &[Rect]) {
-    if !supported() {
-        return;
+    #[cfg(not(feature = "cover"))]
+    let _ = overlays;
+    #[cfg(feature = "cover")]
+    if supported() {
+        render_images(overlays);
     }
+}
+
+#[cfg(feature = "cover")]
+fn render_images(overlays: &[Rect]) {
     let font = font_size();
     with_layer(|layer| {
         let generation = GENERATION.load(Ordering::Relaxed);
@@ -182,10 +203,12 @@ pub fn reset() {
 /// Remove all images, e.g. before quitting.
 pub fn clear() {
     reset();
+    #[cfg(feature = "cover")]
     with_layer(|layer| layer.placed.clear());
 }
 
 /// Menus and dialogs get a border and shadow around their area.
+#[cfg(feature = "cover")]
 fn grow(rect: Rect) -> Rect {
     Rect::new(
         rect.x.saturating_sub(1),
@@ -196,6 +219,7 @@ fn grow(rect: Rect) -> Rect {
 }
 
 /// The pixels for `source` at `size`, or `None` while a cover is still downloading.
+#[cfg(feature = "cover")]
 fn load(source: &Source, size: Size) -> Option<image::RgbaImage> {
     let (width, height) = (u32::from(size.width.max(1)), u32::from(size.height.max(1)));
     match source {
@@ -299,6 +323,13 @@ pub fn cached_cover_path(url: &str) -> Option<PathBuf> {
 
 /// The main color of the cover at `url` (its average, skipping near-black and near-white pixels),
 /// for tinting page headers. `None` until it's been worked out in the background.
+#[cfg(not(feature = "cover"))]
+pub fn cover_tint(_url: &str) -> Option<[u8; 3]> {
+    None
+}
+
+/// The main color of the cover at `url`; see the version without images.
+#[cfg(feature = "cover")]
 pub fn cover_tint(url: &str) -> Option<[u8; 3]> {
     static TINTS: OnceLock<RwLock<HashMap<String, Option<[u8; 3]>>>> = OnceLock::new();
     let tints = TINTS.get_or_init(Default::default);
@@ -324,6 +355,7 @@ pub fn cover_tint(url: &str) -> Option<[u8; 3]> {
     None
 }
 
+#[cfg_attr(not(feature = "cover"), allow(dead_code))]
 /// Average of `pixels`, leaving out ones too dark or light to say much about the color.
 fn average_color(pixels: impl Iterator<Item = [u8; 3]>) -> Option<[u8; 3]> {
     let (mut sum, mut count) = ([0u64; 3], 0u64);
@@ -341,6 +373,7 @@ fn average_color(pixels: impl Iterator<Item = [u8; 3]>) -> Option<[u8; 3]> {
 
 /// Place `pixels` over `area` with the Kitty graphics protocol as image `id` (replacing any image
 /// with that ID), without moving the cursor (`C=1`) or asking the terminal for a reply (`q=2`).
+#[cfg(feature = "cover")]
 fn place(pixels: &image::RgbaImage, area: Rect, id: u32, y_shift: u16) -> std::io::Result<()> {
     let data = base64_encode(pixels.as_raw());
     let mut out: Vec<u8> = Vec::with_capacity(data.len() + 256);
@@ -372,6 +405,7 @@ fn place(pixels: &image::RgbaImage, area: Rect, id: u32, y_shift: u16) -> std::i
     stdout.flush()
 }
 
+#[cfg(feature = "cover")]
 /// Delete image `id`. Images are deleted by ID: deleting "whatever covers this cell" removes
 /// neighbouring images too in some terminals (Ghostty).
 fn delete(id: u32) -> std::io::Result<()> {
@@ -381,6 +415,7 @@ fn delete(id: u32) -> std::io::Result<()> {
 }
 
 /// Standard base64 with padding.
+#[cfg_attr(not(feature = "cover"), allow(dead_code))]
 fn base64_encode(bytes: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
