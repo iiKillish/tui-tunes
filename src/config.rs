@@ -4,7 +4,6 @@ use std::path::PathBuf;
 use std::sync::{RwLock, RwLockReadGuard};
 use std::{fs, process};
 
-use cursive::theme::Theme;
 use log::{debug, error};
 use ncspot::{CONFIGURATION_FILE_NAME, USER_STATE_FILE_NAME};
 use platform_dirs::AppDirs;
@@ -291,8 +290,8 @@ impl Config {
         }
     }
 
-    /// Create a [Theme] from the user supplied theme in the configuration file.
-    pub fn build_theme(&self) -> Theme {
+    /// The theme's colors, from the configuration file (and its theme file).
+    pub fn build_theme(&self) -> crate::theme::Palette {
         crate::theme::load(&self.values().theme)
     }
 

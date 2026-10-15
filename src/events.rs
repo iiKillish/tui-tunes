@@ -1,5 +1,6 @@
-use crossbeam_channel::{Receiver, Sender, TryIter, unbounded};
-use cursive::{CbSink, Cursive};
+use std::time::Duration;
+
+use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TryIter, unbounded};
 
 use crate::queue::QueueEvent;
 use crate::spotify::PlayerEvent;
@@ -10,6 +11,10 @@ pub enum Event {
     Queue(QueueEvent),
     SessionDied,
     IpcInput(String),
+    /// Terminal input (keys, mouse, resizes), read on a thread of its own.
+    Input(ratatui::crossterm::event::Event),
+    /// Something changed that should be shown: redraw.
+    Redraw,
 }
 
 /// Manager that can be used to send and receive messages across threads.
@@ -17,42 +22,40 @@ pub enum Event {
 pub struct EventManager {
     tx: Sender<Event>,
     rx: Receiver<Event>,
-    cursive_sink: CbSink,
 }
 
 impl EventManager {
-    /// Create an EventManager backed by a discarded crossbeam channel, for use in tests where no
-    /// events need to be processed.
+    /// Create an EventManager whose events are never handled, for tests.
     #[cfg(test)]
     pub fn new_for_test() -> Self {
-        let (cb_sink, _): (CbSink, _) = crossbeam_channel::unbounded();
-        Self::new(cb_sink)
+        Self::new()
     }
 
-    pub fn new(cursive_sink: CbSink) -> Self {
+    pub fn new() -> Self {
         let (tx, rx) = unbounded();
-
-        Self {
-            tx,
-            rx,
-            cursive_sink,
-        }
+        Self { tx, rx }
     }
 
-    /// Return a non-blocking iterator over the messages awaiting handling. Calling `next()` on the
-    /// iterator never blocks.
+    /// Return a non-blocking iterator over the messages awaiting handling.
     pub fn msg_iter(&self) -> TryIter<'_, Event> {
         self.rx.try_iter()
     }
 
-    /// Send a new event to be handled.
-    pub fn send(&self, event: Event) {
-        self.tx.send(event).unwrap();
-        self.trigger();
+    /// Wait up to `timeout` for the next event.
+    pub fn recv_timeout(&self, timeout: Duration) -> Option<Event> {
+        match self.rx.recv_timeout(timeout) {
+            Ok(event) => Some(event),
+            Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => None,
+        }
     }
 
-    /// Send a no-op to the Cursive event loop to trigger immediate processing of events.
+    /// Send a new event to be handled.
+    pub fn send(&self, event: Event) {
+        let _ = self.tx.send(event);
+    }
+
+    /// Ask the main loop to redraw.
     pub fn trigger(&self) {
-        self.cursive_sink.send(Box::new(Cursive::noop)).unwrap();
+        let _ = self.tx.send(Event::Redraw);
     }
 }

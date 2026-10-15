@@ -7,7 +7,7 @@ use crate::model::artist::Artist;
 use crate::model::episode::Episode;
 use crate::model::track::Track;
 use crate::queue::Queue;
-use crate::traits::{ListItem, ViewExt};
+use crate::traits::{ListItem};
 use crate::utils::ms_to_hms;
 use std::fmt;
 use std::sync::Arc;
@@ -222,10 +222,6 @@ impl ListItem for Playable {
 
     fn unsave(&mut self, library: &Library) {
         self.as_listitem().unsave(library)
-    }
-
-    fn open(&self, queue: Arc<Queue>, library: Arc<Library>) -> Option<Box<dyn ViewExt>> {
-        self.as_listitem().open(queue, library)
     }
 
     fn share_url(&self) -> Option<String> {

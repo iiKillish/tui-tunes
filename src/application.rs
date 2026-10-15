@@ -1,25 +1,21 @@
 use std::error::Error;
 use std::path::Path;
-use std::rc::Rc;
 use std::sync::{Arc, OnceLock};
 
-use cursive::traits::Nameable;
-use cursive::{Cursive, CursiveRunner};
 use log::{error, info, trace};
 
 #[cfg(unix)]
 use signal_hook::{consts::SIGHUP, consts::SIGTERM, iterator::Signals};
 
 use crate::command::Command;
-use crate::commands::CommandManager;
 use crate::config::{Config, PlaybackState};
 use crate::events::{Event, EventManager};
 use crate::library::Library;
 use crate::queue::Queue;
 use crate::spotify::{PlayerEvent, Spotify};
-use crate::ui::create_cursive;
-use crate::{authentication, ui, utils};
+use crate::{authentication, tui, utils};
 use crate::{command, queue, spotify};
+use crate::tui::page::Ctx;
 
 #[cfg(feature = "mpris")]
 use crate::mpris::MprisManager;
@@ -51,11 +47,6 @@ pub fn setup_logging(filename: &Path) -> Result<(), fern::InitError> {
     Ok(())
 }
 
-pub type UserData = Rc<UserDataInner>;
-pub struct UserDataInner {
-    pub cmd: CommandManager,
-}
-
 /// The global Tokio runtime for running asynchronous tasks.
 pub static ASYNC_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
@@ -70,8 +61,8 @@ pub struct Application {
     /// An IPC implementation using the D-Bus MPRIS protocol, used to control and inspect ncspot.
     #[cfg(unix)]
     ipc: Option<IpcSocket>,
-    /// The object to render to the terminal.
-    cursive: CursiveRunner<Cursive>,
+    /// Handles for the UI.
+    ctx: Ctx,
 }
 
 impl Application {
@@ -81,9 +72,6 @@ impl Application {
     ///
     /// * `configuration_file_path` - Relative path to the configuration file inside the base path
     pub fn new(configuration_file_path: Option<String>) -> Result<Self, Box<dyn Error>> {
-        // Things here may cause the process to abort; we must do them before creating curses
-        // windows otherwise the error message will not be seen by a user
-
         ASYNC_RUNTIME
             .set(
                 tokio::runtime::Builder::new_multi_thread()
@@ -96,7 +84,7 @@ impl Application {
         let configuration = Arc::new(Config::new(configuration_file_path));
         authentication::set_web_api_client_id(configuration.values().client_id.clone());
         let credentials = authentication::get_credentials(&configuration)?;
-        let theme = configuration.build_theme();
+        let palette = configuration.build_theme();
 
         if let Err(e) = authentication::get_rspotify_token() {
             error!("Failed to get rspotify token: {e}");
@@ -104,17 +92,8 @@ impl Application {
 
         println!("Connecting to Spotify..");
 
-        // DON'T USE STDOUT AFTER THIS CALL!
-        let mut cursive = create_cursive().map_err(|error| error.to_string())?;
-
-        cursive.set_theme(theme.clone());
-
-        #[cfg(all(unix, feature = "pancurses_backend"))]
-        cursive.add_global_callback(cursive::event::Event::CtrlChar('z'), |_s| unsafe {
-            libc::raise(libc::SIGTSTP);
-        });
-
-        let event_manager = EventManager::new(cursive.cb_sink().clone());
+        let event_manager = EventManager::new();
+        tui::set_event_manager(event_manager.clone());
 
         let mut spotify =
             spotify::Spotify::new(event_manager.clone(), credentials, configuration.clone())?;
@@ -178,88 +157,20 @@ impl Application {
             None
         };
 
-        let mut cmd_manager = CommandManager::new(
-            spotify.clone(),
-            queue.clone(),
-            library.clone(),
-            configuration.clone(),
-            event_manager.clone(),
-        );
-
-        cmd_manager.register_all();
-        cmd_manager.register_keybindings(&mut cursive);
-
-        let pending_count = cmd_manager.pending_count();
-
-        cursive.set_user_data(Rc::new(UserDataInner { cmd: cmd_manager }));
-
-        let search =
-            ui::search::SearchView::new(event_manager.clone(), queue.clone(), library.clone());
-
-        let libraryview = ui::library::LibraryView::new(queue.clone(), library.clone());
-
-        let queueview = ui::queue::QueueView::new(queue.clone(), library.clone());
-
-        let homeview = ui::home::HomeView::new(queue.clone(), library.clone());
-
         // Pictures for artist cards that come without one.
         {
-            let library = library.clone();
-            crate::model::artist::init_image_lookups(spotify.clone(), move || {
-                library.trigger_redraw();
-            });
+            let events = event_manager.clone();
+            crate::model::artist::init_image_lookups(spotify.clone(), move || events.trigger());
         }
 
-        #[cfg(feature = "cover")]
-        let coverview = ui::cover::CoverView::new(queue.clone(), library.clone(), &configuration);
-
-        let status = ui::statusbar::StatusBar::new(
-            queue.clone(),
-            Arc::clone(&library),
-            pending_count.clone(),
-        );
-
-        let now_playing = ui::nowplaying::NowPlaying::new(
-            queue.clone(),
-            library.clone(),
-            &configuration,
-            pending_count.clone(),
-        );
-
-        let queue_panel =
-            ui::queuepanel::QueuePanel::new(queue.clone(), library.clone(), &configuration);
-
-        let mut layout = ui::layout::Layout::new(
-            status,
-            &event_manager,
-            theme,
-            Arc::clone(&configuration),
-            pending_count,
-        )
-        .now_playing(now_playing)
-        .queue_panel(queue_panel)
-        .screen("home", homeview)
-        .screen("search", search.with_name("search"))
-        .screen("library", libraryview.with_name("library"))
-        .screen("queue", queueview);
-
-        #[cfg(feature = "cover")]
-        layout.add_screen("cover", coverview.with_name("cover"));
-
-        // initial screen is library
-        let initial_screen = configuration
-            .values()
-            .initial_screen
-            .clone()
-            .unwrap_or_else(|| "library".to_string());
-        if layout.has_screen(&initial_screen) {
-            layout.set_screen(initial_screen);
-        } else {
-            error!("Invalid screen name: {initial_screen}");
-            layout.set_screen("library");
-        }
-
-        cursive.add_fullscreen_layer(layout.with_name("main"));
+        let ctx = Ctx {
+            queue: queue.clone(),
+            library,
+            spotify: spotify.clone(),
+            config: configuration,
+            events: event_manager.clone(),
+            palette,
+        };
 
         Ok(Self {
             queue,
@@ -267,100 +178,72 @@ impl Application {
             event_manager,
             #[cfg(unix)]
             ipc,
-            cursive,
+            ctx,
         })
     }
 
     /// Start the application and run the event loop.
     pub fn run(&mut self) -> Result<(), String> {
         #[cfg(unix)]
-        let mut signals =
-            Signals::new([SIGTERM, SIGHUP]).expect("could not register signal handler");
+        let mut signals = Signals::new([SIGTERM, SIGHUP]).expect("could not register signal handler");
 
-        #[cfg(feature = "cover")]
-        let mut screen_size = self.cursive.screen_size();
+        let mut terminal = tui::Terminal::start().map_err(|e| e.to_string())?;
+        let mut app = tui::app::App::new(self.ctx.clone());
 
-        // cursive event loop
-        while self.cursive.is_running() {
-            self.cursive.step();
-            #[cfg(feature = "cover")]
-            {
-                // The terminal moves images around when it's resized: start over.
-                if self.cursive.screen_size() != screen_size {
-                    screen_size = self.cursive.screen_size();
-                    ui::cover::reset_terminal_images();
-                }
-                // Dialogs and menus are layers on top of the layout. Terminal images would be
-                // drawn over them, so images overlapping one are left out while it's open.
-                let screen = self.cursive.screen();
-                let sizes = screen.layer_sizes();
-                let overlays: Vec<ui::cover::Area> = (1..sizes.len())
-                    .filter_map(|i| {
-                        screen
-                            .layer_offset(cursive::views::LayerPosition::FromBack(i))
-                            .map(|offset| (offset, sizes[i]))
-                    })
-                    .collect();
-                self.cursive
-                    .call_on_name("cover", |view: &mut ui::cover::CoverView| {
-                        view.render_to_terminal(&overlays);
-                    });
-                self.cursive
-                    .call_on_name("main", |layout: &mut ui::layout::Layout| {
-                        layout.render_images(&overlays);
-                    });
-            }
+        while !app.quit {
             #[cfg(unix)]
             for signal in signals.pending() {
                 if signal == SIGTERM || signal == SIGHUP {
                     info!("Caught {signal}, cleaning up and closing");
-                    if let Some(data) = self.cursive.user_data::<UserData>().cloned() {
-                        data.cmd.handle(&mut self.cursive, Command::Quit);
-                    }
+                    app.run(&Command::Quit);
                 }
             }
-            for event in self.event_manager.msg_iter() {
-                match event {
-                    Event::Player(state) => {
-                        trace!("event received: {state:?}");
-                        self.spotify.update_status(state.clone());
+            terminal.draw(&mut app).map_err(|e| e.to_string())?;
 
-                        #[cfg(unix)]
-                        if let Some(ref ipc) = self.ipc {
-                            ipc.publish(&state, self.queue.get_current());
-                        }
-
-                        if state == PlayerEvent::FinishedTrack {
-                            self.queue.next(false);
-                        }
-                    }
-                    Event::Queue(event) => {
-                        self.queue.handle_event(event);
-                    }
-                    Event::SessionDied => {
-                        if self.spotify.start_worker(None).is_err() {
-                            let data: UserData = self
-                                .cursive
-                                .user_data()
-                                .cloned()
-                                .expect("user data should be set");
-                            data.cmd.handle(&mut self.cursive, Command::Quit);
-                        };
-                    }
-                    Event::IpcInput(input) => match command::parse(&input) {
-                        Ok(commands) => {
-                            if let Some(data) = self.cursive.user_data::<UserData>().cloned() {
-                                for cmd in commands {
-                                    info!("Executing command from IPC: {cmd}");
-                                    data.cmd.handle(&mut self.cursive, cmd);
-                                }
-                            }
-                        }
-                        Err(e) => error!("Parsing error: {e}"),
-                    },
-                }
+            // Wait for something to happen; redraw at least a few times a second while playing
+            // so the progress moves.
+            let mut next = self.event_manager.recv_timeout(std::time::Duration::from_millis(250));
+            while let Some(event) = next {
+                self.handle(event, &mut app, &mut terminal);
+                next = self.event_manager.msg_iter().next();
             }
         }
+        terminal.stop().map_err(|e| e.to_string())?;
         Ok(())
+    }
+
+    fn handle(&mut self, event: Event, app: &mut tui::app::App, terminal: &mut tui::Terminal) {
+        match event {
+            Event::Player(state) => {
+                trace!("event received: {state:?}");
+                self.spotify.update_status(state.clone());
+
+                #[cfg(unix)]
+                if let Some(ref ipc) = self.ipc {
+                    ipc.publish(&state, self.queue.get_current());
+                }
+
+                if state == PlayerEvent::FinishedTrack {
+                    self.queue.next(false);
+                }
+            }
+            Event::Queue(event) => self.queue.handle_event(event),
+            Event::SessionDied => {
+                if self.spotify.start_worker(None).is_err() {
+                    app.run(&Command::Quit);
+                }
+            }
+            Event::IpcInput(input) => match command::parse(&input) {
+                Ok(commands) => {
+                    for cmd in commands {
+                        info!("Executing command from IPC: {cmd}");
+                        app.run(&cmd);
+                    }
+                }
+                Err(e) => error!("Parsing error: {e}"),
+            },
+            Event::Input(input) => terminal.input(input, app),
+            Event::Redraw => {}
+        }
     }
 }

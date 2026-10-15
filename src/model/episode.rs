@@ -1,7 +1,7 @@
 use crate::library::Library;
 use crate::model::playable::Playable;
 use crate::queue::Queue;
-use crate::traits::{ListItem, ViewExt};
+use crate::traits::{ListItem};
 use crate::utils::ms_to_hms;
 use chrono::{DateTime, Utc};
 use rspotify::model::Id;
@@ -100,10 +100,6 @@ impl ListItem for Episode {
     fn save(&mut self, _library: &Library) {}
 
     fn unsave(&mut self, _library: &Library) {}
-
-    fn open(&self, _queue: Arc<Queue>, _library: Arc<Library>) -> Option<Box<dyn ViewExt>> {
-        None
-    }
 
     fn share_url(&self) -> Option<String> {
         Some(format!("https://open.spotify.com/episode/{}", self.id))

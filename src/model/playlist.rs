@@ -12,8 +12,8 @@ use crate::model::playable::Playable;
 use crate::model::track::Track;
 use crate::queue::Queue;
 use crate::spotify::Spotify;
-use crate::traits::{IntoBoxedViewExt, ListItem, ViewExt};
-use crate::ui::{listview::ListView, playlist::PlaylistView};
+use crate::traits::{OpenTarget};
+use crate::traits::{ListItem};
 use crate::{command::SortDirection, command::SortKey, library::Library};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -185,6 +185,10 @@ impl From<&FullPlaylist> for Playlist {
 }
 
 impl ListItem for Playlist {
+    fn target(&self) -> Option<OpenTarget> {
+        Some(OpenTarget::Playlist(self.clone()))
+    }
+
     fn thumbnail_url(&self) -> Option<String> {
         self.cover_url.clone()
     }
@@ -281,55 +285,6 @@ impl ListItem for Playlist {
 
     fn unsave(&mut self, library: &Library) {
         library.delete_playlist(&self.id);
-    }
-
-    fn open(&self, queue: Arc<Queue>, library: Arc<Library>) -> Option<Box<dyn ViewExt>> {
-        Some(PlaylistView::new(queue, library, self).into_boxed_view_ext())
-    }
-
-    fn open_recommendations(
-        &mut self,
-        queue: Arc<Queue>,
-        library: Arc<Library>,
-    ) -> Option<Box<dyn ViewExt>> {
-        self.load_tracks(&queue.get_spotify());
-        const MAX_SEEDS: usize = 5;
-        let track_ids: Vec<String> = self
-            .tracks
-            .as_ref()?
-            .iter()
-            .filter_map(|t| t.id())
-            // only select unique tracks
-            .collect::<HashSet<_>>()
-            .into_iter()
-            // spotify allows at max 5 seed items, so choose them at random
-            .sample(&mut rng(), MAX_SEEDS);
-
-        if track_ids.is_empty() {
-            return None;
-        }
-
-        let spotify = queue.get_spotify();
-        let recommendations: Option<Vec<Track>> = spotify
-            .api
-            .recommendations(
-                None,
-                None,
-                Some(track_ids.iter().map(|t| t.as_ref()).collect()),
-            )
-            .ok()
-            .map(|r| r.tracks)
-            .map(|tracks| tracks.iter().map(Track::from).collect());
-
-        recommendations.map(|tracks| {
-            ListView::new(
-                Arc::new(RwLock::new(tracks)),
-                queue.clone(),
-                library.clone(),
-            )
-            .with_title(&format!("Similar to Tracks in \"{}\"", self.name))
-            .into_boxed_view_ext()
-        })
     }
 
     fn share_url(&self) -> Option<String> {

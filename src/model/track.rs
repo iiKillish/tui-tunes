@@ -13,8 +13,7 @@ use crate::model::album::Album;
 use crate::model::artist::Artist;
 use crate::model::playable::Playable;
 use crate::queue::Queue;
-use crate::traits::{IntoBoxedViewExt, ListItem, ViewExt};
-use crate::ui::listview::ListView;
+use crate::traits::{ListItem};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Track {
@@ -265,43 +264,6 @@ impl ListItem for Track {
 
     fn unsave(&mut self, library: &Library) {
         library.unsave_tracks(&[self]);
-    }
-
-    fn open(&self, _queue: Arc<Queue>, _library: Arc<Library>) -> Option<Box<dyn ViewExt>> {
-        None
-    }
-
-    fn open_recommendations(
-        &mut self,
-        queue: Arc<Queue>,
-        library: Arc<Library>,
-    ) -> Option<Box<dyn ViewExt>> {
-        let spotify = queue.get_spotify();
-
-        let recommendations: Option<Vec<Self>> = if let Some(id) = &self.id {
-            spotify
-                .api
-                .recommendations(None, None, Some(vec![id]))
-                .ok()
-                .map(|r| r.tracks)
-                .map(|tracks| tracks.iter().map(Self::from).collect())
-        } else {
-            None
-        };
-
-        recommendations.map(|tracks| {
-            ListView::new(
-                Arc::new(RwLock::new(tracks)),
-                queue.clone(),
-                library.clone(),
-            )
-            .with_title(&format!(
-                "Similar to \"{} - {}\"",
-                self.artists.join(", "),
-                self.title
-            ))
-            .into_boxed_view_ext()
-        })
     }
 
     fn share_url(&self) -> Option<String> {

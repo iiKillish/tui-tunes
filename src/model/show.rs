@@ -3,8 +3,8 @@ use crate::model::episode::Episode;
 use crate::model::playable::Playable;
 use crate::queue::Queue;
 use crate::spotify::Spotify;
-use crate::traits::{IntoBoxedViewExt, ListItem, ViewExt};
-use crate::ui::show::ShowView;
+use crate::traits::{OpenTarget};
+use crate::traits::{ListItem};
 use rspotify::model::Id;
 use rspotify::model::show::{FullShow, SimplifiedShow};
 use std::fmt;
@@ -69,6 +69,10 @@ impl fmt::Display for Show {
 }
 
 impl ListItem for Show {
+    fn target(&self) -> Option<OpenTarget> {
+        Some(OpenTarget::Show(self.clone()))
+    }
+
     fn is_playing(&self, _queue: &Queue) -> bool {
         false
     }
@@ -137,10 +141,6 @@ impl ListItem for Show {
 
     fn unsave(&mut self, library: &Library) {
         library.unsave_show(self);
-    }
-
-    fn open(&self, queue: Arc<Queue>, library: Arc<Library>) -> Option<Box<dyn ViewExt>> {
-        Some(ShowView::new(queue, library, self).into_boxed_view_ext())
     }
 
     fn share_url(&self) -> Option<String> {

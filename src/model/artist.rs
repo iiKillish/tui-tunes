@@ -12,8 +12,8 @@ use crate::model::playable::Playable;
 use crate::model::track::Track;
 use crate::queue::Queue;
 use crate::spotify::Spotify;
-use crate::traits::{IntoBoxedViewExt, ListItem, ViewExt};
-use crate::ui::{artist::ArtistView, listview::ListView};
+use crate::traits::{OpenTarget};
+use crate::traits::{ListItem};
 
 /// Artists' pictures by artist ID, for cards. Filled whenever an artist comes from the Web API
 /// with its pictures (search results, followed and top artists); others are looked up one at a
@@ -138,6 +138,10 @@ impl fmt::Debug for Artist {
 }
 
 impl ListItem for Artist {
+    fn target(&self) -> Option<OpenTarget> {
+        Some(OpenTarget::Artist(self.clone()))
+    }
+
     fn thumbnail_url(&self) -> Option<String> {
         self.known_image_url()
     }
@@ -229,36 +233,6 @@ impl ListItem for Artist {
 
     fn unsave(&mut self, library: &Library) {
         library.unfollow_artist(self);
-    }
-
-    fn open(&self, queue: Arc<Queue>, library: Arc<Library>) -> Option<Box<dyn ViewExt>> {
-        Some(ArtistView::new(queue, library, self).into_boxed_view_ext())
-    }
-
-    fn open_recommendations(
-        &mut self,
-        queue: Arc<Queue>,
-        library: Arc<Library>,
-    ) -> Option<Box<dyn ViewExt>> {
-        let id = self.id.as_ref()?.to_string();
-
-        let spotify = queue.get_spotify();
-        let recommendations: Option<Vec<Track>> = spotify
-            .api
-            .recommendations(Some(vec![&id]), None, None)
-            .ok()
-            .map(|r| r.tracks)
-            .map(|tracks| tracks.iter().map(Track::from).collect());
-
-        recommendations.map(|tracks| {
-            ListView::new(
-                Arc::new(RwLock::new(tracks)),
-                queue.clone(),
-                library.clone(),
-            )
-            .with_title(&format!("Similar to Artist \"{}\"", self.name))
-            .into_boxed_view_ext()
-        })
     }
 
     fn share_url(&self) -> Option<String> {

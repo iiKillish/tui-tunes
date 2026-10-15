@@ -1,6 +1,4 @@
 #[macro_use]
-extern crate cursive;
-#[macro_use]
 extern crate serde;
 
 use std::{path::PathBuf, process::exit};
@@ -14,13 +12,12 @@ mod application;
 mod authentication;
 mod cli;
 mod command;
-mod commands;
 mod config;
 mod events;
-mod ext_traits;
 mod library;
 mod lyrics;
 mod model;
+mod pagination;
 mod panic;
 mod queue;
 mod serialization;
@@ -31,7 +28,7 @@ mod spotify_url;
 mod spotify_worker;
 mod theme;
 mod traits;
-mod ui;
+mod tui;
 mod utils;
 
 #[cfg(unix)]
@@ -42,7 +39,7 @@ mod mpris;
 
 fn main() -> Result<(), String> {
     // Set a custom backtrace hook that writes the backtrace to a file instead of stdout, since
-    // stdout is most likely in use by Cursive.
+    // stdout is in use by the TUI.
     panic::register_backtrace_panic_handler();
 
     // Parse the command line arguments.

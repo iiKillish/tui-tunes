@@ -24,7 +24,7 @@ use crate::model::playable::Playable;
 use crate::model::playlist::Playlist;
 use crate::model::track::Track;
 use crate::spotify_worker::WorkerCommand;
-use crate::ui::pagination::{ApiPage, ApiResult};
+use crate::pagination::{ApiPage, ApiResult};
 
 /// A track from the user's listening history.
 pub struct RecentPlay {
