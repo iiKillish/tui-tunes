@@ -281,7 +281,7 @@ fn render_kitty(
     let pixels = image
         .resize(width, height, image::imageops::FilterType::Triangle)
         .to_rgba8();
-    kitty_place(&pixels, cover.offset, cover.size, image_id)
+    kitty_place(&pixels, cover.offset, cover.size, image_id, 0)
 }
 
 /// Kitty image IDs used by ncspot. Images are deleted by ID: deleting "whatever covers this cell"
@@ -293,7 +293,8 @@ pub(crate) const CONTROL_ICON_IMAGE_ID: u32 = 10;
 
 /// Place `pixels` over `cells` terminal cells at `offset` with the Kitty graphics protocol as
 /// image `image_id` (replacing any image with that ID), without moving the cursor (`C=1`) or
-/// asking the terminal for a reply (`q=2`).
+/// asking the terminal for a reply (`q=2`). `y_shift` moves the image down by that many pixels
+/// within its first cell (must be less than a cell's height), to place it between rows.
 ///
 /// viuer instead lets the image move the cursor and then prints a newline, which scrolls the
 /// terminal when the image is at the bottom of the screen (as the player bar's cover is). Cursive
@@ -303,6 +304,7 @@ pub(crate) fn kitty_place(
     offset: Vec2,
     cells: Vec2,
     image_id: u32,
+    y_shift: usize,
 ) -> std::io::Result<()> {
     let data = base64_encode(pixels.as_raw());
 
@@ -316,7 +318,7 @@ pub(crate) fn kitty_place(
         if i == 0 {
             write!(
                 out,
-                "\x1b_Ga=T,i={image_id},f=32,s={},v={},c={},r={},C=1,q=2,m={more};",
+                "\x1b_Ga=T,i={image_id},f=32,s={},v={},c={},r={},Y={y_shift},C=1,q=2,m={more};",
                 pixels.width(),
                 pixels.height(),
                 cells.x,

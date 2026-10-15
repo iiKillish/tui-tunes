@@ -107,6 +107,8 @@ struct IconRequest {
     offset: Vec2,
     cells: Vec2,
     pixels: (u32, u32),
+    /// Pixels to shift the icon down within its first cell.
+    y_shift: usize,
 }
 
 /// Rendered icon images are cached per icon, color and pixel size.
@@ -146,7 +148,7 @@ impl IconLayer {
             let image = cache
                 .entry((new.icon, new.color, new.pixels))
                 .or_insert_with(|| icons::render(new.icon, new.pixels.0, new.pixels.1, new.color));
-            if let Err(e) = kitty_place(image, new.offset, new.cells, new.image_id) {
+            if let Err(e) = kitty_place(image, new.offset, new.cells, new.image_id, new.y_shift) {
                 log::error!("Failed to draw icon: {e}");
             }
         }
@@ -301,7 +303,13 @@ impl NowPlaying {
     }
 
     fn control_at(geometry: &Geometry, position: Vec2) -> Option<Control> {
-        let rows = geometry.controls_row..geometry.controls_row + geometry.button_rows;
+        // Image buttons are drawn half a row higher (see `draw`), so they reach into the row above.
+        let first_row = if geometry.button_rows > 1 {
+            geometry.controls_row.saturating_sub(1)
+        } else {
+            geometry.controls_row
+        };
+        let rows = first_row..geometry.controls_row + geometry.button_rows;
         if !rows.contains(&position.y) {
             return None;
         }
@@ -519,13 +527,20 @@ impl View for NowPlaying {
             if geometry.button_rows > 1 {
                 let font = self.cover.font_size();
                 let cells = Vec2::new(geometry.button_width, geometry.button_rows);
+                // Half a row higher than the controls row, to leave a gap above the progress
+                // bar: start in the row above, shifted down by half a cell.
+                let (row, y_shift) = match geometry.controls_row.checked_sub(1) {
+                    Some(row) => (row, font.y / 2),
+                    None => (geometry.controls_row, 0),
+                };
                 icon_requests.push(IconRequest {
                     image_id: CONTROL_ICON_IMAGE_ID + i as u32,
                     icon: self.control_image(*control),
                     color: rgb(palette[icon_color]),
-                    offset: printer.offset + Vec2::new(slot_x, geometry.controls_row),
+                    offset: printer.offset + Vec2::new(slot_x, row),
                     cells,
                     pixels: ((cells.x * font.x) as u32, (cells.y * font.y) as u32),
+                    y_shift,
                 });
                 continue;
             }
