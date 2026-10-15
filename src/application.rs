@@ -255,18 +255,25 @@ impl Application {
         while self.cursive.is_running() {
             self.cursive.step();
             #[cfg(feature = "cover")]
-            self.cursive
-                .call_on_name("cover", |view: &mut ui::cover::CoverView| {
-                    view.render_to_terminal();
-                });
-            #[cfg(feature = "cover")]
             {
-                // Dialogs and menus are separate layers on top of the layout; terminal images
-                // would be drawn over them.
-                let obscured = self.cursive.screen().len() > 1;
+                // Dialogs and menus are layers on top of the layout. Terminal images would be
+                // drawn over them, so images overlapping one are left out while it's open.
+                let screen = self.cursive.screen();
+                let sizes = screen.layer_sizes();
+                let overlays: Vec<ui::cover::Area> = (1..sizes.len())
+                    .filter_map(|i| {
+                        screen
+                            .layer_offset(cursive::views::LayerPosition::FromBack(i))
+                            .map(|offset| (offset, sizes[i]))
+                    })
+                    .collect();
+                self.cursive
+                    .call_on_name("cover", |view: &mut ui::cover::CoverView| {
+                        view.render_to_terminal(&overlays);
+                    });
                 self.cursive
                     .call_on_name("main", |layout: &mut ui::layout::Layout| {
-                        layout.render_now_playing(obscured);
+                        layout.render_now_playing(&overlays);
                     });
             }
             #[cfg(unix)]

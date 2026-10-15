@@ -37,6 +37,22 @@ pub struct CoverRenderer {
     font_size: Vec2,
 }
 
+/// A rectangle of terminal cells: top-left offset and size.
+pub type Area = (Vec2, Vec2);
+
+/// Whether an image drawn over `image` would cover part of `overlay` (a dialog or menu on top of
+/// the layout). The overlay is grown by a cell on each side for its border and shadow.
+pub fn overlaps(image: Area, overlay: Area) -> bool {
+    let (image_offset, image_size) = image;
+    let (overlay_offset, overlay_size) = overlay;
+    let overlay_start = overlay_offset.saturating_sub((1, 1));
+    let overlay_end = overlay_offset + overlay_size + (1, 1);
+    image_offset.x < overlay_end.x
+        && overlay_start.x < image_offset.x + image_size.x
+        && image_offset.y < overlay_end.y
+        && overlay_start.y < image_offset.y + image_size.y
+}
+
 #[derive(Clone, PartialEq, Eq)]
 struct CoverRequest {
     url: String,
@@ -54,8 +70,8 @@ impl CoverView {
         }
     }
 
-    pub fn render_to_terminal(&self) {
-        self.cover.render_to_terminal();
+    pub fn render_to_terminal(&self, overlays: &[Area]) {
+        self.cover.render_to_terminal(overlays);
     }
 }
 
@@ -208,8 +224,14 @@ impl CoverRenderer {
         None
     }
 
-    pub fn render_to_terminal(&self) {
-        let desired_cover = self.desired_cover.read().unwrap().clone();
+    /// Update the terminal to show the requested cover, unless it would cover one of `overlays`
+    /// (dialogs or menus on top of the layout): terminal images are always drawn over text.
+    pub fn render_to_terminal(&self, overlays: &[Area]) {
+        let desired_cover = self.desired_cover.read().unwrap().clone().filter(|cover| {
+            !overlays
+                .iter()
+                .any(|overlay| overlaps((cover.offset, cover.size), *overlay))
+        });
         let mut rendered_cover = self.rendered_cover.write().unwrap();
 
         if *rendered_cover == desired_cover {
@@ -446,7 +468,7 @@ impl ViewExt for CoverView {
 
     fn on_leave(&self) {
         self.cover.clear_cover();
-        self.cover.render_to_terminal();
+        self.cover.render_to_terminal(&[]);
     }
 
     fn on_command(&mut self, _s: &mut Cursive, cmd: &Command) -> Result<CommandResult, String> {
@@ -514,6 +536,19 @@ impl ViewExt for CoverView {
 #[cfg(test)]
 mod tests {
     use super::base64_encode;
+
+    #[test]
+    fn test_overlaps() {
+        use super::overlaps;
+        use cursive::Vec2;
+        let bar_cover = (Vec2::new(1, 30), Vec2::new(10, 5));
+        // A menu in the middle of the screen doesn't touch the bar.
+        assert!(!overlaps(bar_cover, (Vec2::new(30, 5), Vec2::new(40, 10))));
+        // One reaching down into the bar's rows and columns does.
+        assert!(overlaps(bar_cover, (Vec2::new(5, 20), Vec2::new(40, 12))));
+        // Touching counts, for the dialog's shadow.
+        assert!(overlaps(bar_cover, (Vec2::new(11, 30), Vec2::new(5, 2))));
+    }
 
     #[test]
     fn test_base64_encode() {

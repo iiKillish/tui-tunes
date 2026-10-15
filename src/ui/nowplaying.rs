@@ -21,8 +21,8 @@ use crate::queue::{Queue, RepeatSetting};
 use crate::spotify::{PlayerEvent, Spotify, VOLUME_PERCENT};
 #[cfg(feature = "cover")]
 use crate::ui::cover::{
-    CONTROL_ICON_IMAGE_ID, CoverRenderer, NOW_PLAYING_COVER_IMAGE_ID, kitty_delete, kitty_place,
-    kitty_supported,
+    Area, CONTROL_ICON_IMAGE_ID, CoverRenderer, NOW_PLAYING_COVER_IMAGE_ID, kitty_delete,
+    kitty_place, kitty_supported, overlaps,
 };
 #[cfg(feature = "cover")]
 use crate::ui::icons::{self, Icon};
@@ -132,8 +132,21 @@ impl IconLayer {
         *self.desired.write().unwrap() = icons;
     }
 
-    fn render_to_terminal(&self) {
-        let desired = self.desired.read().unwrap().clone();
+    /// Update the terminal to show the requested icons, except ones that would cover part of
+    /// `overlays` (dialogs or menus).
+    fn render_to_terminal(&self, overlays: &[Area]) {
+        let desired: Vec<IconRequest> = self
+            .desired
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|icon| {
+                // Icons can sit half a row lower than their cells (see `y_shift`).
+                let area = (icon.offset, icon.cells + (0, 1));
+                !overlays.iter().any(|overlay| overlaps(area, *overlay))
+            })
+            .cloned()
+            .collect();
         let mut rendered = self.rendered.write().unwrap();
         if *rendered == desired {
             return;
@@ -211,15 +224,12 @@ impl NowPlaying {
     }
 
     /// Draw (or remove) the cover and icons in the terminal. Must be called after cursive has
-    /// drawn. `obscured` hides them while something is drawn on top of the layout, like a dialog:
-    /// terminal images are always drawn over text.
+    /// drawn. Images that would cover part of `overlays` (dialogs or menus on top of the layout)
+    /// are left out, since terminal images are always drawn over text.
     #[cfg(feature = "cover")]
-    pub fn render_to_terminal(&self, obscured: bool) {
-        if obscured {
-            self.hide();
-        }
-        self.cover.render_to_terminal();
-        self.icons.render_to_terminal();
+    pub fn render_to_terminal(&self, overlays: &[Area]) {
+        self.cover.render_to_terminal(overlays);
+        self.icons.render_to_terminal(overlays);
     }
 
     /// Whether the controls can be drawn as (bigger) images rather than text.

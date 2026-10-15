@@ -189,11 +189,11 @@ impl Layout {
         }
     }
 
-    /// Draw the now-playing card's cover in the terminal; see [NowPlaying::render_to_terminal].
+    /// Draw the player bar's images in the terminal; see [NowPlaying::render_to_terminal].
     #[cfg(feature = "cover")]
-    pub fn render_now_playing(&self, obscured: bool) {
-        if let Some(card) = &self.now_playing {
-            card.render_to_terminal(obscured);
+    pub fn render_now_playing(&self, overlays: &[crate::ui::cover::Area]) {
+        if let Some(bar) = &self.now_playing {
+            bar.render_to_terminal(overlays);
         }
     }
 
