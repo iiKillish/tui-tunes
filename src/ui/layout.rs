@@ -327,6 +327,15 @@ impl Layout {
 
 impl View for Layout {
     fn draw(&self, printer: &Printer<'_, '_>) {
+        // Clear everything first. Views only paint the rows they use (a short list leaves the
+        // rest of its area alone), and the bottom bar moves when the command line or a result
+        // message appears, so anything not repainted would keep whatever was drawn there before.
+        printer.with_color(ColorStyle::primary(), |printer| {
+            for y in 0..printer.size.y {
+                printer.print_hline((0, y), printer.size.x, " ");
+            }
+        });
+
         let result = self.get_result();
 
         let cmdline_visible = !self.cmdline.get_content().is_empty();

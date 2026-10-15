@@ -194,8 +194,8 @@ impl NowPlaying {
             match control {
                 Control::Shuffle => "\u{f049d}",
                 Control::Previous => "\u{f04ae}",
-                Control::PlayPause if playing => "\u{f03e5}",
-                Control::PlayPause => "\u{f040d}",
+                Control::PlayPause if playing => "\u{f03e4}",
+                Control::PlayPause => "\u{f040a}",
                 Control::Next => "\u{f04ad}",
                 Control::Repeat if repeat == RepeatSetting::RepeatTrack => "\u{f0458}",
                 Control::Repeat => "\u{f0456}",
