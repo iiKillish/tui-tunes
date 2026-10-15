@@ -18,6 +18,27 @@ use ratatui::layout::{Position, Rect, Size};
 #[cfg(feature = "cover")]
 use crate::tui::icons::{self, Icon};
 
+/// Without the `cover` feature there's no `image` crate and nothing is ever shown ([supported] is
+/// false); this stands in for the little of it used here.
+#[cfg(not(feature = "cover"))]
+mod image {
+    pub struct RgbaImage;
+
+    impl RgbaImage {
+        pub fn as_raw(&self) -> &[u8] {
+            &[]
+        }
+
+        pub fn width(&self) -> u32 {
+            0
+        }
+
+        pub fn height(&self) -> u32 {
+            0
+        }
+    }
+}
+
 /// What to show in an image.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub enum Source {
@@ -193,6 +214,12 @@ fn grow(rect: Rect) -> Rect {
 fn load(source: &Source, size: Size) -> Option<image::RgbaImage> {
     let (width, height) = (u32::from(size.width.max(1)), u32::from(size.height.max(1)));
     match source {
+        #[cfg(not(feature = "cover"))]
+        Source::Url(_) => {
+            let _ = (width, height);
+            None
+        }
+        #[cfg(feature = "cover")]
         Source::Url(url) => {
             let path = cached_cover_path(url)?;
             let image = image::ImageReader::open(&path)
@@ -299,14 +326,23 @@ pub fn cover_tint(url: &str) -> Option<[u8; 3]> {
     if let Some(tint) = tints.read().unwrap().get(url) {
         return *tint;
     }
+    if !cfg!(feature = "cover") {
+        return None;
+    }
     let path = cached_cover_path(url)?;
     tints.write().unwrap().insert(url.to_string(), None);
     let url = url.to_string();
     std::thread::spawn(move || {
+        #[cfg(feature = "cover")]
         let tint = image::open(&path).ok().map(|image| {
             let small = image.thumbnail(32, 32).to_rgb8();
             average_color(small.pixels().map(|p| p.0))
         });
+        #[cfg(not(feature = "cover"))]
+        let tint: Option<Option<[u8; 3]>> = {
+            let _ = path;
+            None
+        };
         TINTS
             .get()
             .unwrap()
@@ -319,6 +355,7 @@ pub fn cover_tint(url: &str) -> Option<[u8; 3]> {
 }
 
 /// Average of `pixels`, leaving out ones too dark or light to say much about the color.
+#[cfg_attr(not(feature = "cover"), allow(dead_code))]
 fn average_color(pixels: impl Iterator<Item = [u8; 3]>) -> Option<[u8; 3]> {
     let (mut sum, mut count) = ([0u64; 3], 0u64);
     for [r, g, b] in pixels {
