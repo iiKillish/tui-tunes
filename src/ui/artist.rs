@@ -77,7 +77,8 @@ impl ArtistView {
         }
         tabs.add_tab(
             "Top 10",
-            ListView::new(top_tracks, queue.clone(), library.clone()),
+            ListView::new(top_tracks, queue.clone(), library.clone())
+                .with_source(&format!("{} top tracks", artist.name)),
         );
         tabs.add_tab("Albums", albums_view);
         tabs.add_tab("Singles", singles_view);

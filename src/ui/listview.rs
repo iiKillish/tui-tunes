@@ -50,6 +50,9 @@ pub struct ListView<I: ListItem> {
     library: Arc<Library>,
     pagination: Pagination<I>,
     title: String,
+    /// Name of what these items are (an album, playlist, …), recorded in the queue when playing
+    /// from this list so the queue panel can show "Next from: …".
+    source: Option<String>,
 }
 
 impl<I: ListItem> Scroller for ListView<I> {
@@ -77,6 +80,7 @@ impl<I: ListItem + Clone> ListView<I> {
             library,
             pagination: Pagination::default(),
             title: "".to_string(),
+            source: None,
         };
         result.try_paginate();
         result
@@ -84,6 +88,12 @@ impl<I: ListItem + Clone> ListView<I> {
 
     pub fn with_title(mut self, title: &str) -> Self {
         self.title = title.to_string();
+        self
+    }
+
+    /// Name the queue panel shows for tracks played from this list ("Next from: <source>").
+    pub fn with_source(mut self, source: &str) -> Self {
+        self.source = Some(source.to_string());
         self
     }
 
@@ -177,7 +187,7 @@ impl<I: ListItem + Clone> ListView<I> {
                 .collect::<Vec<Playable>>()
         });
         if let Some(tracks) = playables.or(tracks.as_ref()) {
-            let index = self.queue.append_next(tracks);
+            let index = self.queue.append_next_from(tracks, self.source.as_deref());
             self.queue.play(index + self.selected, true, false);
             true
         } else {

@@ -107,6 +107,8 @@ pub struct ConfigValues {
     pub client_id: Option<String>,
     /// Height in rows of the now-playing card above the status bar; 0 hides it.
     pub now_playing_height: Option<usize>,
+    /// Width in columns of the queue panel on the right; 0 hides it.
+    pub queue_panel_width: Option<usize>,
 }
 
 /// The ncspot theme.

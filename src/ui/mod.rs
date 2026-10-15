@@ -15,6 +15,7 @@ pub mod pagination;
 pub mod playlist;
 pub mod playlists;
 pub mod queue;
+pub mod queuepanel;
 pub mod search;
 pub mod search_results;
 pub mod show;

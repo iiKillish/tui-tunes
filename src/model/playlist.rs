@@ -228,7 +228,7 @@ impl ListItem for Playlist {
         self.load_tracks(&queue.get_spotify());
 
         if let Some(tracks) = &self.tracks {
-            let index = queue.append_next(tracks);
+            let index = queue.append_next_from(tracks, Some(&self.name));
             queue.play(index, true, true);
         }
     }

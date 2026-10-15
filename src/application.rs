@@ -206,9 +206,13 @@ impl Application {
         let now_playing =
             ui::nowplaying::NowPlaying::new(queue.clone(), library.clone(), &configuration);
 
+        let queue_panel =
+            ui::queuepanel::QueuePanel::new(queue.clone(), library.clone(), &configuration);
+
         let mut layout =
             ui::layout::Layout::new(status, &event_manager, theme, Arc::clone(&configuration))
                 .now_playing(now_playing)
+                .queue_panel(queue_panel)
                 .screen("search", search.with_name("search"))
                 .screen("library", libraryview.with_name("library"))
                 .screen("queue", queueview);

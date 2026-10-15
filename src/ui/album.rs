@@ -44,7 +44,8 @@ impl AlbumView {
                 Arc::new(RwLock::new(tracks)),
                 queue.clone(),
                 library.clone(),
-            ),
+            )
+            .with_source(&album.title),
         );
         tabs.add_tab(
             "Artists",

@@ -47,6 +47,10 @@ pub struct Queue {
     random_order: RwLock<Option<Vec<usize>>>,
     /// The queue as it was before shuffling, so turning shuffle off can restore that order.
     unshuffled: RwLock<Option<Vec<Playable>>>,
+    /// Where each item in `self.queue` was queued from (an album or playlist name), shown as
+    /// "Next from: …" in the queue panel. Kept parallel to `self.queue`; `None` for items queued
+    /// individually or restored from a previous session.
+    sources: RwLock<Vec<Option<Arc<str>>>>,
     current_track: RwLock<Option<usize>>,
     spotify: Spotify,
     cfg: Arc<Config>,
@@ -56,6 +60,7 @@ pub struct Queue {
 impl Queue {
     pub fn new(spotify: Spotify, cfg: Arc<Config>, library: Arc<Library>) -> Self {
         let queue_state = cfg.state().queuestate.clone();
+        let sources = vec![None; queue_state.queue.len()];
 
         Self {
             queue: Arc::new(RwLock::new(queue_state.queue)),
@@ -63,6 +68,7 @@ impl Queue {
             current_track: RwLock::new(queue_state.current_track),
             random_order: RwLock::new(queue_state.random_order),
             unshuffled: RwLock::new(None),
+            sources: RwLock::new(sources),
             cfg,
             library,
         }
@@ -147,6 +153,7 @@ impl Queue {
             }
             let mut q = self.queue.write().unwrap();
             q.insert(index + 1, track);
+            insert_source(&mut self.sources.write().unwrap(), index + 1, None);
         } else {
             self.append(track);
         }
@@ -161,11 +168,20 @@ impl Queue {
 
         let mut q = self.queue.write().unwrap();
         q.push(track);
+        let mut sources = self.sources.write().unwrap();
+        let len = q.len();
+        insert_source(&mut sources, len - 1, None);
     }
 
     /// Append `tracks` after the currently playing item, taking into account
     /// shuffle status. Returns the first index(in `self.queue`) of added items.
     pub fn append_next(&self, tracks: &[Playable]) -> usize {
+        self.append_next_from(tracks, None)
+    }
+
+    /// [Queue::append_next], recording that the tracks came from `source` (an album or playlist
+    /// name) for the queue panel.
+    pub fn append_next_from(&self, tracks: &[Playable], source: Option<&str>) -> usize {
         let mut q = self.queue.write().unwrap();
 
         {
@@ -180,8 +196,11 @@ impl Queue {
             None => q.len(),
         };
 
+        let source: Option<Arc<str>> = source.map(Arc::from);
+        let mut sources = self.sources.write().unwrap();
         for (i, track) in (first..).zip(tracks.iter()) {
             q.insert(i, track.clone());
+            insert_source(&mut sources, i, source.clone());
         }
 
         first
@@ -197,6 +216,10 @@ impl Queue {
                 return;
             }
             q.remove(index);
+            let mut sources = self.sources.write().unwrap();
+            if index < sources.len() {
+                sources.remove(index);
+            }
         }
 
         // if the queue is empty stop playback
@@ -249,6 +272,7 @@ impl Queue {
             o.clear()
         }
         *self.unshuffled.write().unwrap() = None;
+        self.sources.write().unwrap().clear();
     }
 
     /// The amount of items in `self.queue`.
@@ -261,6 +285,12 @@ impl Queue {
         let mut queue = self.queue.write().unwrap();
         let item = queue.remove(from);
         queue.insert(to, item);
+        {
+            let mut sources = self.sources.write().unwrap();
+            sources.resize(queue.len(), None);
+            let source = sources.remove(from);
+            sources.insert(to, source);
+        }
 
         // if the currently playing track is affected by the shift, update its
         // index
@@ -445,19 +475,23 @@ impl Queue {
             *unshuffled = Some(q.clone());
         }
 
-        let mut shuffled: Vec<Playable> = Vec::with_capacity(q.len());
-        let mut rest: Vec<Playable> = Vec::with_capacity(q.len());
-        for (i, track) in q.drain(..).enumerate() {
+        let mut sources = self.sources.write().unwrap();
+        sources.resize(q.len(), None);
+
+        type Entry = (Playable, Option<Arc<str>>);
+        let mut shuffled: Vec<Entry> = Vec::with_capacity(q.len());
+        let mut rest: Vec<Entry> = Vec::with_capacity(q.len());
+        for (i, entry) in q.drain(..).zip(sources.drain(..)).enumerate() {
             if Some(i) == *current {
-                shuffled.push(track);
+                shuffled.push(entry);
             } else {
-                rest.push(track);
+                rest.push(entry);
             }
         }
         rest.shuffle(&mut rand::rng());
         shuffled.extend(rest);
 
-        *q = shuffled;
+        (*q, *sources) = shuffled.into_iter().unzip();
         if current.is_some() {
             *current = Some(0);
         }
@@ -493,8 +527,40 @@ impl Queue {
         order.extend((0..q.len()).filter(|&i| !taken[i]));
 
         *current = current.and_then(|c| order.iter().position(|&i| i == c));
-        let mut slots: Vec<Option<Playable>> = q.drain(..).map(Some).collect();
-        *q = order.iter().filter_map(|&i| slots[i].take()).collect();
+        let mut sources = self.sources.write().unwrap();
+        sources.resize(q.len(), None);
+        let mut slots: Vec<Option<(Playable, Option<Arc<str>>)>> =
+            q.drain(..).zip(sources.drain(..)).map(Some).collect();
+        (*q, *sources) = order.iter().filter_map(|&i| slots[i].take()).unzip();
+    }
+
+    /// Where the item at `index` was queued from, if known.
+    pub fn source(&self, index: usize) -> Option<Arc<str>> {
+        self.sources.read().unwrap().get(index).cloned().flatten()
+    }
+
+    /// Up to `count` items that will play after the current one, in order, with their indices in
+    /// `self.queue`. Without a current item, the queue from the start.
+    pub fn upcoming(&self, count: usize) -> Vec<(usize, Playable)> {
+        let q = self.queue.read().unwrap();
+        let random_order = self.random_order.read().unwrap();
+        let order: Vec<usize> = match random_order.as_ref() {
+            Some(order) if order.len() == q.len() => order.clone(),
+            _ => (0..q.len()).collect(),
+        };
+        let start = match *self.current_track.read().unwrap() {
+            Some(current) => order
+                .iter()
+                .position(|&i| i == current)
+                .map_or(0, |p| p + 1),
+            None => 0,
+        };
+        order
+            .iter()
+            .skip(start)
+            .take(count)
+            .filter_map(|&i| q.get(i).map(|t| (i, t.clone())))
+            .collect()
     }
 
     /// Set the current shuffle behavior.
@@ -534,6 +600,15 @@ impl Queue {
 /// `notification_id`: Unique id for a notification, that can be used to operate
 /// on a previous notification (for example to close it).
 #[cfg(feature = "notify")]
+/// Insert `source` at `index` in `sources`, padding it first if it's fallen out of step with the
+/// queue (so a mismatch can never panic).
+fn insert_source(sources: &mut Vec<Option<Arc<str>>>, index: usize, source: Option<Arc<str>>) {
+    if sources.len() < index {
+        sources.resize(index, None);
+    }
+    sources.insert(index, source);
+}
+
 pub fn send_notification(summary_txt: &str, body_txt: &str, cover_url: Option<String>) {
     let mut n = Notification::new();
     n.appname("ncspot").summary(summary_txt).body(body_txt);
@@ -609,6 +684,7 @@ mod tests {
     }
 
     fn make_queue(tracks: Vec<Playable>, current: Option<usize>) -> Queue {
+        let len = tracks.len();
         let cfg = Config::new_for_test();
         let ev = EventManager::new_for_test();
         let spotify = Spotify::new_for_test(cfg.clone(), ev.clone());
@@ -617,6 +693,7 @@ mod tests {
             queue: Arc::new(RwLock::new(tracks)),
             random_order: RwLock::new(None),
             unshuffled: RwLock::new(None),
+            sources: RwLock::new(vec![None; len]),
             current_track: RwLock::new(current),
             spotify,
             cfg,
@@ -968,5 +1045,50 @@ mod tests {
         q.remove(5);
         before.remove(5);
         assert_eq!(ids(&q), before);
+    }
+
+    // --- sources ("Next from: …") ---
+
+    fn source_of(q: &Queue, id: &str) -> Option<String> {
+        let index = ids(q).iter().position(|i| i == id).unwrap();
+        q.source(index).map(|s| s.to_string())
+    }
+
+    #[test]
+    fn test_append_next_from_records_source() {
+        let q = make_queue(make_tracks(2), Some(0));
+        q.append_next_from(&[make_track(10), make_track(11)], Some("Album"));
+        assert_eq!(ids(&q), ["id_0", "id_10", "id_11", "id_1"]);
+        assert_eq!(source_of(&q, "id_10").as_deref(), Some("Album"));
+        assert_eq!(source_of(&q, "id_11").as_deref(), Some("Album"));
+        assert_eq!(source_of(&q, "id_1"), None);
+    }
+
+    #[test]
+    fn test_sources_follow_tracks_through_shuffle_and_removal() {
+        let q = make_queue(make_tracks(1), Some(0));
+        q.append_next_from(&make_tracks(20)[1..], Some("Playlist"));
+        q.append(make_track(99));
+        q.set_shuffle(true);
+        assert_eq!(source_of(&q, "id_99"), None);
+        assert_eq!(source_of(&q, "id_7").as_deref(), Some("Playlist"));
+
+        let index = ids(&q).iter().position(|i| i == "id_3").unwrap();
+        q.remove(index);
+        q.set_shuffle(false);
+        assert_eq!(source_of(&q, "id_99"), None);
+        assert_eq!(source_of(&q, "id_12").as_deref(), Some("Playlist"));
+        assert_eq!(q.sources.read().unwrap().len(), q.len());
+    }
+
+    #[test]
+    fn test_upcoming_lists_items_after_current() {
+        let q = make_queue(make_tracks(5), Some(1));
+        let upcoming: Vec<usize> = q.upcoming(10).into_iter().map(|(i, _)| i).collect();
+        assert_eq!(upcoming, [2, 3, 4]);
+        assert_eq!(q.upcoming(2).len(), 2);
+
+        let q = make_queue(make_tracks(3), None);
+        assert_eq!(q.upcoming(10).len(), 3);
     }
 }

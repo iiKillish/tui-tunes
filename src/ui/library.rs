@@ -34,7 +34,8 @@ impl LibraryView {
             match tab {
                 LibraryTab::Tracks => tabview.add_tab(
                     "Tracks",
-                    ListView::new(library.tracks.clone(), queue.clone(), library.clone()),
+                    ListView::new(library.tracks.clone(), queue.clone(), library.clone())
+                        .with_source("Liked Songs"),
                 ),
                 LibraryTab::Albums => tabview.add_tab(
                     "Albums",

@@ -42,7 +42,8 @@ impl PlaylistView {
             Arc::new(RwLock::new(tracks)),
             queue.clone(),
             library.clone(),
-        );
+        )
+        .with_source(&playlist.name);
 
         Self {
             playlist,
@@ -109,7 +110,8 @@ impl ViewExt for PlaylistView {
                 Arc::new(RwLock::new(tracks)),
                 self.queue.clone(),
                 self.library.clone(),
-            );
+            )
+            .with_source(&self.playlist.name);
             return Ok(CommandResult::Consumed(None));
         }
 

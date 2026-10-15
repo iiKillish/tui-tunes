@@ -21,6 +21,10 @@ use crate::events;
 use crate::ext_traits::CursiveExt;
 use crate::traits::{IntoBoxedViewExt, ViewExt};
 use crate::ui::nowplaying::{self, NowPlaying};
+use crate::ui::queuepanel::QueuePanel;
+
+/// Narrowest the screen content gets when showing the queue panel; below this the panel hides.
+const MIN_CONTENT_WIDTH_WITH_QUEUE_PANEL: usize = 50;
 
 /// Smallest number of content rows to keep when showing the player bar.
 const MIN_CONTENT_ROWS_WITH_NOW_PLAYING: usize = 8;
@@ -32,6 +36,7 @@ pub struct Layout {
     stack: HashMap<String, Vec<Box<dyn ViewExt>>>,
     statusbar: Box<dyn View>,
     now_playing: Option<NowPlaying>,
+    queue_panel: Option<QueuePanel>,
     focus: Option<String>,
     previous_focus: Option<String>,
     cmdline: EditView,
@@ -102,6 +107,7 @@ impl Layout {
             stack: HashMap::new(),
             statusbar: status.into_boxed_view(),
             now_playing: None,
+            queue_panel: None,
             focus: None,
             previous_focus: None,
             cmdline: command_line_input,
@@ -119,6 +125,49 @@ impl Layout {
     pub fn now_playing(mut self, view: NowPlaying) -> Self {
         self.now_playing = Some(view);
         self
+    }
+
+    /// Show the queue panel `view` on the right of the screen content.
+    pub fn queue_panel(mut self, view: QueuePanel) -> Self {
+        self.queue_panel = Some(view);
+        self
+    }
+
+    /// Columns taken by the queue panel in a layout `total_width` wide: 0 when it's disabled, on
+    /// the queue screen (which shows the whole queue) or when it would squeeze the content.
+    fn queue_panel_width(&self, total_width: usize) -> usize {
+        match &self.queue_panel {
+            Some(panel)
+                if panel.width() > 0
+                    && self.focus.as_deref() != Some("queue")
+                    && total_width >= panel.width() + 1 + MIN_CONTENT_WIDTH_WITH_QUEUE_PANEL =>
+            {
+                panel.width()
+            }
+            _ => 0,
+        }
+    }
+
+    /// Width of the screen content: everything left of the queue panel and its 1-column gap.
+    fn content_width(&self, total_width: usize) -> usize {
+        match self.queue_panel_width(total_width) {
+            0 => total_width,
+            panel => total_width - panel - 1,
+        }
+    }
+
+    /// Rows taken by the command line and result message at the bottom.
+    fn cmdline_height(&self) -> usize {
+        let mut height = usize::from(!self.cmdline.get_content().is_empty());
+        if self
+            .get_result()
+            .as_ref()
+            .map(Option::is_some)
+            .unwrap_or(true)
+        {
+            height += 1;
+        }
+        height
     }
 
     /// Whether the player bar replaces the status bar in a layout of `size`: it must be enabled
@@ -350,6 +399,22 @@ impl View for Layout {
             .unwrap_or_default();
 
         let bottom_height = self.bottom_height(printer.size);
+        let main_rows = printer.size.y - bottom_height - cmdline_height;
+
+        // Queue panel on the right, from the top down to the bottom bar.
+        let panel_width = self.queue_panel_width(printer.size.x);
+        if let Some(panel) = &self.queue_panel
+            && panel_width > 0
+        {
+            panel.draw(
+                &printer
+                    .offset((printer.size.x - panel_width, 0))
+                    .cropped((panel_width, main_rows)),
+            );
+        }
+
+        let full_printer = printer;
+        let printer = &printer.cropped((self.content_width(printer.size.x), printer.size.y));
 
         if let Some(view) = self.get_top_view() {
             // back button + title
@@ -381,6 +446,7 @@ impl View for Layout {
             view.draw(printer);
         }
 
+        let printer = full_printer;
         let bottom = printer
             .offset((0, printer.size.y - cmdline_height - bottom_height))
             .cropped((printer.size.x, bottom_height));
@@ -431,8 +497,14 @@ impl View for Layout {
             bar.layout(Vec2::new(size.x, bottom_height));
         }
 
+        let panel_width = self.queue_panel_width(size.x);
+        let content_width = self.content_width(size.x);
+        if let Some(panel) = self.queue_panel.as_mut() {
+            panel.layout(Vec2::new(panel_width, size.y - bottom_height));
+        }
+
         if let Some(view) = self.get_current_view_mut() {
-            view.layout(Vec2::new(size.x, size.y - 1 - bottom_height));
+            view.layout(Vec2::new(content_width, size.y - 1 - bottom_height));
         }
     }
 
@@ -487,6 +559,21 @@ impl View for Layout {
                 event: mouse_event,
                 ..
             } => {
+                // Clicks and scrolling on the queue panel.
+                let panel_width = self.queue_panel_width(self.last_size.x);
+                let panel_x = self.last_size.x.saturating_sub(panel_width);
+                let main_rows = self
+                    .last_size
+                    .y
+                    .saturating_sub(self.bottom_height(self.last_size) + self.cmdline_height());
+                if panel_width > 0
+                    && position.x >= panel_x
+                    && position.y < main_rows
+                    && let Some(panel) = self.queue_panel.as_mut()
+                {
+                    return panel.on_event(event.relativized(Vec2::new(panel_x, 0)));
+                }
+
                 // Handle mouse events in the command/jump area.
                 if position.y == 0 {
                     if mouse_event == MouseEvent::Press(MouseButton::Left)
