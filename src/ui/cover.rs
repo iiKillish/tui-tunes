@@ -231,19 +231,14 @@ fn render_cover_to_terminal(cover: &CoverRequest, font_size: Vec2) -> Result<(),
 
 /// Whether the terminal speaks the Kitty graphics protocol. Determined once: viuer finds out by
 /// querying the terminal.
-fn kitty_supported() -> bool {
+pub(crate) fn kitty_supported() -> bool {
     static SUPPORTED: OnceLock<bool> = OnceLock::new();
     *SUPPORTED.get_or_init(|| {
         can_use_kitty_graphics() && viuer::get_kitty_support() != viuer::KittySupport::None
     })
 }
 
-/// Place `image` over `cover.size` cells at `cover.offset` with the Kitty graphics protocol,
-/// without moving the cursor (`C=1`) or asking the terminal for a reply (`q=2`).
-///
-/// viuer instead lets the image move the cursor and then prints a newline, which scrolls the
-/// terminal when the image is at the bottom of the screen (as the player bar's cover is). Cursive
-/// only redraws cells it thinks changed, so after such a scroll stale text stays on screen.
+/// Draw `image` over `cover.size` cells at `cover.offset` with the Kitty graphics protocol.
 fn render_kitty(
     image: &image::DynamicImage,
     cover: &CoverRequest,
@@ -255,16 +250,25 @@ fn render_kitty(
     let pixels = image
         .resize(width, height, image::imageops::FilterType::Triangle)
         .to_rgba8();
+    kitty_place(&pixels, cover.offset, cover.size)
+}
+
+/// Place `pixels` over `cells` terminal cells at `offset` with the Kitty graphics protocol,
+/// without moving the cursor (`C=1`) or asking the terminal for a reply (`q=2`).
+///
+/// viuer instead lets the image move the cursor and then prints a newline, which scrolls the
+/// terminal when the image is at the bottom of the screen (as the player bar's cover is). Cursive
+/// only redraws cells it thinks changed, so after such a scroll stale text stays on screen.
+pub(crate) fn kitty_place(
+    pixels: &image::RgbaImage,
+    offset: Vec2,
+    cells: Vec2,
+) -> std::io::Result<()> {
     let data = base64_encode(pixels.as_raw());
 
     let mut out: Vec<u8> = Vec::with_capacity(data.len() + 256);
-    // Save the cursor, move to the cover's top-left cell, and restore the cursor afterwards.
-    write!(
-        out,
-        "\x1b7\x1b[{};{}H",
-        cover.offset.y + 1,
-        cover.offset.x + 1
-    )?;
+    // Save the cursor, move to the top-left cell, and restore the cursor afterwards.
+    write!(out, "\x1b7\x1b[{};{}H", offset.y + 1, offset.x + 1)?;
     let chunks: Vec<&[u8]> = data.as_bytes().chunks(4096).collect();
     for (i, chunk) in chunks.iter().enumerate() {
         let more = u8::from(i + 1 < chunks.len());
@@ -274,8 +278,8 @@ fn render_kitty(
                 "\x1b_Ga=T,f=32,s={},v={},c={},r={},C=1,q=2,m={more};",
                 pixels.width(),
                 pixels.height(),
-                cover.size.x,
-                cover.size.y
+                cells.x,
+                cells.y
             )?;
         } else {
             write!(out, "\x1b_Gm={more};")?;
@@ -287,6 +291,19 @@ fn render_kitty(
 
     let mut stdout = std::io::stdout().lock();
     stdout.write_all(&out)?;
+    stdout.flush()
+}
+
+/// Delete the Kitty image placed over the cell at `offset` (only that one, so the cover and the
+/// player bar's icons don't remove each other).
+pub(crate) fn kitty_delete_at(offset: Vec2) -> std::io::Result<()> {
+    let mut stdout = std::io::stdout().lock();
+    write!(
+        stdout,
+        "\x1b_Ga=d,d=P,x={},y={},q=2\x1b\\",
+        offset.x + 1,
+        offset.y + 1
+    )?;
     stdout.flush()
 }
 
@@ -353,12 +370,7 @@ fn clear_terminal_area(offset: Vec2, size: Vec2) {
     // now-playing card each draw one), then overwrite the cells used by other
     // protocols/fallbacks.
     if can_use_kitty_graphics() {
-        let _ = write!(
-            stdout,
-            "\x1b_Ga=d,d=P,x={},y={},q=2\x1b\\",
-            offset.x + 1,
-            offset.y + 1
-        );
+        let _ = kitty_delete_at(offset);
     }
     for y in offset.y..offset.y + size.y {
         let _ = write!(
