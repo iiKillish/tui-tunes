@@ -3,6 +3,9 @@ theme_file = "theme.toml"
 # Own Spotify app (an option this fork adds). Redirect URI: http://127.0.0.1:8989/login
 client_id = "your-client-id"
 
+# Start on the home screen (recently played, top tracks and artists; F4).
+initial_screen = "home"
+
 # Icons for the player bar; Ghostty has Nerd Font symbols built in.
 use_nerdfont = true
 

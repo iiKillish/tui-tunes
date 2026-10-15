@@ -10,7 +10,7 @@ use rspotify::model::{
     AlbumId, AlbumType, ArtistId, CursorBasedPage, EpisodeId, FullAlbum, FullArtist, FullEpisode,
     FullPlaylist, FullShow, FullTrack, ItemPositions, LibraryId, Market, Page, PlayableId,
     PlaylistId, PlaylistResult, PrivateUser, Recommendations, SavedAlbum, SavedTrack, SearchResult,
-    SearchType, Show, ShowId, SimplifiedTrack, TrackId, UserId,
+    SearchType, Show, ShowId, SimplifiedTrack, TimeRange, TrackId, Type, UserId,
 };
 use rspotify::{AuthCodeSpotify, ClientError, ClientResult, Config, prelude::*};
 use tokio::sync::mpsc;
@@ -25,6 +25,21 @@ use crate::model::playlist::Playlist;
 use crate::model::track::Track;
 use crate::spotify_worker::WorkerCommand;
 use crate::ui::pagination::{ApiPage, ApiResult};
+
+/// A track from the user's listening history.
+pub struct RecentPlay {
+    pub track: Track,
+    pub album: Album,
+    /// What it was played from, if it was an album, playlist or artist page, and its ID.
+    pub context: Option<(PlayContext, String)>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PlayContext {
+    Album,
+    Playlist,
+    Artist,
+}
 
 /// Longest rate-limit wait (seconds) honoured on the UI thread; see [WebApi::api_with_retry].
 const MAX_UI_THREAD_RATE_LIMIT_WAIT: u64 = 2;
@@ -771,6 +786,55 @@ impl WebApi {
             })
         };
         ApiResult::new(MAX_LIMIT, Arc::new(fetch_page))
+    }
+
+    /// The user's recently played tracks, most recent first (Spotify keeps the last 50).
+    pub fn recently_played(&self) -> Result<Vec<RecentPlay>, ()> {
+        self.api_with_retry(|api| api.current_user_recently_played(Some(50), None))
+            .map(|page| {
+                page.items
+                    .iter()
+                    .map(|play| RecentPlay {
+                        track: (&play.track).into(),
+                        album: (&play.track.album).into(),
+                        context: play.context.as_ref().and_then(|context| {
+                            let kind = match context._type {
+                                Type::Album => PlayContext::Album,
+                                Type::Playlist => PlayContext::Playlist,
+                                Type::Artist => PlayContext::Artist,
+                                _ => return None,
+                            };
+                            // URIs look like spotify:playlist:<id>.
+                            let id = context.uri.rsplit(':').next()?.to_string();
+                            Some((kind, id))
+                        }),
+                    })
+                    .collect()
+            })
+            .ok_or(())
+    }
+
+    /// The user's most played tracks of the last four weeks.
+    pub fn top_tracks(&self, limit: u32) -> Result<Vec<Track>, ()> {
+        self.api_with_retry(|api| {
+            api.current_user_top_tracks_manual(Some(TimeRange::ShortTerm), Some(limit), None)
+        })
+        .map(|page| page.items.iter().map(Track::from).collect())
+        .ok_or(())
+    }
+
+    /// The user's most played artists of the last four weeks, with a picture of each.
+    pub fn top_artists(&self, limit: u32) -> Result<Vec<(Artist, Option<String>)>, ()> {
+        self.api_with_retry(|api| {
+            api.current_user_top_artists_manual(Some(TimeRange::ShortTerm), Some(limit), None)
+        })
+        .map(|page| {
+            page.items
+                .iter()
+                .map(|artist| (artist.into(), artist.images.first().map(|i| i.url.clone())))
+                .collect()
+        })
+        .ok_or(())
     }
 
     /// Get details about the logged in user.

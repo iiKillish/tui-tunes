@@ -22,6 +22,7 @@ use crate::events;
 use crate::ext_traits::CursiveExt;
 use crate::traits::{IntoBoxedViewExt, ViewExt};
 use crate::ui::nowplaying::{self, NowPlaying};
+use crate::ui::pageheader::{HEADER_ROWS, HeaderRenderer};
 use crate::ui::queuepanel::{PanelTab, QueuePanel};
 
 /// Narrowest the screen content gets when showing the queue panel; below this the panel hides.
@@ -29,6 +30,9 @@ const MIN_CONTENT_WIDTH_WITH_QUEUE_PANEL: usize = 50;
 
 /// Smallest number of content rows to keep when showing the player bar.
 const MIN_CONTENT_ROWS_WITH_NOW_PLAYING: usize = 8;
+/// Smallest number of rows to keep for a page below its header (see [ViewExt::header]); with less
+/// room the header isn't shown.
+const MIN_ROWS_BELOW_HEADER: usize = 8;
 /// Height of the status bar, used instead of the player bar when that's disabled or doesn't fit.
 const STATUSBAR_HEIGHT: usize = 2;
 
@@ -38,6 +42,7 @@ pub struct Layout {
     statusbar: Box<dyn View>,
     now_playing: Option<NowPlaying>,
     queue_panel: Option<QueuePanel>,
+    header: HeaderRenderer,
     focus: Option<String>,
     previous_focus: Option<String>,
     cmdline: EditView,
@@ -113,6 +118,7 @@ impl Layout {
             statusbar: status.into_boxed_view(),
             now_playing: None,
             queue_panel: None,
+            header: HeaderRenderer::default(),
             focus: None,
             previous_focus: None,
             cmdline: command_line_input,
@@ -233,10 +239,31 @@ impl Layout {
         }
     }
 
-    /// Draw the player bar's and queue panel's images in the terminal; see
-    /// [NowPlaying::render_to_terminal] and [QueuePanel::render_to_terminal].
+    /// Rows taken by the top view's header (see [ViewExt::header]) in a layout of `size`: 0 if it
+    /// has none or there's no room.
+    fn header_height(&self, size: Vec2) -> usize {
+        let content_rows = size
+            .y
+            .saturating_sub(1 + self.bottom_height(size) + self.cmdline_height());
+        match self.get_top_view() {
+            Some(view)
+                if content_rows >= HEADER_ROWS + MIN_ROWS_BELOW_HEADER
+                    && view.header().is_some() =>
+            {
+                HEADER_ROWS
+            }
+            _ => 0,
+        }
+    }
+
+    /// Draw the images in the terminal: the player bar's, the side panel's, the page header's and
+    /// the top view's; see [NowPlaying::render_to_terminal] and [QueuePanel::render_to_terminal].
     #[cfg(feature = "cover")]
     pub fn render_images(&self, overlays: &[crate::ui::cover::Area]) {
+        self.header.render_to_terminal(overlays);
+        if let Some(view) = self.get_top_view() {
+            view.render_images(overlays);
+        }
         if let Some(bar) = &self.now_playing {
             bar.render_to_terminal(overlays);
         }
@@ -497,9 +524,15 @@ impl View for Layout {
 
         if let Some(view) = self.get_top_view() {
             // Title centered, with the back button on the left and the subtitle on the right,
-            // each shortened or dropped rather than overlapping the title.
+            // each shortened or dropped rather than overlapping the title. Pages with a header
+            // show their title and details there instead.
+            let header_height = self.header_height(full_printer.size);
             let width = printer.size.x;
-            let title = view.title();
+            let title = if header_height > 0 {
+                String::new()
+            } else {
+                view.title()
+            };
             let title_width = title.width().min(width);
             let title_x = HAlign::Center.get_offset(title_width, width);
             printer.with_color(ColorStyle::title_primary(), |printer| {
@@ -516,7 +549,11 @@ impl View for Layout {
                 }
             }
 
-            let title_sub = view.title_sub();
+            let title_sub = if header_height > 0 {
+                String::new()
+            } else {
+                view.title_sub()
+            };
             let sub_x = HAlign::Right.get_offset(title_sub.width(), width);
             if sub_x > title_x + title_width {
                 printer.with_color(ColorStyle::secondary(), |printer| {
@@ -524,15 +561,26 @@ impl View for Layout {
                 });
             }
 
-            // screen content
+            // Page header, then the screen content.
+            match view.header() {
+                Some(header) if header_height > 0 => self.header.draw(
+                    &printer
+                        .offset((0, 1))
+                        .cropped((printer.size.x, header_height)),
+                    &header,
+                ),
+                _ => self.header.hide(),
+            }
             let printer = &printer
-                .offset((0, 1))
+                .offset((0, 1 + header_height))
                 .cropped((
                     printer.size.x,
-                    printer.size.y - 1 - bottom_height - cmdline_height,
+                    printer.size.y - 1 - header_height - bottom_height - cmdline_height,
                 ))
                 .focused(self.focused_panel().is_none());
             view.draw(printer);
+        } else {
+            self.header.hide();
         }
 
         let printer = full_printer;
@@ -595,8 +643,12 @@ impl View for Layout {
             }
         }
 
+        let header_height = self.header_height(size);
         if let Some(view) = self.get_current_view_mut() {
-            view.layout(Vec2::new(content_width, size.y - 1 - bottom_height));
+            view.layout(Vec2::new(
+                content_width,
+                size.y - 1 - header_height - bottom_height,
+            ));
         }
     }
 
@@ -746,8 +798,13 @@ impl View for Layout {
                     return EventResult::consumed();
                 }
 
+                // Below the header (which isn't clickable), the screen content.
+                let header_height = self.header_height(self.last_size);
+                if position.y < 1 + header_height {
+                    return EventResult::consumed();
+                }
                 if let Some(view) = self.get_current_view_mut() {
-                    view.on_event(event.relativized((0, 1)))
+                    view.on_event(event.relativized((0, 1 + header_height)))
                 } else {
                     EventResult::Ignored
                 }

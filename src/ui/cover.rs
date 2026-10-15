@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -50,6 +50,94 @@ pub fn overlaps(image: Area, overlay: Area) -> bool {
         && overlay_start.x < image_offset.x + image_size.x
         && image_offset.y < overlay_end.y
         && overlay_start.y < image_offset.y + image_size.y
+}
+
+/// A cover (or other picture) to show filling an area of the terminal, cropped to fit.
+#[derive(Clone, PartialEq)]
+pub struct ImageRequest {
+    /// Kitty image ID; each image shown at the same time needs its own.
+    pub image_id: u32,
+    pub url: String,
+    pub offset: Vec2,
+    pub cells: Vec2,
+}
+
+/// Covers drawn as Kitty images (queue thumbnails, page headers, home cards), kept like the
+/// player bar's icons: views say what should be shown while drawing, and
+/// [ImageLayer::render_to_terminal] updates the terminal afterwards, touching only images that
+/// changed.
+#[derive(Default)]
+pub struct ImageLayer {
+    desired: RwLock<Vec<ImageRequest>>,
+    rendered: RwLock<Vec<ImageRequest>>,
+    /// Resized thumbnails per cover URL and pixel size.
+    cache: RwLock<HashMap<(String, u32, u32), image::RgbaImage>>,
+}
+
+impl ImageLayer {
+    pub fn set(&self, thumbnails: Vec<ImageRequest>) {
+        *self.desired.write().unwrap() = thumbnails;
+    }
+
+    /// Show the requested thumbnails, except ones that would cover part of `overlays` (dialogs
+    /// or menus) or whose cover is still downloading (they're retried on the next call).
+    pub fn render_to_terminal(&self, overlays: &[Area], font_size: Vec2) {
+        let desired: Vec<ImageRequest> = self
+            .desired
+            .read()
+            .unwrap()
+            .iter()
+            .filter(|t| !overlays.iter().any(|o| overlaps((t.offset, t.cells), *o)))
+            .cloned()
+            .collect();
+        let mut rendered = self.rendered.write().unwrap();
+        if *rendered == desired {
+            return;
+        }
+        for old in rendered.iter().filter(|old| !desired.contains(old)) {
+            let _ = kitty_delete(old.image_id);
+        }
+        let mut shown = Vec::new();
+        let mut cache = self.cache.write().unwrap();
+        for new in desired {
+            if rendered.contains(&new) {
+                shown.push(new);
+                continue;
+            }
+            let Some(path) = cached_cover_path(&new.url) else {
+                continue;
+            };
+            let size = (
+                (new.cells.x * font_size.x) as u32,
+                (new.cells.y * font_size.y) as u32,
+            );
+            let key = (new.url.clone(), size.0, size.1);
+            if !cache.contains_key(&key) {
+                let image = image::ImageReader::open(&path)
+                    .and_then(|r| r.with_guessed_format())
+                    .map_err(|e| e.to_string())
+                    .and_then(|r| r.decode().map_err(|e| e.to_string()));
+                match image {
+                    // Fill the square, cropping rather than letterboxing.
+                    Ok(image) => {
+                        let thumbnail = image
+                            .resize_to_fill(size.0, size.1, image::imageops::FilterType::Triangle)
+                            .to_rgba8();
+                        cache.insert(key.clone(), thumbnail);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to load cover {}: {e}", path.display());
+                        continue;
+                    }
+                }
+            }
+            match kitty_place(&cache[&key], new.offset, new.cells, new.image_id, 0) {
+                Ok(()) => shown.push(new),
+                Err(e) => log::error!("Failed to draw image: {e}"),
+            }
+        }
+        *rendered = shown;
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -311,10 +399,14 @@ fn render_kitty(
 /// removes more than that in some terminals (Ghostty takes out neighbouring images too).
 pub(crate) const COVER_VIEW_IMAGE_ID: u32 = 1;
 pub(crate) const NOW_PLAYING_COVER_IMAGE_ID: u32 = 2;
+/// The album or playlist page header's cover.
+pub(crate) const HEADER_COVER_IMAGE_ID: u32 = 3;
 /// First of the player bar's control icon IDs (one per button).
 pub(crate) const CONTROL_ICON_IMAGE_ID: u32 = 10;
 /// First of the queue panel's thumbnail IDs (one per visible item).
 pub(crate) const QUEUE_THUMBNAIL_IMAGE_ID: u32 = 100;
+/// First of the home screen's card covers.
+pub(crate) const HOME_CARD_IMAGE_ID: u32 = 300;
 
 /// Place `pixels` over `cells` terminal cells at `offset` with the Kitty graphics protocol as
 /// image `image_id` (replacing any image with that ID), without moving the cursor (`C=1`) or

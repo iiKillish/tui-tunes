@@ -353,6 +353,15 @@ impl Library {
                     self.append_or_update(playlist);
                     // trigger redraw
                     self.trigger_redraw();
+                } else if let Some(cached) = self
+                    .playlists
+                    .write()
+                    .unwrap()
+                    .iter_mut()
+                    .find(|p| p.id == remote.id)
+                {
+                    // Unchanged, but caches from before covers were kept lack the cover.
+                    cached.cover_url.clone_from(&remote.cover_url);
                 }
             }
             lists_batch = lists_page.next();

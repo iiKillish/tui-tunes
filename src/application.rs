@@ -200,6 +200,8 @@ impl Application {
 
         let queueview = ui::queue::QueueView::new(queue.clone(), library.clone());
 
+        let homeview = ui::home::HomeView::new(queue.clone(), library.clone());
+
         #[cfg(feature = "cover")]
         let coverview = ui::cover::CoverView::new(queue.clone(), library.clone(), &configuration);
 
@@ -228,6 +230,7 @@ impl Application {
         )
         .now_playing(now_playing)
         .queue_panel(queue_panel)
+        .screen("home", homeview)
         .screen("search", search.with_name("search"))
         .screen("library", libraryview.with_name("library"))
         .screen("queue", queueview);

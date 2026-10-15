@@ -13,6 +13,7 @@ use crate::spotify::Spotify;
 
 use crate::traits::ViewExt;
 use crate::ui::listview::ListView;
+use crate::ui::pageheader::PageHeader;
 
 pub struct PlaylistView {
     playlist: Playlist,
@@ -76,6 +77,29 @@ impl ViewExt for PlaylistView {
         } else {
             "".to_string()
         }
+    }
+
+    fn header(&self) -> Option<PageHeader> {
+        let mut details = Vec::new();
+        if let Some(owner) = &self.playlist.owner_name {
+            details.push(owner.clone());
+        }
+        if let Some(tracks) = &self.playlist.tracks {
+            details.push(PageHeader::songs_and_length(
+                tracks.iter().map(|t| t.duration()),
+            ));
+        }
+        let kind = if self.playlist.collaborative {
+            "Collaborative playlist"
+        } else {
+            "Playlist"
+        };
+        Some(PageHeader {
+            kind: kind.into(),
+            title: self.playlist.name.clone(),
+            details,
+            cover_url: self.playlist.cover_url.clone(),
+        })
     }
 
     fn on_command(&mut self, s: &mut Cursive, cmd: &Command) -> Result<CommandResult, String> {

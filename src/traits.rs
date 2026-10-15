@@ -11,6 +11,7 @@ use crate::model::album::Album;
 use crate::model::artist::Artist;
 use crate::model::track::Track;
 use crate::queue::Queue;
+use crate::ui::pageheader::PageHeader;
 
 pub trait ListItem: Sync + Send + 'static {
     fn is_playing(&self, queue: &Queue) -> bool;
@@ -73,6 +74,17 @@ pub trait ViewExt: View {
 
     fn on_leave(&self) {}
 
+    /// A header to show above the view, like Spotify's album and playlist pages: cover, name and
+    /// details. Drawn by the layout.
+    fn header(&self) -> Option<PageHeader> {
+        None
+    }
+
+    /// Draw the view's images (covers) in the terminal. Called after cursive has drawn, for the
+    /// view on top; `overlays` are dialogs or menus that images must not cover. See
+    /// [crate::ui::cover::ImageLayer].
+    fn render_images(&self, _overlays: &[(cursive::Vec2, cursive::Vec2)]) {}
+
     fn on_command(&mut self, _s: &mut Cursive, _cmd: &Command) -> Result<CommandResult, String> {
         Ok(CommandResult::Ignored)
     }
@@ -89,6 +101,14 @@ impl<V: ViewExt> ViewExt for NamedView<V> {
 
     fn on_leave(&self) {
         self.with_view(|v| v.on_leave());
+    }
+
+    fn header(&self) -> Option<PageHeader> {
+        self.with_view(|v| v.header()).flatten()
+    }
+
+    fn render_images(&self, overlays: &[(cursive::Vec2, cursive::Vec2)]) {
+        self.with_view(|v| v.render_images(overlays));
     }
 
     fn on_command(&mut self, s: &mut Cursive, cmd: &Command) -> Result<CommandResult, String> {
@@ -175,6 +195,14 @@ impl ViewExt for BoxedViewExt {
 
     fn on_leave(&self) {
         self.boxed_view.on_leave();
+    }
+
+    fn header(&self) -> Option<PageHeader> {
+        self.boxed_view.header()
+    }
+
+    fn render_images(&self, overlays: &[(cursive::Vec2, cursive::Vec2)]) {
+        self.boxed_view.render_images(overlays);
     }
 
     fn on_command(&mut self, s: &mut Cursive, cmd: &Command) -> Result<CommandResult, String> {

@@ -13,6 +13,10 @@ player. Changes on top, one commit each:
 - side panel on the right with two tabs: the queue (now playing, then "Next from:
   <album/playlist>") and time-synced lyrics from LRCLIB; `Tab` focuses it for the keyboard,
   `Shift+L` switches to the lyrics
+- home screen (`F4`, the start screen in `rice/config.toml`): cards with covers for jump back
+  in, recently played, your top tracks and top artists
+- album, playlist and artist pages start with a Spotify-style header: big cover, name, artist or
+  owner, year, number of songs and length
 - like button (heart) after the title in the player bar, also `Shift+H` or `:like`
 - covers drawn without moving the cursor or deleting other images (fixes stale drawing)
 

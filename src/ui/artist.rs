@@ -14,11 +14,14 @@ use crate::model::track::Track;
 use crate::queue::Queue;
 use crate::traits::ViewExt;
 use crate::ui::listview::ListView;
+use crate::ui::pageheader::PageHeader;
 use crate::ui::tabbedview::TabbedView;
 
 pub struct ArtistView {
     artist: Artist,
     tabs: TabbedView,
+    /// The artist's picture, loaded in the background for the header.
+    image: Arc<RwLock<Option<String>>>,
 }
 
 impl ArtistView {
@@ -61,6 +64,22 @@ impl ArtistView {
             });
         }
 
+        let image = Arc::new(RwLock::new(None));
+        {
+            let image = image.clone();
+            let id = artist.id.clone();
+            let spotify = queue.get_spotify();
+            let library = library.clone();
+            thread::spawn(move || {
+                if let Some(id) = id
+                    && let Ok(artist) = spotify.api.artist(&id)
+                {
+                    *image.write().unwrap() = artist.images.first().map(|i| i.url.clone());
+                    library.trigger_redraw();
+                }
+            });
+        }
+
         let mut tabs = TabbedView::new();
 
         if let Some(tracks) = artist.tracks.as_ref() {
@@ -87,6 +106,7 @@ impl ArtistView {
         Self {
             artist: artist.clone(),
             tabs,
+            image,
         }
     }
 
@@ -116,6 +136,15 @@ impl ViewWrapper for ArtistView {
 impl ViewExt for ArtistView {
     fn title(&self) -> String {
         self.artist.name.clone()
+    }
+
+    fn header(&self) -> Option<PageHeader> {
+        Some(PageHeader {
+            kind: "Artist".into(),
+            title: self.artist.name.clone(),
+            details: Vec::new(),
+            cover_url: self.image.read().unwrap().clone(),
+        })
     }
 
     fn on_command(&mut self, s: &mut Cursive, cmd: &Command) -> Result<CommandResult, String> {

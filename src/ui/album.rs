@@ -11,6 +11,7 @@ use crate::model::artist::Artist;
 use crate::queue::Queue;
 use crate::traits::ViewExt;
 use crate::ui::listview::ListView;
+use crate::ui::pageheader::PageHeader;
 use crate::ui::tabbedview::TabbedView;
 
 pub struct AlbumView {
@@ -74,6 +75,24 @@ impl ViewExt for AlbumView {
         } else {
             "".to_string()
         }
+    }
+
+    fn header(&self) -> Option<PageHeader> {
+        let mut details = vec![self.album.artists.join(", ")];
+        if !self.album.year.is_empty() {
+            details.push(self.album.year.clone());
+        }
+        if let Some(tracks) = &self.album.tracks {
+            details.push(PageHeader::songs_and_length(
+                tracks.iter().map(|t| t.duration),
+            ));
+        }
+        Some(PageHeader {
+            kind: "Album".into(),
+            title: self.album.title.clone(),
+            details,
+            cover_url: self.album.cover_url.clone(),
+        })
     }
 
     fn on_command(&mut self, s: &mut Cursive, cmd: &Command) -> Result<CommandResult, String> {

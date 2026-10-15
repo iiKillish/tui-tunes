@@ -1,5 +1,3 @@
-#[cfg(feature = "cover")]
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
@@ -19,8 +17,7 @@ use crate::queue::Queue;
 use crate::spotify::Spotify;
 #[cfg(feature = "cover")]
 use crate::ui::cover::{
-    Area, QUEUE_THUMBNAIL_IMAGE_ID, cached_cover_path, kitty_delete, kitty_place, kitty_supported,
-    overlaps, terminal_font_size,
+    Area, ImageLayer, ImageRequest, QUEUE_THUMBNAIL_IMAGE_ID, kitty_supported, terminal_font_size,
 };
 
 /// Default width of the panel in columns.
@@ -83,98 +80,9 @@ pub struct QueuePanel {
     lyrics_rows: RwLock<Vec<Option<u32>>>,
 
     #[cfg(feature = "cover")]
-    thumbnails: ThumbnailLayer,
+    thumbnails: ImageLayer,
     #[cfg(feature = "cover")]
     font_size: Vec2,
-}
-
-/// An album thumbnail to show next to a queue item.
-#[cfg(feature = "cover")]
-#[derive(Clone, PartialEq)]
-struct ThumbnailRequest {
-    image_id: u32,
-    url: String,
-    offset: Vec2,
-    cells: Vec2,
-}
-
-/// Album thumbnails drawn as Kitty images, kept like the player bar's icons: the panel says what
-/// should be shown while drawing, and [ThumbnailLayer::render_to_terminal] updates the terminal
-/// afterwards, touching only thumbnails that changed.
-#[cfg(feature = "cover")]
-#[derive(Default)]
-struct ThumbnailLayer {
-    desired: RwLock<Vec<ThumbnailRequest>>,
-    rendered: RwLock<Vec<ThumbnailRequest>>,
-    /// Resized thumbnails per cover URL and pixel size.
-    cache: RwLock<HashMap<(String, u32, u32), image::RgbaImage>>,
-}
-
-#[cfg(feature = "cover")]
-impl ThumbnailLayer {
-    fn set(&self, thumbnails: Vec<ThumbnailRequest>) {
-        *self.desired.write().unwrap() = thumbnails;
-    }
-
-    /// Show the requested thumbnails, except ones that would cover part of `overlays` (dialogs
-    /// or menus) or whose cover is still downloading (they're retried on the next call).
-    fn render_to_terminal(&self, overlays: &[Area], font_size: Vec2) {
-        let desired: Vec<ThumbnailRequest> = self
-            .desired
-            .read()
-            .unwrap()
-            .iter()
-            .filter(|t| !overlays.iter().any(|o| overlaps((t.offset, t.cells), *o)))
-            .cloned()
-            .collect();
-        let mut rendered = self.rendered.write().unwrap();
-        if *rendered == desired {
-            return;
-        }
-        for old in rendered.iter().filter(|old| !desired.contains(old)) {
-            let _ = kitty_delete(old.image_id);
-        }
-        let mut shown = Vec::new();
-        let mut cache = self.cache.write().unwrap();
-        for new in desired {
-            if rendered.contains(&new) {
-                shown.push(new);
-                continue;
-            }
-            let Some(path) = cached_cover_path(&new.url) else {
-                continue;
-            };
-            let size = (
-                (new.cells.x * font_size.x) as u32,
-                (new.cells.y * font_size.y) as u32,
-            );
-            let key = (new.url.clone(), size.0, size.1);
-            if !cache.contains_key(&key) {
-                let image = image::ImageReader::open(&path)
-                    .and_then(|r| r.with_guessed_format())
-                    .map_err(|e| e.to_string())
-                    .and_then(|r| r.decode().map_err(|e| e.to_string()));
-                match image {
-                    // Fill the square, cropping rather than letterboxing.
-                    Ok(image) => {
-                        let thumbnail = image
-                            .resize_to_fill(size.0, size.1, image::imageops::FilterType::Triangle)
-                            .to_rgba8();
-                        cache.insert(key.clone(), thumbnail);
-                    }
-                    Err(e) => {
-                        log::error!("Failed to load cover {}: {e}", path.display());
-                        continue;
-                    }
-                }
-            }
-            match kitty_place(&cache[&key], new.offset, new.cells, new.image_id, 0) {
-                Ok(()) => shown.push(new),
-                Err(e) => log::error!("Failed to draw thumbnail: {e}"),
-            }
-        }
-        *rendered = shown;
-    }
 }
 
 impl QueuePanel {
@@ -196,7 +104,7 @@ impl QueuePanel {
             lyrics_scroll: RwLock::new(None),
             lyrics_rows: RwLock::new(Vec::new()),
             #[cfg(feature = "cover")]
-            thumbnails: ThumbnailLayer::default(),
+            thumbnails: ImageLayer::default(),
             #[cfg(feature = "cover")]
             font_size: terminal_font_size(),
         }
@@ -525,7 +433,7 @@ impl QueuePanel {
             );
         };
         #[cfg(feature = "cover")]
-        let mut thumbnails: Vec<ThumbnailRequest> = Vec::new();
+        let mut thumbnails: Vec<ImageRequest> = Vec::new();
         #[allow(unused_variables, unused_mut)]
         let mut add_thumbnail = |track: &Playable, y: usize| {
             #[cfg(feature = "cover")]
@@ -533,7 +441,7 @@ impl QueuePanel {
                 && y + 2 <= size.y
                 && let Some(url) = track.cover_url()
             {
-                thumbnails.push(ThumbnailRequest {
+                thumbnails.push(ImageRequest {
                     image_id: QUEUE_THUMBNAIL_IMAGE_ID + thumbnails.len() as u32,
                     url,
                     offset: printer.offset + Vec2::new(x, y),
