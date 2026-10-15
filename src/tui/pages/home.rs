@@ -596,8 +596,8 @@ impl HomePage {
             0
         };
         let has_queue = ctx.queue.get_current_index().is_some();
-        // Also the item cut off at the bottom, if any.
-        let drawn = usize::from(area.height.div_ceil(ITEM_ROWS));
+        // Only items that fit whole (the blank row after the last one isn't needed).
+        let drawn = usize::from((area.height + 1) / ITEM_ROWS);
         for (row, item) in rows.iter().enumerate().skip(self.first).take(drawn) {
             let y = area.y + (row - self.first) as u16 * ITEM_ROWS;
             let lines = Rect::new(area.x, y, area.width, 2).intersection(area);

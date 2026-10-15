@@ -34,6 +34,8 @@ pub const HERO_MIN_ROWS: u16 = 14;
 /// Rows of the bar.
 pub const BAR_ROWS: u16 = 5;
 const VOLUME_BAR_WIDTH: u16 = 12;
+/// Smallest cover worth drawing above the controls; below this the hero puts it beside them.
+const MIN_COVER_ROWS_ABOVE: u16 = 8;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Control {
@@ -336,6 +338,139 @@ impl Player {
         }
     }
 
+    /// The hero beside its cover: for short heroes, where a cover above the controls would be
+    /// tiny. The cover fills the height on the left; the track, progress, controls and volume
+    /// stack up on the right.
+    fn draw_hero_side(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        ctx: &Ctx,
+        count: usize,
+        url: &str,
+    ) {
+        let background = Style::new().bg(ctx.palette.background);
+        let track = ctx.queue.get_current();
+        let cover_rows = area.height.saturating_sub(2);
+        let cover_width = images::square_width(cover_rows);
+        images::cover(
+            url,
+            Rect::new(area.x + 2, area.y + 1, cover_width, cover_rows),
+        );
+
+        let left = area.x + 2 + cover_width + 4;
+        let content_width = area.right().saturating_sub(left + 3).min(64);
+        // Center the rows vertically next to the cover.
+        let block = 11;
+        let top = area.y + 1 + cover_rows.saturating_sub(block) / 2;
+        self.draw_text(
+            frame,
+            Rect::new(left, top, content_width, 3),
+            false,
+            ctx,
+            background,
+        );
+
+        let progress_row = top + 4;
+        let bar = Rect::new(left, progress_row, content_width, 1);
+        let (elapsed, total) = match &track {
+            Some(t) => {
+                let total = t.duration();
+                (
+                    (ctx.spotify.get_current_progress().as_millis() as u32).min(total),
+                    total,
+                )
+            }
+            None => (0, 0),
+        };
+        let fraction = if total > 0 {
+            f64::from(elapsed) / f64::from(total)
+        } else {
+            0.0
+        };
+        Self::draw_bar(frame, bar, fraction, ctx, background);
+        self.hits.progress = Some(bar);
+        if track.is_some() {
+            let buf = frame.buffer_mut();
+            let secondary = background.fg(ctx.palette.secondary);
+            put(
+                buf,
+                left,
+                progress_row + 1,
+                &duration(elapsed),
+                10,
+                secondary,
+            );
+            let remaining = format!("-{}", duration(total - elapsed));
+            put(
+                buf,
+                bar.right().saturating_sub(width(&remaining) as u16),
+                progress_row + 1,
+                &remaining,
+                10,
+                secondary,
+            );
+        }
+
+        let (bw, bh) = Self::button_size();
+        let controls_row = progress_row + 2;
+        self.draw_control(
+            frame,
+            Rect::new(left, controls_row, bw, bh),
+            Control::Shuffle,
+            ctx,
+        );
+        self.draw_control(
+            frame,
+            Rect::new(bar.right().saturating_sub(bw), controls_row, bw, bh),
+            Control::Repeat,
+            ctx,
+        );
+        let gap = bw;
+        let middle = 3 * bw + 2 * gap;
+        let mx = left + content_width.saturating_sub(middle) / 2;
+        for (i, control) in [Control::Previous, Control::PlayPause, Control::Next]
+            .into_iter()
+            .enumerate()
+        {
+            self.draw_control(
+                frame,
+                Rect::new(mx + i as u16 * (bw + gap), controls_row, bw, bh),
+                control,
+                ctx,
+            );
+        }
+
+        let volume_row = controls_row + bh + 1;
+        if volume_row < area.bottom() {
+            let vx = left + content_width.saturating_sub(VOLUME_BAR_WIDTH + 3) / 2;
+            put(
+                frame.buffer_mut(),
+                vx,
+                volume_row,
+                Self::volume_text(ctx),
+                2,
+                background.fg(ctx.palette.primary),
+            );
+            let vbar = Rect::new(vx + 3, volume_row, VOLUME_BAR_WIDTH, 1);
+            Self::draw_bar(
+                frame,
+                vbar,
+                f64::from(ctx.spotify.volume()) / f64::from(u16::MAX),
+                ctx,
+                background,
+            );
+            self.hits.volume = Some(Rect::new(vx, volume_row, VOLUME_BAR_WIDTH + 3, 1));
+        }
+        Self::draw_status(
+            frame,
+            Rect::new(area.x, area.y, area.width, 1),
+            count,
+            ctx,
+            background,
+        );
+    }
+
     fn draw_hero(
         &mut self,
         frame: &mut Frame,
@@ -344,6 +479,20 @@ impl Player {
         count: usize,
         show_cover: bool,
     ) {
+        // Short heroes put the cover beside the rest rather than above it.
+        if show_cover
+            && images::supported()
+            && area.height < HERO_CHROME_ROWS + MIN_COVER_ROWS_ABOVE
+            && area.height >= 12
+            && area.width >= 70
+            && let Some(url) = ctx
+                .queue
+                .get_current()
+                .as_ref()
+                .and_then(Playable::cover_url)
+        {
+            return self.draw_hero_side(frame, area, ctx, count, &url);
+        }
         // Design V1: no fill of its own, the main background.
         let background = Style::new().bg(ctx.palette.background);
         let track = ctx.queue.get_current();
