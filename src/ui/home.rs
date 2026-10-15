@@ -231,8 +231,6 @@ pub struct HomeView {
     /// Selected section and card.
     section: usize,
     card: usize,
-    /// The card selected in each section when last in it, so each row keeps its position.
-    section_cards: Vec<usize>,
     /// First section shown, and the first card shown in each section.
     first_section: AtomicUsize,
     first_cards: RwLock<Vec<usize>>,
@@ -251,7 +249,6 @@ impl HomeView {
             loaded_at: RwLock::new(None),
             section: 0,
             card: 0,
-            section_cards: Vec::new(),
             first_section: AtomicUsize::new(0),
             first_cards: RwLock::new(Vec::new()),
             card_areas: RwLock::new(Vec::new()),
@@ -277,17 +274,20 @@ impl HomeView {
         });
     }
 
-    /// Select `section`, at the card last selected there.
+    /// Select `section`, at the same place on screen as the card selected now (the second card
+    /// shown stays the second card shown). Each row keeps its own horizontal scroll.
     fn select_section(&mut self, section: usize) {
         if section == self.section {
             return;
         }
-        if self.section_cards.len() <= self.section.max(section) {
-            self.section_cards.resize(self.section.max(section) + 1, 0);
-        }
-        self.section_cards[self.section] = self.card;
+        let first_cards = self.first_cards.read().unwrap();
+        let first = |s: usize| first_cards.get(s).copied().unwrap_or(0);
+        let column = self.card.saturating_sub(first(self.section));
+        let card = first(section) + column;
+        drop(first_cards);
+        let cards = self.with_sections(|s| s.get(section).map_or(0, |s| s.cards.len()));
         self.section = section;
-        self.card = self.section_cards[section];
+        self.card = card.min(cards.saturating_sub(1));
     }
 
     fn with_sections<R>(&self, f: impl FnOnce(&[Section]) -> R) -> R {
