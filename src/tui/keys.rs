@@ -146,7 +146,6 @@ fn default_keybindings() -> HashMap<String, Vec<Command>> {
     kb.insert("Tab".into(), vec![Command::Screen(true)]);
     kb.insert("Shift+Tab".into(), vec![Command::Screen(false)]);
     kb.insert("Shift+l".into(), vec![Command::Panel(PanelAction::Lyrics)]);
-    kb.insert("F5".into(), vec![Command::Focus("lyrics".into())]);
     kb.insert("Alt+h".into(), vec![Command::Tab(false)]);
     kb.insert("Alt+l".into(), vec![Command::Tab(true)]);
     kb.insert("Shift+Left".into(), vec![Command::Tab(false)]);
@@ -207,12 +206,12 @@ fn default_keybindings() -> HashMap<String, Vec<Command>> {
         kb.insert("Shift+x".into(), vec![Command::Share(TargetMode::Current)]);
     }
 
-    kb.insert("F1".into(), vec![Command::Focus("queue".into())]);
+    // F1-F5 in the order of the tabs.
+    kb.insert("F1".into(), vec![Command::Focus("home".into())]);
     kb.insert("F2".into(), vec![Command::Focus("search".into())]);
     kb.insert("F3".into(), vec![Command::Focus("library".into())]);
-    kb.insert("F4".into(), vec![Command::Focus("home".into())]);
-    #[cfg(feature = "cover")]
-    kb.insert("F8".into(), vec![Command::Focus("cover".into())]);
+    kb.insert("F4".into(), vec![Command::Focus("queue".into())]);
+    kb.insert("F5".into(), vec![Command::Focus("lyrics".into())]);
     kb.insert("?".into(), vec![Command::Help]);
     kb.insert("Esc".into(), vec![Command::Back]);
     kb.insert("Backspace".into(), vec![Command::Back]);

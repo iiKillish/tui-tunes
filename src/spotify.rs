@@ -13,6 +13,7 @@ use librespot_playback::audio_backend;
 use librespot_playback::audio_backend::SinkBuilder;
 use librespot_playback::config::Bitrate;
 use librespot_playback::config::PlayerConfig;
+use librespot_playback::config::VolumeCtrl;
 use librespot_playback::mixer::MixerConfig;
 use librespot_playback::mixer::softmixer::SoftMixer;
 use librespot_playback::player::Player;
@@ -274,7 +275,19 @@ impl Spotify {
 
         let mixer_factory_opt = librespot_playback::mixer::find(Some(SoftMixer::NAME));
         let factory = mixer_factory_opt.expect("could not find softvol mixer factory");
-        let mixer = factory(MixerConfig::default()).expect("could not create softvol mixer");
+        let volume_ctrl = cfg
+            .values()
+            .volume_curve
+            .as_deref()
+            .and_then(|curve| {
+                VolumeCtrl::from_str_with_range(curve, VolumeCtrl::DEFAULT_DB_RANGE).ok()
+            })
+            .unwrap_or(VolumeCtrl::Cubic(VolumeCtrl::DEFAULT_DB_RANGE));
+        let mixer = factory(MixerConfig {
+            volume_ctrl,
+            ..MixerConfig::default()
+        })
+        .expect("could not create softvol mixer");
 
         mixer.set_volume(volume);
 

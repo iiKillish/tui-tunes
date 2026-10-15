@@ -116,6 +116,9 @@ pub struct ConfigValues {
     /// TOML file with theme colors (the keys of `[theme]`, at the top level), relative to the
     /// configuration directory unless absolute. Colors in `[theme]` override it.
     pub theme_file: Option<String>,
+    /// How the volume slider maps to loudness: "cubic" (default, like system mixers), "log"
+    /// (60 dB range, quiet sooner) or "linear".
+    pub volume_curve: Option<String>,
 }
 
 /// The ncspot theme.
