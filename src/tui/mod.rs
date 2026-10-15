@@ -15,6 +15,9 @@ pub mod pages;
 pub mod style;
 pub mod widgets;
 
+#[cfg(test)]
+mod tests;
+
 use std::io::{self, Stdout};
 use std::sync::OnceLock;
 

@@ -347,7 +347,8 @@ impl Player {
         let track = ctx.queue.get_current();
 
         // The cover as big as fits, square.
-        let mut cover_rows = if show_cover && images::supported() {
+        let cover_url = track.as_ref().and_then(Playable::cover_url);
+        let mut cover_rows = if show_cover && images::supported() && cover_url.is_some() {
             area.height.saturating_sub(HERO_CHROME_ROWS)
         } else {
             0
@@ -361,7 +362,7 @@ impl Player {
         let block = HERO_CHROME_ROWS + cover_rows;
         let top = area.y + area.height.saturating_sub(block) / 2;
         if cover_rows > 0
-            && let Some(url) = track.as_ref().and_then(Playable::cover_url)
+            && let Some(url) = &cover_url
         {
             let w = images::square_width(cover_rows);
             images::cover(
