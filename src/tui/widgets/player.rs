@@ -366,7 +366,7 @@ impl Player {
         {
             let w = images::square_width(cover_rows);
             images::cover(
-                &url,
+                url,
                 Rect::new(area.x + (area.width - w) / 2, top + 1, w, cover_rows),
             );
         }
