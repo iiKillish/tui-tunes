@@ -50,6 +50,8 @@ const SHOW_RECOMMENDATIONS_CMD: &str = "similar";
 const REDRAW_CMD: &str = "redraw";
 const EXECUTE_CMD: &str = "exec";
 const RECONNECT_CMD: &str = "reconnect";
+const LIKE_CMD: &str = "like";
+const PANEL_CMD: &str = "panel";
 
 pub const ALL_COMMANDS: &[&str] = &[
     QUIT_CMD,
@@ -96,7 +98,21 @@ pub const ALL_COMMANDS: &[&str] = &[
     REDRAW_CMD,
     EXECUTE_CMD,
     RECONNECT_CMD,
+    LIKE_CMD,
+    PANEL_CMD,
 ];
+
+/// What the `panel` command does with the side panel (queue and lyrics).
+#[derive(Display, Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[strum(serialize_all = "lowercase")]
+pub enum PanelAction {
+    /// Move keyboard focus to the panel, or back to the main view.
+    Focus,
+    /// Show the queue.
+    Queue,
+    /// Show the lyrics, or the queue if they're already showing.
+    Lyrics,
+}
 
 #[derive(Display, Clone, Serialize, Deserialize, Debug)]
 #[strum(serialize_all = "lowercase")]
@@ -249,6 +265,9 @@ pub enum Command {
     Redraw,
     Execute(String),
     Reconnect,
+    /// Save the current track to the library, or remove it if it's saved.
+    Like,
+    Panel(PanelAction),
 }
 
 impl fmt::Display for Command {
@@ -291,6 +310,7 @@ impl fmt::Display for Command {
             Self::Sort(key, direction) => vec![key.to_string(), direction.to_string()],
             Self::ShowRecommendations(mode) => vec![mode.to_string()],
             Self::Execute(cmd) => vec![cmd.to_owned()],
+            Self::Panel(action) => vec![action.to_string()],
             Self::Quit
             | Self::TogglePlay
             | Self::Stop
@@ -313,6 +333,7 @@ impl fmt::Display for Command {
             | Self::Noop
             | Self::Logout
             | Self::Reconnect
+            | Self::Like
             | Self::Redraw => vec![],
         };
         repr_tokens.append(&mut extras_args);
@@ -367,6 +388,8 @@ impl Command {
             Self::Redraw => REDRAW_CMD,
             Self::Execute(_) => EXECUTE_CMD,
             Self::Reconnect => RECONNECT_CMD,
+            Self::Like => LIKE_CMD,
+            Self::Panel(_) => PANEL_CMD,
         }
     }
 
@@ -915,6 +938,19 @@ pub fn parse(input: &str) -> Result<Vec<Command>, CommandParseError> {
                 REDRAW_CMD => Command::Redraw,
                 EXECUTE_CMD => Command::Execute(args.join(" ")),
                 RECONNECT_CMD => Command::Reconnect,
+                LIKE_CMD => Command::Like,
+                PANEL_CMD => Command::Panel(match args.first().copied() {
+                    None | Some("focus") => PanelAction::Focus,
+                    Some("queue") => PanelAction::Queue,
+                    Some("lyrics") => PanelAction::Lyrics,
+                    Some(arg) => {
+                        return Err(E::BadEnumArg {
+                            arg: arg.into(),
+                            accept: vec!["focus".into(), "queue".into(), "lyrics".into()],
+                            optional: true,
+                        });
+                    }
+                }),
                 _ => {
                     return Err(E::NoSuchCommand {
                         cmd: command.into(),

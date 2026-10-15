@@ -118,6 +118,23 @@ One-shot, toggle and menu commands (e.g. <kbd>O</kbd>, <kbd>A</kbd>,
 | <kbd>]</kbd>                  | Increase volume by 5%.                                         |
 | <kbd>R</kbd>                  | Toggle _Repeat_ mode.                                          |
 | <kbd>Z</kbd>                  | Toggle _Shuffle_ state.                                        |
+| <kbd>Shift</kbd>+<kbd>H</kbd> | Like the currently playing track, or unlike it (the heart).    |
+
+### Side Panel
+The panel on the right has two tabs, _Queue_ and _Lyrics_ (time-synced lyrics from
+[LRCLIB](https://lrclib.net), with the line being sung highlighted). Click a queue item to play it,
+or a lyrics line to jump to it.
+
+| Key                           | Command                                                                       |
+|-------------------------------|-------------------------------------------------------------------------------|
+| <kbd>Tab</kbd>                | Move keyboard focus to the panel, or back to the main view.                   |
+| <kbd>Shift</kbd>+<kbd>L</kbd> | Show the lyrics, or the queue if they're showing.                             |
+
+With the panel focused, the usual keys work on it: <kbd>↑</kbd>/<kbd>↓</kbd> (<kbd>K</kbd>/<kbd>J</kbd>)
+select a queue item (or scroll the lyrics), <kbd>Return</kbd> plays it, <kbd>D</kbd> removes it,
+<kbd>Shift</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> move it, <kbd>P</kbd> goes back to the current track,
+<kbd>←</kbd>/<kbd>→</kbd> (<kbd>H</kbd>/<kbd>L</kbd>) switch tabs and <kbd>Escape</kbd> returns
+focus to the main view.
 
 ### Context Menus
 | Key                           | Command                                                                                                   |
@@ -201,6 +218,8 @@ Note: \<FOO\> - mandatory arg; [BAR] - optional arg
 | `reconnect`                                                      | Reconnect to Spotify (useful when session has expired or connection was lost)                                                                                                                                                                                   |
 | `add [current]`                                                  | Add selected track to playlist, if `current` is passed the currently playing track will be added                                                                                                                                                                |
 | `save [current]`                                                 | Save selected item, if `current` is passed the currently playing item will be saved                                                                                                                                                                             |
+| `like`                                                           | Save the currently playing track to your library, or remove it if it's saved.                                                                                                                                                                                   |
+| `panel` [`focus`\|`queue`\|`lyrics`]                              | Side panel: `focus` (the default) moves keyboard focus to it or back, `queue` shows the queue, `lyrics` shows the lyrics (or the queue if they're showing).                                                                                                    |
 
 ## Remote control (IPC)
 Apart from MPRIS, ncspot will also create a domain socket on UNIX platforms (Linux, macOS, *BSD).
@@ -286,7 +305,7 @@ Possible configuration values are:
 | `ap_port`                       | Set ap-port for librespot (for restrictive firewalls)          | `80`, `443`, `4070`                                                                   |                     |
 | `client_id`                     | Client ID of your own Spotify app for Web API requests<sup>[5]</sup> | String                                                                          | ncspot's shared ID |
 | `now_playing_height`            | Rows of the player bar that replaces the status bar (0: use the status bar) | Number                                                               | `5`                 |
-| `queue_panel_width`             | Columns of the queue panel on the right (0 hides it)           | Number                                                                                | `40`                |
+| `queue_panel_width`             | Columns of the side panel (queue and lyrics) on the right (0 hides it) | Number                                                                                | `40`                |
 | `theme_file`                    | TOML file of `[theme]` colors (relative to the config directory); `[theme]` overrides it | String                                                    |                     |
 
 1. If built with the `cover` feature.

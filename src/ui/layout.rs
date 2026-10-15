@@ -15,14 +15,14 @@ use cursive::{Cursive, Printer};
 use unicode_width::UnicodeWidthStr;
 
 use crate::application::UserData;
-use crate::command::{self, ALL_COMMANDS, Command, JumpMode};
+use crate::command::{self, ALL_COMMANDS, Command, JumpMode, PanelAction};
 use crate::commands::CommandResult;
 use crate::config::{self, Config};
 use crate::events;
 use crate::ext_traits::CursiveExt;
 use crate::traits::{IntoBoxedViewExt, ViewExt};
 use crate::ui::nowplaying::{self, NowPlaying};
-use crate::ui::queuepanel::QueuePanel;
+use crate::ui::queuepanel::{PanelTab, QueuePanel};
 
 /// Narrowest the screen content gets when showing the queue panel; below this the panel hides.
 const MIN_CONTENT_WIDTH_WITH_QUEUE_PANEL: usize = 50;
@@ -139,19 +139,57 @@ impl Layout {
         self
     }
 
-    /// Columns taken by the queue panel in a layout `total_width` wide: 0 when it's disabled, on
-    /// the queue screen (which shows the whole queue) or when it would squeeze the content.
+    /// Columns taken by the side panel in a layout `total_width` wide: 0 when it's disabled, when
+    /// it would squeeze the content, or when it would show the queue on the queue screen (which
+    /// already shows the whole queue).
     fn queue_panel_width(&self, total_width: usize) -> usize {
         match &self.queue_panel {
             Some(panel)
                 if panel.width() > 0
-                    && self.focus.as_deref() != Some("queue")
+                    && !(self.focus.as_deref() == Some("queue")
+                        && panel.tab() == PanelTab::Queue)
                     && total_width >= panel.width() + 1 + MIN_CONTENT_WIDTH_WITH_QUEUE_PANEL =>
             {
                 panel.width()
             }
             _ => 0,
         }
+    }
+
+    /// The side panel, if it's shown and has keyboard focus.
+    fn focused_panel(&self) -> Option<&QueuePanel> {
+        self.queue_panel
+            .as_ref()
+            .filter(|panel| panel.is_focused() && self.queue_panel_width(self.last_size.x) > 0)
+    }
+
+    /// Run the `panel` command.
+    fn panel_command(&mut self, action: PanelAction) -> Result<CommandResult, String> {
+        let Some(panel) = &self.queue_panel else {
+            return Err("The side panel is disabled (queue_panel_width = 0)".into());
+        };
+        match action {
+            PanelAction::Focus => {
+                if panel.is_focused() {
+                    panel.set_focused(false);
+                } else if self.queue_panel_width(self.last_size.x) > 0 {
+                    panel.set_focused(true);
+                } else {
+                    return Err("The side panel isn't shown here".into());
+                }
+            }
+            PanelAction::Queue => panel.set_tab(PanelTab::Queue),
+            PanelAction::Lyrics if panel.tab() == PanelTab::Lyrics => {
+                panel.set_tab(PanelTab::Queue)
+            }
+            PanelAction::Lyrics => panel.set_tab(PanelTab::Lyrics),
+        }
+        // Showing the queue tab on the queue screen hides the panel.
+        if self.queue_panel_width(self.last_size.x) == 0 {
+            panel.set_focused(false);
+        }
+        self.ev.trigger();
+        Ok(CommandResult::Consumed(None))
     }
 
     /// Width of the screen content: everything left of the queue panel and its 1-column gap.
@@ -493,7 +531,7 @@ impl View for Layout {
                     printer.size.x,
                     printer.size.y - 1 - bottom_height - cmdline_height,
                 ))
-                .focused(true);
+                .focused(self.focused_panel().is_none());
             view.draw(printer);
         }
 
@@ -552,6 +590,9 @@ impl View for Layout {
         let content_width = self.content_width(size.x);
         if let Some(panel) = self.queue_panel.as_mut() {
             panel.layout(Vec2::new(panel_width, size.y - bottom_height));
+            if panel_width == 0 {
+                panel.set_focused(false);
+            }
         }
 
         if let Some(view) = self.get_current_view_mut() {
@@ -570,6 +611,39 @@ impl View for Layout {
                 EventResult::consumed()
             }
             _ if self.cmdline_focus => self.command_line_handle_event(event),
+            // While the side panel has focus, keys aren't for the main view (a search field would
+            // take them as text): they go to the keybindings, whose commands reach the panel
+            // through `on_command`. Except the command line and jump keys.
+            Event::Char(character)
+                if self.focused_panel().is_some()
+                    && character
+                        == self
+                            .configuration
+                            .values()
+                            .command_key
+                            .unwrap_or(config::DEFAULT_COMMAND_KEY) =>
+            {
+                self.enable_cmdline(character);
+                EventResult::consumed()
+            }
+            Event::Char('/') if self.focused_panel().is_some() => {
+                self.enable_jump();
+                EventResult::consumed()
+            }
+            Event::Char(_)
+            | Event::Key(_)
+            | Event::CtrlChar(_)
+            | Event::AltChar(_)
+            | Event::Shift(_)
+            | Event::Ctrl(_)
+            | Event::Alt(_)
+            | Event::AltShift(_)
+            | Event::CtrlShift(_)
+            | Event::CtrlAlt(_)
+                if self.focused_panel().is_some() =>
+            {
+                EventResult::Ignored
+            }
             Event::Char(character)
                 if !self.cmdline_focus
                     && (character
@@ -623,6 +697,11 @@ impl View for Layout {
                     && let Some(panel) = self.queue_panel.as_mut()
                 {
                     return panel.on_event(event.relativized(Vec2::new(panel_x, 0)));
+                }
+                if let MouseEvent::Press(_) = mouse_event
+                    && let Some(panel) = &self.queue_panel
+                {
+                    panel.set_focused(false);
                 }
 
                 // Handle mouse events in the command/jump area.
@@ -722,6 +801,14 @@ impl ViewExt for Layout {
                     screen.on_command(s, cmd)?;
                 }
 
+                Ok(CommandResult::Consumed(None))
+            }
+            Command::Panel(action) => self.panel_command(*action),
+            _ if self
+                .focused_panel()
+                .is_some_and(|panel| panel.handle_command(cmd)) =>
+            {
+                self.ev.trigger();
                 Ok(CommandResult::Consumed(None))
             }
             Command::Back => {

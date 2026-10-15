@@ -4,12 +4,14 @@ use std::time::Duration;
 
 use crate::application::UserData;
 use crate::command::{
-    Command, GotoMode, JumpMode, MoveAmount, MoveMode, SeekDirection, ShiftMode, TargetMode, parse,
+    Command, GotoMode, JumpMode, MoveAmount, MoveMode, PanelAction, SeekDirection, ShiftMode,
+    TargetMode, parse,
 };
 use crate::config::{Config, user_configuration_directory};
 use crate::events::EventManager;
 use crate::ext_traits::CursiveExt;
 use crate::library::Library;
+use crate::model::playable::Playable;
 use crate::queue::{Queue, RepeatSetting};
 use crate::spotify::{Spotify, VOLUME_PERCENT};
 use crate::traits::{IntoBoxedViewExt, ListItem, ViewExt};
@@ -323,6 +325,12 @@ impl CommandManager {
                 self.spotify.shutdown();
                 Ok(None)
             }
+            Command::Like => {
+                if let Some(Playable::Track(track)) = self.queue.get_current() {
+                    self.library.toggle_saved_track_in_background(&track);
+                }
+                Ok(None)
+            }
             Command::AddCurrent => {
                 if let Some(track) = self.queue.get_current()
                     && let Some(track) = track.track()
@@ -359,6 +367,7 @@ impl CommandManager {
             | Command::Jump(_)
             | Command::Insert(_)
             | Command::ShowRecommendations(_)
+            | Command::Panel(_)
             | Command::Sort(_, _) => Err(format!(
                 "The command \"{}\" is unsupported in this view",
                 cmd.basename()
@@ -504,6 +513,9 @@ impl CommandManager {
 
         kb.insert("q".into(), vec![Command::Quit]);
         kb.insert("Ctrl+l".into(), vec![Command::Redraw]);
+        kb.insert("Shift+h".into(), vec![Command::Like]);
+        kb.insert("Tab".into(), vec![Command::Panel(PanelAction::Focus)]);
+        kb.insert("Shift+l".into(), vec![Command::Panel(PanelAction::Lyrics)]);
         kb.insert("Shift+p".into(), vec![Command::TogglePlay]);
         kb.insert("Shift+u".into(), vec![Command::UpdateLibrary]);
         kb.insert("Shift+s".into(), vec![Command::Stop]);

@@ -45,6 +45,9 @@ pub struct Library {
     pub is_done: Arc<RwLock<bool>>,
     pub user_id: Option<String>,
     pub display_name: Option<String>,
+    /// Tracks being saved (true) or removed (false) by [Self::toggle_saved_track_in_background],
+    /// shown in their new state until Spotify has been told.
+    pending_saves: Arc<RwLock<HashMap<String, bool>>>,
     ev: EventManager,
     spotify: Spotify,
     pub cfg: Arc<Config>,
@@ -63,6 +66,7 @@ impl Library {
             is_done: Arc::new(RwLock::new(false)),
             user_id: None,
             display_name: None,
+            pending_saves: Arc::default(),
             ev,
             spotify,
             cfg,
@@ -83,6 +87,7 @@ impl Library {
             is_done: Arc::new(RwLock::new(false)),
             user_id,
             display_name,
+            pending_saves: Arc::default(),
             ev,
             spotify,
             cfg,
@@ -613,9 +618,40 @@ impl Library {
         if !*self.is_done.read().unwrap() {
             return false;
         }
+        if let Some(id) = track.id()
+            && let Some(&saved) = self.pending_saves.read().unwrap().get(&id)
+        {
+            return saved;
+        }
 
         let tracks = self.tracks.read().unwrap();
         tracks.iter().any(|t| t.id == track.id())
+    }
+
+    /// Save `track` if it isn't saved, else remove it, without waiting for Spotify: the new state
+    /// shows straight away (see [Self::is_saved_track]) while the request runs on another thread.
+    pub fn toggle_saved_track_in_background(&self, track: &Track) {
+        let Some(id) = track.id.clone() else {
+            return;
+        };
+        if !*self.is_done.read().unwrap() {
+            return;
+        }
+        let save = !self.is_saved_track(&Playable::Track(track.clone()));
+        self.pending_saves.write().unwrap().insert(id.clone(), save);
+        self.trigger_redraw();
+
+        let library = self.clone();
+        let track = track.clone();
+        thread::spawn(move || {
+            if save {
+                library.save_tracks(&[&track]);
+            } else {
+                library.unsave_tracks(&[&track]);
+            }
+            library.pending_saves.write().unwrap().remove(&id);
+            library.trigger_redraw();
+        });
     }
 
     /// Save `tracks` to the user's library.

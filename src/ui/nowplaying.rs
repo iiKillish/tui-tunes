@@ -80,9 +80,9 @@ struct Geometry {
 }
 
 /// Spotify-style player bar at the bottom of the window, replacing the status bar: cover art
-/// (when built with the `cover` feature), title, artists and album on the left; shuffle,
-/// previous, play/pause, next and repeat buttons over a progress bar in the middle; volume on
-/// the right. All of it can be clicked.
+/// (when built with the `cover` feature), title (with a like button), artists and album on the
+/// left; shuffle, previous, play/pause, next and repeat buttons over a progress bar in the
+/// middle; volume on the right. All of it can be clicked.
 pub struct NowPlaying {
     queue: Arc<Queue>,
     spotify: Spotify,
@@ -92,6 +92,8 @@ pub struct NowPlaying {
     show_cover: AtomicBool,
     /// Vim-style count prefix being typed (like the `10` of `10j`), shown while non-zero.
     pending_count: Arc<AtomicUsize>,
+    /// Column of the like button drawn last (after the title), or `usize::MAX` if there's none.
+    like_x: AtomicUsize,
     last_size: Vec2,
     #[cfg(feature = "cover")]
     cover: CoverRenderer,
@@ -205,6 +207,7 @@ impl NowPlaying {
             library,
             height: config.values().now_playing_height.unwrap_or(DEFAULT_HEIGHT),
             show_cover: AtomicBool::new(true),
+            like_x: AtomicUsize::new(usize::MAX),
             last_size: Vec2::zero(),
             #[cfg(feature = "cover")]
             cover: CoverRenderer::new(config, NOW_PLAYING_COVER_IMAGE_ID),
@@ -392,6 +395,16 @@ impl NowPlaying {
         }
     }
 
+    /// The like button for a track: a filled heart when it's saved, an outline when not.
+    fn like_icon(&self, liked: bool) -> &'static str {
+        match (self.nerdfont(), liked) {
+            (true, true) => "\u{f02d1}",
+            (true, false) => "\u{f02d5}",
+            (false, true) => "♥",
+            (false, false) => "♡",
+        }
+    }
+
     fn volume_icon(&self) -> &'static str {
         let volume = self.spotify.volume();
         if self.nerdfont() {
@@ -515,11 +528,31 @@ impl View for NowPlaying {
             None => ("Nothing playing".to_string(), String::new(), String::new()),
         };
         let (x, w, row) = (geometry.text_x, geometry.text_width, geometry.title_row);
+        // Like button after the title, for tracks (not episodes) once the library has loaded
+        // (until then it isn't known which tracks are saved).
+        let like = match &track {
+            Some(t @ Playable::Track(_)) if *self.library.is_done.read().unwrap() && w > 6 => {
+                Some(self.library.is_saved_track(t))
+            }
+            _ => None,
+        };
+        let title = truncate(&title, if like.is_some() { w - 3 } else { w });
         printer.with_color(primary, |printer| {
             printer.with_effect(Effect::Bold, |printer| {
-                printer.print((x, row), &truncate(&title, w));
+                printer.print((x, row), &title);
             });
         });
+        match like {
+            Some(liked) => {
+                let like_x = x + title.width() + 2;
+                let style = if liked { accent } else { secondary };
+                printer.with_color(style, |printer| {
+                    printer.print((like_x, row), self.like_icon(liked));
+                });
+                self.like_x.store(like_x, Ordering::Relaxed);
+            }
+            None => self.like_x.store(usize::MAX, Ordering::Relaxed),
+        }
         printer.with_color(secondary, |printer| {
             printer.print((x, row + 1), &truncate(&artists, w));
         });
@@ -685,7 +718,14 @@ impl View for NowPlaying {
 
         match event {
             MouseEvent::Press(MouseButton::Left) => {
-                if let Some(control) = Self::control_at(&geometry, position) {
+                let like_x = self.like_x.load(Ordering::Relaxed);
+                if position.y == geometry.title_row
+                    && (like_x..like_x.saturating_add(2)).contains(&position.x)
+                {
+                    if let Some(Playable::Track(track)) = self.queue.get_current() {
+                        self.library.toggle_saved_track_in_background(&track);
+                    }
+                } else if let Some(control) = Self::control_at(&geometry, position) {
                     self.activate(control);
                 } else if position.y == geometry.progress_row
                     && (geometry.bar_x..geometry.bar_x + geometry.bar_width).contains(&position.x)
