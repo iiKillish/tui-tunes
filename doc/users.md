@@ -80,20 +80,25 @@ One-shot, toggle and menu commands (e.g. <kbd>O</kbd>, <kbd>A</kbd>,
 <kbd>M</kbd>, <kbd>Return</kbd>, <kbd>R</kbd>, <kbd>Z</kbd>) ignore the count.
 
 ### Navigation
-| Key               | Command                                                                       |
-|-------------------|-------------------------------------------------------------------------------|
-| <kbd>?</kbd>      | Show help screen.                                                             |
-| <kbd>F1</kbd>     | Queue (See [specific commands](#queue)).                                      |
-| <kbd>F2</kbd>     | Search.                                                                       |
-| <kbd>F3</kbd>     | Library (See [specific commands](#library)).                                  |
-| <kbd>F4</kbd>     | Home: jump back in, recently played, your top tracks and artists.             |
-| <kbd>F8</kbd>     | Album art with the lyrics beside or below it (if built with the `cover` feature). |
-| <kbd>/</kbd>      | Open a Vim-like search bar (See [specific commands](#vim-like-search-bar)).   |
-| <kbd>:</kbd>      | Open a Vim-like command prompt (See [specific commands](#vim-like-commands)). |
-| <kbd>Escape</kbd> | Close Vim-like search bar, command prompt, or Search screen.                  |
-| <kbd>Q</kbd>      | Quit `ncspot`.                                                                |
-| <kbd>g</kbd>      | Go to the top of the current view (Vim motion).                               |
-| <kbd>G</kbd>      | Go to the bottom of the current view (Vim motion).                            |
+The window has the player at the top (or on the left of wide windows), then a row of screens:
+_Home_, _Search_, _Library_, _Up next_ and _Lyrics_. Pages opened from a screen (an album, a
+playlist, an artist) stack on top of it; the `‹ name` link above them goes back.
+
+| Key                                                         | Command                                                                       |
+|-------------------------------------------------------------|-------------------------------------------------------------------------------|
+| <kbd>?</kbd>                                                | Show the keys.                                                                |
+| <kbd>F1</kbd>…<kbd>F5</kbd>                                 | Home, Search, Library, Up next, Lyrics.                                       |
+| <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd>            | Next / previous screen (`screen next`/`screen previous`).                     |
+| <kbd>Alt</kbd>+<kbd>L</kbd> / <kbd>Alt</kbd>+<kbd>H</kbd>   | Next / previous tab inside a page, e.g. Playlists → Albums (`tab next`/`tab previous`; also <kbd>Shift</kbd>+<kbd>→</kbd>/<kbd>←</kbd>). |
+| <kbd>Shift</kbd>+<kbd>L</kbd>                               | Lyrics, or back to where you were.                                            |
+| <kbd>Escape</kbd> / <kbd>Backspace</kbd>                    | Back to the previous page.                                                    |
+| <kbd>/</kbd>                                                | Find in the current page (See [specific commands](#vim-like-search-bar)).     |
+| <kbd>:</kbd>                                                | Open a Vim-like command prompt (See [specific commands](#vim-like-commands)). |
+| <kbd>Q</kbd>                                                | Quit `ncspot`.                                                                |
+| <kbd>g</kbd> / <kbd>G</kbd>                                 | Go to the top / bottom of the current page.                                   |
+
+Everything can be clicked: tabs, cards, rows, the player's buttons, progress bar and volume (drag
+its ● knob), and the Play / Shuffle / Like buttons on album, playlist and artist pages.
 
 ### Playback
 | Key                           | Command                                                        |
@@ -121,21 +126,17 @@ One-shot, toggle and menu commands (e.g. <kbd>O</kbd>, <kbd>A</kbd>,
 | <kbd>Z</kbd>                  | Toggle _Shuffle_ state.                                        |
 | <kbd>Shift</kbd>+<kbd>H</kbd> | Like the currently playing track, or unlike it (the heart).    |
 
-### Side Panel
-The panel on the right has two tabs, _Queue_ and _Lyrics_ (time-synced lyrics from
-[LRCLIB](https://lrclib.net), with the line being sung highlighted). Click a queue item to play it,
-or a lyrics line to jump to it.
-
-| Key                           | Command                                                                       |
-|-------------------------------|-------------------------------------------------------------------------------|
-| <kbd>Tab</kbd>                | Move keyboard focus to the panel, or back to the main view.                   |
-| <kbd>Shift</kbd>+<kbd>L</kbd> | Show the lyrics, or the queue if they're showing.                             |
-
-With the panel focused, the usual keys work on it: <kbd>↑</kbd>/<kbd>↓</kbd> (<kbd>K</kbd>/<kbd>J</kbd>)
-select a queue item (or scroll the lyrics), <kbd>Return</kbd> plays it, <kbd>D</kbd> removes it,
-<kbd>Shift</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> move it, <kbd>P</kbd> goes back to the current track,
-<kbd>←</kbd>/<kbd>→</kbd> (<kbd>H</kbd>/<kbd>L</kbd>) switch tabs and <kbd>Escape</kbd> returns
-focus to the main view.
+### Screens
+- **Home**: a "Pick up where you left off" card, then what you've played lately, your top songs
+  and artists. <kbd>H</kbd>/<kbd>L</kbd> switch between All, Albums, Playlists, Artists and Songs.
+- **Search**: type and press <kbd>Return</kbd>; results open with an _All_ tab (top result, then
+  rows of songs, artists, albums and playlists) and a tab per kind. Spotify links work too.
+- **Library**: playlists (with _Liked Songs_ first), albums and artists as grids of covers, then
+  saved tracks, podcasts and Spotify's categories.
+- **Up next**: the queue, grouped by where songs were queued from. <kbd>Return</kbd> plays,
+  <kbd>D</kbd> removes, <kbd>Shift</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> moves songs.
+- **Lyrics**: time-synced lyrics from [LRCLIB](https://lrclib.net), following the song; click a line
+  to jump to it.
 
 ### Context Menus
 | Key                           | Command                                                                                                   |
@@ -144,8 +145,6 @@ focus to the main view.
 | <kbd>Shift</kbd>+<kbd>O</kbd> | Open a context menu for the **currently playing track**.                                                  |
 | <kbd>A</kbd>                  | Open the **album view** for the selected item.                                                            |
 | <kbd>Shift</kbd>+<kbd>A</kbd> | Open the **artist view** for the selected item.                                                           |
-| <kbd>M</kbd>                  | Open the **recommendations view** for the **selected item**.                                              |
-| <kbd>Shift</kbd>+<kbd>M</kbd> | Open the **recommendations view** for the **currently playing track**.                                    |
 | <kbd>Ctrl</kbd>+<kbd>V</kbd>  | Open the context menu for a Spotify link in your clipboard (if built with the `share_clipboard` feature). |
 | <kbd>Backspace</kbd>          | Close the current view.                                                                                   |
 
@@ -157,7 +156,6 @@ When pressing <kbd>O</kbd>:
   - "Show Album"
   - "Share" (if built with the `share_clipboard` feature)
   - "Add to playlist"
-  - "Similar tracks"
 
 ### Sharing
 (if built with the `share_clipboard` feature)
