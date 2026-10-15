@@ -624,14 +624,6 @@ impl Queue {
 #[cfg(all(unix, not(target_os = "macos")))]
 static LAST_NOTIFICATION_ID: std::sync::Mutex<Option<u32>> = std::sync::Mutex::new(None);
 
-/// Send a notification using the desktops default notification method.
-///
-/// `summary_txt`: A short title for the notification.
-/// `body_txt`: The actual content of the notification.
-/// `cover_url`: A URL to an image to show in the notification.
-///
-/// reuses the id of the last notification shown if possible
-#[cfg(feature = "notify")]
 /// Insert `source` at `index` in `sources`, padding it first if it's fallen out of step with the
 /// queue (so a mismatch can never panic).
 fn insert_source(sources: &mut Vec<Option<Arc<str>>>, index: usize, source: Option<Arc<str>>) {
@@ -641,6 +633,14 @@ fn insert_source(sources: &mut Vec<Option<Arc<str>>>, index: usize, source: Opti
     sources.insert(index, source);
 }
 
+/// Send a notification using the desktops default notification method.
+///
+/// `summary_txt`: A short title for the notification.
+/// `body_txt`: The actual content of the notification.
+/// `cover_url`: A URL to an image to show in the notification.
+///
+/// reuses the id of the last notification shown if possible
+#[cfg(feature = "notify")]
 pub fn send_notification(summary_txt: &str, body_txt: &str, cover_url: Option<String>) {
     let mut n = Notification::new();
     n.appname("ncspot").summary(summary_txt).body(body_txt);

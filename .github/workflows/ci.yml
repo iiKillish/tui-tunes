@@ -28,11 +28,11 @@ jobs:
           - build_target: macos-aarch64
             os: macos-14
             target: aarch64-apple-darwin
-            features: '--no-default-features --features rodio_backend,pancurses_backend'
+            features: '--no-default-features --features rodio_backend'
           - build_target: windows-x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
-            features: '--no-default-features --features rodio_backend,pancurses_backend,share_clipboard,notify'
+            features: '--no-default-features --features rodio_backend,share_clipboard,notify'
     steps:
       - uses: actions/checkout@v7
       - uses: actions/cache@v6
