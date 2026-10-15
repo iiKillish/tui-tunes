@@ -417,23 +417,33 @@ impl View for Layout {
         let printer = &printer.cropped((self.content_width(printer.size.x), printer.size.y));
 
         if let Some(view) = self.get_top_view() {
-            // back button + title
+            // Title centered, with the back button on the left and the subtitle on the right,
+            // each shortened or dropped rather than overlapping the title.
+            let width = printer.size.x;
+            let title = view.title();
+            let title_width = title.width().min(width);
+            let title_x = HAlign::Center.get_offset(title_width, width);
+            printer.with_color(ColorStyle::title_primary(), |printer| {
+                printer.print((title_x, 0), &truncate_to_width(&title, width));
+            });
+
             if !self.is_current_stack_empty() {
-                printer.with_color(ColorStyle::title_secondary(), |printer| {
-                    printer.print((1, 0), &format!("< {screen_title}"));
-                });
+                let back = format!("< {screen_title}");
+                let room = title_x.saturating_sub(2);
+                if room >= 1 {
+                    printer.with_color(ColorStyle::title_secondary(), |printer| {
+                        printer.print((1, 0), &truncate_to_width(&back, room));
+                    });
+                }
             }
 
-            // view title
-            printer.with_color(ColorStyle::title_primary(), |printer| {
-                let offset = HAlign::Center.get_offset(view.title().width(), printer.size.x);
-                printer.print((offset, 0), &view.title());
-            });
-
-            printer.with_color(ColorStyle::secondary(), |printer| {
-                let offset = HAlign::Right.get_offset(view.title_sub().width(), printer.size.x);
-                printer.print((offset, 0), &view.title_sub());
-            });
+            let title_sub = view.title_sub();
+            let sub_x = HAlign::Right.get_offset(title_sub.width(), width);
+            if sub_x > title_x + title_width {
+                printer.with_color(ColorStyle::secondary(), |printer| {
+                    printer.print((sub_x, 0), &title_sub);
+                });
+            }
 
             // screen content
             let printer = &printer
@@ -686,4 +696,25 @@ impl ViewExt for Layout {
             }
         }
     }
+}
+
+/// Cut `text` to at most `width` columns, ending with "…" if it was cut.
+fn truncate_to_width(text: &str, width: usize) -> String {
+    if text.width() <= width {
+        return text.to_string();
+    }
+    let mut out = String::new();
+    let mut used = 0;
+    for c in text.chars() {
+        let w = unicode_width::UnicodeWidthChar::width(c).unwrap_or(0);
+        if used + w + 1 > width {
+            break;
+        }
+        out.push(c);
+        used += w;
+    }
+    if width > 0 {
+        out.push('…');
+    }
+    out
 }
