@@ -147,15 +147,12 @@ fn shapes(icon: Icon) -> (Vec<Shape>, Vec<Shape>) {
             };
             (
                 vec![
-                    // Two paths crossing in the middle, each ending in an arrow on the right.
-                    line((0.12, 0.30), (0.34, 0.30)),
-                    line((0.34, 0.30), (0.62, 0.70)),
-                    line((0.62, 0.70), (0.78, 0.70)),
-                    Polygon(vec![(0.76, 0.60), (0.90, 0.70), (0.76, 0.80)]),
-                    line((0.12, 0.70), (0.34, 0.70)),
-                    line((0.34, 0.70), (0.62, 0.30)),
-                    line((0.62, 0.30), (0.78, 0.30)),
-                    Polygon(vec![(0.76, 0.20), (0.90, 0.30), (0.76, 0.40)]),
+                    // Two arrows pointing opposite ways, like ⇄: right along the top, left
+                    // along the bottom.
+                    line((0.14, 0.34), (0.74, 0.34)),
+                    Polygon(vec![(0.70, 0.22), (0.88, 0.34), (0.70, 0.46)]),
+                    line((0.26, 0.66), (0.86, 0.66)),
+                    Polygon(vec![(0.30, 0.54), (0.12, 0.66), (0.30, 0.78)]),
                 ],
                 vec![],
             )
