@@ -272,6 +272,7 @@ Possible configuration values are:
 | `client_id`                     | Client ID of your own Spotify app for Web API requests<sup>[5]</sup> | String                                                                          | ncspot's shared ID |
 | `now_playing_height`            | Rows of the player bar that replaces the status bar (0: use the status bar) | Number                                                               | `5`                 |
 | `queue_panel_width`             | Columns of the queue panel on the right (0 hides it)           | Number                                                                                | `40`                |
+| `theme_file`                    | TOML file of `[theme]` colors (relative to the config directory); `[theme]` overrides it | String                                                    |                     |
 
 1. If built with the `cover` feature.
 2. By default the statusbar will show a play icon when a track is playing and

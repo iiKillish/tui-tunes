@@ -1,5 +1,6 @@
-# Catppuccin Mocha, mauve accent. Cover art is shown by the Quickshell now-playing card.
-# Own Spotify app (needs the patched build: apps/ncspot/build.sh). Redirect URI: http://127.0.0.1:8989/login
+# Colors come from the theme project (kde/theme/palette.json), which generates theme.toml.
+theme_file = "theme.toml"
+# Own Spotify app (an option this fork adds). Redirect URI: http://127.0.0.1:8989/login
 client_id = "your-client-id"
 
 # Icons for the player bar; Ghostty has Nerd Font symbols built in.
@@ -7,27 +8,6 @@ use_nerdfont = true
 
 # Playlists first; Tracks (saved songs) last.
 library_tabs = ["playlists", "albums", "artists", "tracks", "podcasts", "browse"]
-
-[theme]
-background = "#1e1e2e"
-primary = "#cdd6f4"
-secondary = "#a6adc8"
-title = "#cba6f7"
-playing = "#a6e3a1"
-playing_selected = "#a6e3a1"
-playing_bg = "#1e1e2e"
-highlight = "#1e1e2e"
-highlight_bg = "#cba6f7"
-highlight_inactive_bg = "#45475a"
-error = "#1e1e2e"
-error_bg = "#f38ba8"
-statusbar = "#cba6f7"
-statusbar_progress = "#cba6f7"
-statusbar_progress_bg = "#45475a"
-statusbar_bg = "#181825"
-cmdline = "#cdd6f4"
-cmdline_bg = "#181825"
-search_match = "#f9e2af"
 
 [keybindings]
 # Space pauses (like most players); "add to queue", its default, moves to e (enqueue).

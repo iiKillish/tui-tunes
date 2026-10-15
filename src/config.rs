@@ -109,6 +109,9 @@ pub struct ConfigValues {
     pub now_playing_height: Option<usize>,
     /// Width in columns of the queue panel on the right; 0 hides it.
     pub queue_panel_width: Option<usize>,
+    /// TOML file with theme colors (the keys of `[theme]`, at the top level), relative to the
+    /// configuration directory unless absolute. Colors in `[theme]` override it.
+    pub theme_file: Option<String>,
 }
 
 /// The ncspot theme.
@@ -298,7 +301,38 @@ impl Config {
 /// Parse the configuration file with name `filename` at the configuration base path.
 fn load(filename: &str) -> Result<ConfigValues, String> {
     let path = config_path(filename);
-    TOML.load_or_generate_default(path, || Ok(ConfigValues::default()), false)
+    let mut values: ConfigValues =
+        TOML.load_or_generate_default(path, || Ok(ConfigValues::default()), false)?;
+    if let Some(theme_file) = values.theme_file.clone() {
+        values.theme = Some(load_theme_file(&theme_file, values.theme.as_ref())?);
+    }
+    Ok(values)
+}
+
+/// Read the theme in `theme_file` (see [ConfigValues::theme_file]), with the colors set in
+/// `overrides` (the configuration file's own `[theme]`) taking precedence.
+fn load_theme_file(
+    theme_file: &str,
+    overrides: Option<&ConfigTheme>,
+) -> Result<ConfigTheme, String> {
+    let path = PathBuf::from(theme_file);
+    let path = if path.is_absolute() {
+        path
+    } else {
+        config_path(theme_file)
+    };
+    let contents = fs::read_to_string(&path)
+        .map_err(|e| format!("can't read theme file {}: {e}", path.display()))?;
+    let mut theme: toml::Table = contents
+        .parse()
+        .map_err(|e| format!("error in theme file {}: {e}", path.display()))?;
+    if let Some(overrides) = overrides {
+        let overrides = toml::Table::try_from(overrides).map_err(|e| e.to_string())?;
+        theme.extend(overrides);
+    }
+    toml::Value::Table(theme)
+        .try_into()
+        .map_err(|e| format!("error in theme file {}: {e}", path.display()))
 }
 
 /// Returns the plaform app directories for ncspot if they could be determined,
@@ -372,5 +406,34 @@ pub fn set_configuration_base_path(base_path: Option<PathBuf>) {
             fs::create_dir_all(&basepath).expect("could not create basepath directory");
         }
         *BASE_PATH.write().unwrap() = Some(basepath);
+    }
+}
+
+#[cfg(test)]
+mod theme_file_tests {
+    use super::{ConfigTheme, load_theme_file};
+
+    #[test]
+    fn test_theme_file_with_overrides() {
+        let path = std::env::temp_dir().join(format!("ncspot-theme-{}.toml", std::process::id()));
+        std::fs::write(&path, "background = \"#111111\"\nprimary = \"#222222\"\n").unwrap();
+
+        let overrides = ConfigTheme {
+            primary: Some("#333333".into()),
+            ..Default::default()
+        };
+        let theme = load_theme_file(path.to_str().unwrap(), Some(&overrides)).unwrap();
+        assert_eq!(theme.background.as_deref(), Some("#111111"));
+        assert_eq!(
+            theme.primary.as_deref(),
+            Some("#333333"),
+            "[theme] overrides the file"
+        );
+
+        let theme = load_theme_file(path.to_str().unwrap(), None).unwrap();
+        assert_eq!(theme.primary.as_deref(), Some("#222222"));
+
+        std::fs::remove_file(&path).unwrap();
+        assert!(load_theme_file(path.to_str().unwrap(), None).is_err());
     }
 }
