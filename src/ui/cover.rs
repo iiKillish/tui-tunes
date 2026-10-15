@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::io::Write;
 use std::path::PathBuf;
 
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 use cursive::theme::{ColorStyle, ColorType, PaletteColor};
 use cursive::{Cursive, Printer, Vec2, View};
@@ -195,7 +195,7 @@ impl CoverRenderer {
         }
 
         if let Some(cover) = desired_cover.as_ref()
-            && let Err(e) = render_cover_to_terminal(cover)
+            && let Err(e) = render_cover_to_terminal(cover, self.font_size)
         {
             error!("Failed to draw cover: {e}");
             return;
@@ -205,7 +205,15 @@ impl CoverRenderer {
     }
 }
 
-fn render_cover_to_terminal(cover: &CoverRequest) -> Result<(), viuer::ViuError> {
+fn render_cover_to_terminal(cover: &CoverRequest, font_size: Vec2) -> Result<(), viuer::ViuError> {
+    let image = image::ImageReader::open(&cover.path)?
+        .with_guessed_format()?
+        .decode()?;
+
+    if kitty_supported() {
+        return Ok(render_kitty(&image, cover, font_size)?);
+    }
+
     let config = viuer::Config {
         x: to_u16(cover.offset.x)?,
         y: to_i16(cover.offset.y)?,
@@ -218,11 +226,87 @@ fn render_cover_to_terminal(cover: &CoverRequest) -> Result<(), viuer::ViuError>
         ..Default::default()
     };
 
-    let image = image::ImageReader::open(&cover.path)?
-        .with_guessed_format()?
-        .decode()?;
-
     viuer::print(&image, &config).map(|_| ())
+}
+
+/// Whether the terminal speaks the Kitty graphics protocol. Determined once: viuer finds out by
+/// querying the terminal.
+fn kitty_supported() -> bool {
+    static SUPPORTED: OnceLock<bool> = OnceLock::new();
+    *SUPPORTED.get_or_init(|| {
+        can_use_kitty_graphics() && viuer::get_kitty_support() != viuer::KittySupport::None
+    })
+}
+
+/// Place `image` over `cover.size` cells at `cover.offset` with the Kitty graphics protocol,
+/// without moving the cursor (`C=1`) or asking the terminal for a reply (`q=2`).
+///
+/// viuer instead lets the image move the cursor and then prints a newline, which scrolls the
+/// terminal when the image is at the bottom of the screen (as the player bar's cover is). Cursive
+/// only redraws cells it thinks changed, so after such a scroll stale text stays on screen.
+fn render_kitty(
+    image: &image::DynamicImage,
+    cover: &CoverRequest,
+    font_size: Vec2,
+) -> std::io::Result<()> {
+    // Send about as many pixels as will be shown rather than the full-size cover.
+    let width = (cover.size.x * font_size.x).max(1) as u32;
+    let height = (cover.size.y * font_size.y).max(1) as u32;
+    let pixels = image
+        .resize(width, height, image::imageops::FilterType::Triangle)
+        .to_rgba8();
+    let data = base64_encode(pixels.as_raw());
+
+    let mut out: Vec<u8> = Vec::with_capacity(data.len() + 256);
+    // Save the cursor, move to the cover's top-left cell, and restore the cursor afterwards.
+    write!(
+        out,
+        "\x1b7\x1b[{};{}H",
+        cover.offset.y + 1,
+        cover.offset.x + 1
+    )?;
+    let chunks: Vec<&[u8]> = data.as_bytes().chunks(4096).collect();
+    for (i, chunk) in chunks.iter().enumerate() {
+        let more = u8::from(i + 1 < chunks.len());
+        if i == 0 {
+            write!(
+                out,
+                "\x1b_Ga=T,f=32,s={},v={},c={},r={},C=1,q=2,m={more};",
+                pixels.width(),
+                pixels.height(),
+                cover.size.x,
+                cover.size.y
+            )?;
+        } else {
+            write!(out, "\x1b_Gm={more};")?;
+        }
+        out.extend_from_slice(chunk);
+        out.extend_from_slice(b"\x1b\\");
+    }
+    out.extend_from_slice(b"\x1b8");
+
+    let mut stdout = std::io::stdout().lock();
+    stdout.write_all(&out)?;
+    stdout.flush()
+}
+
+/// Standard base64 with padding.
+fn base64_encode(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = match *chunk {
+            [a, b, c] => u32::from_be_bytes([0, a, b, c]),
+            [a, b] => u32::from_be_bytes([0, a, b, 0]),
+            [a] => u32::from_be_bytes([0, a, 0, 0]),
+            _ => unreachable!(),
+        };
+        let symbols = [18, 12, 6, 0].map(|shift| ALPHABET[(n >> shift) as usize & 63] as char);
+        let kept = chunk.len() + 1;
+        out.extend(&symbols[..kept]);
+        out.extend(std::iter::repeat_n('=', 4 - kept));
+    }
+    out
 }
 
 fn is_iterm_terminal() -> bool {
@@ -396,5 +480,20 @@ impl ViewExt for CoverView {
         };
 
         Ok(CommandResult::Ignored)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::base64_encode;
+
+    #[test]
+    fn test_base64_encode() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
+        assert_eq!(base64_encode(&[0xff, 0xfe, 0x00]), "//4A");
     }
 }
