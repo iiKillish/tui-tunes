@@ -50,7 +50,10 @@ impl Menu {
     }
 
     /// A Yes/No question; `on_yes` runs on Yes.
-    pub fn confirm(question: impl Into<String>, on_yes: impl FnMut(&Ctx) -> Outcome + 'static) -> Self {
+    pub fn confirm(
+        question: impl Into<String>,
+        on_yes: impl FnMut(&Ctx) -> Outcome + 'static,
+    ) -> Self {
         Self::new(
             question,
             vec![
@@ -105,7 +108,14 @@ impl Overlay for Menu {
         let rows = usize::from(inner.height);
         self.first = scroll_to(self.first, self.selected, rows);
         let buf = frame.buffer_mut();
-        for (row, (i, entry)) in self.entries.iter().enumerate().skip(self.first).take(rows).enumerate() {
+        for (row, (i, entry)) in self
+            .entries
+            .iter()
+            .enumerate()
+            .skip(self.first)
+            .take(rows)
+            .enumerate()
+        {
             let y = inner.y + row as u16;
             let style = if i == self.selected {
                 styles.selected().bg(ctx.palette.highlight_inactive_bg)
@@ -114,9 +124,23 @@ impl Overlay for Menu {
             };
             fill(buf, Rect::new(inner.x, y, inner.width, 1), style);
             if i == self.selected {
-                put(buf, inner.x, y, SELECTION_MARKER, 1, styles.marker().bg(ctx.palette.highlight_inactive_bg));
+                put(
+                    buf,
+                    inner.x,
+                    y,
+                    SELECTION_MARKER,
+                    1,
+                    styles.marker().bg(ctx.palette.highlight_inactive_bg),
+                );
             }
-            put(buf, inner.x + 1, y, &entry.label, usize::from(inner.width.saturating_sub(2)), style);
+            put(
+                buf,
+                inner.x + 1,
+                y,
+                &entry.label,
+                usize::from(inner.width.saturating_sub(2)),
+                style,
+            );
         }
         area
     }

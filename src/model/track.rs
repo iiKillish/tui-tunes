@@ -1,5 +1,4 @@
 use std::fmt;
-use std::sync::{Arc, RwLock};
 
 use crate::config;
 use crate::utils::ms_to_hms;
@@ -13,7 +12,7 @@ use crate::model::album::Album;
 use crate::model::artist::Artist;
 use crate::model::playable::Playable;
 use crate::queue::Queue;
-use crate::traits::{ListItem};
+use crate::traits::ListItem;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Track {

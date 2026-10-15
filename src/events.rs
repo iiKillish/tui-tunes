@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TryIter, unbounded};
+use crossbeam_channel::{Receiver, Sender, TryIter, unbounded};
 
 use crate::queue::QueueEvent;
 use crate::spotify::PlayerEvent;
@@ -43,10 +43,7 @@ impl EventManager {
 
     /// Wait up to `timeout` for the next event.
     pub fn recv_timeout(&self, timeout: Duration) -> Option<Event> {
-        match self.rx.recv_timeout(timeout) {
-            Ok(event) => Some(event),
-            Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => None,
-        }
+        self.rx.recv_timeout(timeout).ok()
     }
 
     /// Send a new event to be handled.

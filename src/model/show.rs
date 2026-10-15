@@ -3,12 +3,11 @@ use crate::model::episode::Episode;
 use crate::model::playable::Playable;
 use crate::queue::Queue;
 use crate::spotify::Spotify;
-use crate::traits::{OpenTarget};
-use crate::traits::{ListItem};
+use crate::traits::ListItem;
+use crate::traits::OpenTarget;
 use rspotify::model::Id;
 use rspotify::model::show::{FullShow, SimplifiedShow};
 use std::fmt;
-use std::sync::Arc;
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Show {

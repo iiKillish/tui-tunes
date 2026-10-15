@@ -25,7 +25,8 @@ pub struct Key {
 
 impl Key {
     fn new(code: KeyCode, modifiers: KeyModifiers) -> Self {
-        let mut modifiers = modifiers & (KeyModifiers::SHIFT | KeyModifiers::CONTROL | KeyModifiers::ALT);
+        let mut modifiers =
+            modifiers & (KeyModifiers::SHIFT | KeyModifiers::CONTROL | KeyModifiers::ALT);
         let code = match code {
             KeyCode::Char(c) if modifiers.contains(KeyModifiers::SHIFT) => {
                 modifiers.remove(KeyModifiers::SHIFT);
@@ -100,9 +101,12 @@ pub fn accumulate_count(current: usize, digit: u32, max: usize) -> usize {
         .min(max)
 }
 
+/// Keybindings by their configured names, sorted, for the help screen.
+pub type BindingList = Vec<(String, Vec<Command>)>;
+
 /// The keybindings: the defaults (unless `default_keybindings = false`), overridden by the
 /// configuration's `[keybindings]`. Also returns the names as configured, for the help screen.
-pub fn bindings(config: &Config) -> (HashMap<Key, Vec<Command>>, Vec<(String, Vec<Command>)>) {
+pub fn bindings(config: &Config) -> (HashMap<Key, Vec<Command>>, BindingList) {
     let values = config.values();
     let mut named = if values.default_keybindings.unwrap_or(true) {
         default_keybindings()
@@ -318,7 +322,6 @@ fn default_keybindings() -> HashMap<String, Vec<Command>> {
         vec![Command::Insert(crate::command::InsertSource::Clipboard)],
     );
 
-    
     kb
 }
 
@@ -328,12 +331,30 @@ mod tests {
 
     #[test]
     fn test_parse_keys() {
-        assert_eq!(Key::parse("q"), Some(Key::new(KeyCode::Char('q'), KeyModifiers::NONE)));
-        assert_eq!(Key::parse("Shift+p"), Some(Key::new(KeyCode::Char('P'), KeyModifiers::NONE)));
-        assert_eq!(Key::parse("Ctrl+s"), Some(Key::new(KeyCode::Char('s'), KeyModifiers::CONTROL)));
-        assert_eq!(Key::parse("F12"), Some(Key::new(KeyCode::F(12), KeyModifiers::NONE)));
-        assert_eq!(Key::parse("+"), Some(Key::new(KeyCode::Char('+'), KeyModifiers::NONE)));
-        assert_eq!(Key::parse("Space"), Some(Key::new(KeyCode::Char(' '), KeyModifiers::NONE)));
+        assert_eq!(
+            Key::parse("q"),
+            Some(Key::new(KeyCode::Char('q'), KeyModifiers::NONE))
+        );
+        assert_eq!(
+            Key::parse("Shift+p"),
+            Some(Key::new(KeyCode::Char('P'), KeyModifiers::NONE))
+        );
+        assert_eq!(
+            Key::parse("Ctrl+s"),
+            Some(Key::new(KeyCode::Char('s'), KeyModifiers::CONTROL))
+        );
+        assert_eq!(
+            Key::parse("F12"),
+            Some(Key::new(KeyCode::F(12), KeyModifiers::NONE))
+        );
+        assert_eq!(
+            Key::parse("+"),
+            Some(Key::new(KeyCode::Char('+'), KeyModifiers::NONE))
+        );
+        assert_eq!(
+            Key::parse("Space"),
+            Some(Key::new(KeyCode::Char(' '), KeyModifiers::NONE))
+        );
         assert_eq!(Key::parse("Hyper+x"), None);
     }
 

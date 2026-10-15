@@ -19,6 +19,7 @@ use crate::traits::ListItem;
 use crate::tui::app::App;
 use crate::tui::nav;
 use crate::tui::overlays::menu::{Entry, Menu};
+use crate::tui::overlays::prompt::Prompt;
 use crate::tui::page::{Ctx, Outcome, Overlay};
 
 /// Save the queue and playback position for next time.
@@ -51,7 +52,9 @@ pub fn help(app: &App) -> Box<dyn Overlay> {
                 .collect::<Vec<_>>()
                 .join("; ");
             let commands = commands.clone();
-            Entry::new(format!("{key:<14} {text}"), move |_| Outcome::Run(commands.clone()))
+            Entry::new(format!("{key:<14} {text}"), move |_| {
+                Outcome::Run(commands.clone())
+            })
         })
         .collect();
     Box::new(Menu::new("Keys", entries))
@@ -61,11 +64,26 @@ pub fn help(app: &App) -> Box<dyn Overlay> {
 fn open_link(url: &SpotifyUrl, ctx: &Ctx) -> Outcome {
     let api = &ctx.spotify.api;
     let item: Option<Box<dyn ListItem>> = match url.uri_type {
-        UriType::Track => api.track(&url.id).ok().map(|t| Track::from(&t).as_listitem()),
-        UriType::Album => api.album(&url.id).ok().map(|a| Album::from(&a).as_listitem()),
-        UriType::Playlist => api.playlist(&url.id).ok().map(|p| Playlist::from(&p).as_listitem()),
-        UriType::Artist => api.artist(&url.id).ok().map(|a| Artist::from(&a).as_listitem()),
-        UriType::Episode => api.episode(&url.id).ok().map(|e| Episode::from(&e).as_listitem()),
+        UriType::Track => api
+            .track(&url.id)
+            .ok()
+            .map(|t| Track::from(&t).as_listitem()),
+        UriType::Album => api
+            .album(&url.id)
+            .ok()
+            .map(|a| Album::from(&a).as_listitem()),
+        UriType::Playlist => api
+            .playlist(&url.id)
+            .ok()
+            .map(|p| Playlist::from(&p).as_listitem()),
+        UriType::Artist => api
+            .artist(&url.id)
+            .ok()
+            .map(|a| Artist::from(&a).as_listitem()),
+        UriType::Episode => api
+            .episode(&url.id)
+            .ok()
+            .map(|e| Episode::from(&e).as_listitem()),
         UriType::Show => api.show(&url.id).ok().map(|s| Show::from(&s).as_listitem()),
     };
     match item {
@@ -101,22 +119,51 @@ pub fn run(cmd: &Command, ctx: &Ctx) -> Outcome {
         Command::UpdateLibrary => ctx.library.update_library(),
         Command::TogglePlay => queue.toggleplayback(),
         Command::Shuffle(mode) => queue.set_shuffle(mode.unwrap_or_else(|| !queue.get_shuffle())),
-        Command::Repeat(mode) => queue.set_repeat(mode.clone().unwrap_or_else(|| match queue.get_repeat() {
-            RepeatSetting::None => RepeatSetting::RepeatPlaylist,
-            RepeatSetting::RepeatPlaylist => RepeatSetting::RepeatTrack,
-            RepeatSetting::RepeatTrack => RepeatSetting::None,
-        })),
+        Command::Repeat(mode) => {
+            queue.set_repeat(mode.unwrap_or_else(|| match queue.get_repeat() {
+                RepeatSetting::None => RepeatSetting::RepeatPlaylist,
+                RepeatSetting::RepeatPlaylist => RepeatSetting::RepeatTrack,
+                RepeatSetting::RepeatTrack => RepeatSetting::None,
+            }))
+        }
         Command::Seek(direction) => match *direction {
             SeekDirection::Relative(rel) => spotify.seek_relative(rel),
             SeekDirection::Absolute(abs) => spotify.seek(abs),
         },
         Command::VolumeUp(amount) => {
-            let volume = spotify.volume().saturating_add(VOLUME_PERCENT.saturating_mul(*amount));
+            let volume = spotify
+                .volume()
+                .saturating_add(VOLUME_PERCENT.saturating_mul(*amount));
             spotify.set_volume(volume, true);
         }
         Command::VolumeDown(amount) => {
-            let volume = spotify.volume().saturating_sub(VOLUME_PERCENT.saturating_mul(*amount));
+            let volume = spotify
+                .volume()
+                .saturating_sub(VOLUME_PERCENT.saturating_mul(*amount));
             spotify.set_volume(volume, true);
+        }
+        Command::SaveQueue => {
+            return Outcome::Overlay(Box::new(Prompt::new(
+                "Save the queue as a playlist",
+                |name, ctx| {
+                    let tracks = ctx.queue.queue.read().unwrap().clone();
+                    ctx.library.save_playlist(name, &tracks);
+                    Outcome::Message(format!("Saved the queue as {name}"))
+                },
+            )));
+        }
+        Command::NewPlaylist(name) if name.trim().is_empty() => {
+            return Outcome::Overlay(Box::new(Prompt::new("New playlist", |name, ctx| match ctx
+                .spotify
+                .api
+                .create_playlist(name, None, None)
+            {
+                Ok(_) => {
+                    ctx.library.update_library();
+                    Outcome::Message(format!("Created {name}"))
+                }
+                Err(()) => Outcome::Error(format!("Couldn't create the playlist {name}")),
+            })));
         }
         Command::NewPlaylist(name) => match spotify.api.create_playlist(name, None, None) {
             Ok(_) => ctx.library.update_library(),
@@ -160,7 +207,10 @@ pub fn run(cmd: &Command, ctx: &Ctx) -> Outcome {
         }
         #[cfg(feature = "share_clipboard")]
         Command::Share(TargetMode::Current) => {
-            if let Some(url) = queue.get_current().and_then(|t| t.as_listitem().share_url()) {
+            if let Some(url) = queue
+                .get_current()
+                .and_then(|t| t.as_listitem().share_url())
+            {
                 let _ = crate::sharing::write_share(url);
                 return Outcome::Message("Link copied".into());
             }

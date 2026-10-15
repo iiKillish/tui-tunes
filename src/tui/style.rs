@@ -34,7 +34,10 @@ impl Styles<'_> {
     /// The selected row: a darker background (drawn with [SELECTION_MARKER] in the accent at its
     /// left edge, see [Styles::marker]).
     pub fn selected(&self) -> Style {
-        Style::new().fg(self.0.primary).bg(self.0.statusbar_bg).add_modifier(Modifier::BOLD)
+        Style::new()
+            .fg(self.0.primary)
+            .bg(self.0.statusbar_bg)
+            .add_modifier(Modifier::BOLD)
     }
 
     /// The selected row while its list doesn't have the keyboard (no marker).

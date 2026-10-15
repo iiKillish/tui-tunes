@@ -13,9 +13,9 @@ use crate::events::{Event, EventManager};
 use crate::library::Library;
 use crate::queue::Queue;
 use crate::spotify::{PlayerEvent, Spotify};
+use crate::tui::page::Ctx;
 use crate::{authentication, tui, utils};
 use crate::{command, queue, spotify};
-use crate::tui::page::Ctx;
 
 #[cfg(feature = "mpris")]
 use crate::mpris::MprisManager;
@@ -185,7 +185,8 @@ impl Application {
     /// Start the application and run the event loop.
     pub fn run(&mut self) -> Result<(), String> {
         #[cfg(unix)]
-        let mut signals = Signals::new([SIGTERM, SIGHUP]).expect("could not register signal handler");
+        let mut signals =
+            Signals::new([SIGTERM, SIGHUP]).expect("could not register signal handler");
 
         let mut terminal = tui::Terminal::start().map_err(|e| e.to_string())?;
         let mut app = tui::app::App::new(self.ctx.clone());
@@ -202,7 +203,9 @@ impl Application {
 
             // Wait for something to happen; redraw at least a few times a second while playing
             // so the progress moves.
-            let mut next = self.event_manager.recv_timeout(std::time::Duration::from_millis(250));
+            let mut next = self
+                .event_manager
+                .recv_timeout(std::time::Duration::from_millis(250));
             while let Some(event) = next {
                 self.handle(event, &mut app, &mut terminal);
                 next = self.event_manager.msg_iter().next();

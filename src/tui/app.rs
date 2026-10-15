@@ -96,13 +96,43 @@ impl App {
     pub fn new(ctx: Ctx) -> Self {
         let (bindings, binding_list) = keys::bindings(&ctx.config);
         let screens = vec![
-            Screen { id: "home", label: "Home", root: Box::new(pages::home::new(&ctx)), stack: Vec::new() },
-            Screen { id: "search", label: "Search", root: Box::new(pages::search::new(&ctx)), stack: Vec::new() },
-            Screen { id: "library", label: "Library", root: Box::new(pages::library::new(&ctx)), stack: Vec::new() },
-            Screen { id: "queue", label: "Up next", root: Box::new(pages::queue::new(&ctx)), stack: Vec::new() },
-            Screen { id: "lyrics", label: "Lyrics", root: Box::new(pages::lyrics::new(&ctx)), stack: Vec::new() },
+            Screen {
+                id: "home",
+                label: "Home",
+                root: Box::new(pages::home::new(&ctx)),
+                stack: Vec::new(),
+            },
+            Screen {
+                id: "search",
+                label: "Search",
+                root: Box::new(pages::search::new(&ctx)),
+                stack: Vec::new(),
+            },
+            Screen {
+                id: "library",
+                label: "Library",
+                root: Box::new(pages::library::new(&ctx)),
+                stack: Vec::new(),
+            },
+            Screen {
+                id: "queue",
+                label: "Up next",
+                root: Box::new(pages::queue::new(&ctx)),
+                stack: Vec::new(),
+            },
+            Screen {
+                id: "lyrics",
+                label: "Lyrics",
+                root: Box::new(pages::lyrics::new(&ctx)),
+                stack: Vec::new(),
+            },
         ];
-        let initial = ctx.config.values().initial_screen.clone().unwrap_or_else(|| "home".into());
+        let initial = ctx
+            .config
+            .values()
+            .initial_screen
+            .clone()
+            .unwrap_or_else(|| "home".into());
         let current = screens.iter().position(|s| s.id == initial).unwrap_or(0);
         let mut app = Self {
             ctx,
@@ -354,7 +384,11 @@ impl App {
         {
             if c == self.command_key() || c == '/' {
                 self.count = 0;
-                self.cmdline = Some(CommandLine { prefix: c, text: String::new(), cursor: 0 });
+                self.cmdline = Some(CommandLine {
+                    prefix: c,
+                    text: String::new(),
+                    cursor: 0,
+                });
                 return;
             }
             if let Some(digit) = c.to_digit(10)
@@ -383,11 +417,17 @@ impl App {
             }
             KeyCode::Backspace if chars.is_empty() => self.cmdline = None,
             KeyCode::Backspace if line.cursor > 0 => {
-                line.text = chars[..line.cursor - 1].iter().chain(&chars[line.cursor..]).collect();
+                line.text = chars[..line.cursor - 1]
+                    .iter()
+                    .chain(&chars[line.cursor..])
+                    .collect();
                 line.cursor -= 1;
             }
             KeyCode::Delete if line.cursor < chars.len() => {
-                line.text = chars[..line.cursor].iter().chain(&chars[line.cursor + 1..]).collect();
+                line.text = chars[..line.cursor]
+                    .iter()
+                    .chain(&chars[line.cursor + 1..])
+                    .collect();
             }
             KeyCode::Left => line.cursor = line.cursor.saturating_sub(1),
             KeyCode::Right => line.cursor = (line.cursor + 1).min(chars.len()),
@@ -453,7 +493,13 @@ impl App {
                 self.back();
                 return;
             }
-            if let Some((_, action)) = self.regions.header_buttons.iter().find(|(r, _)| r.contains(at)).copied() {
+            if let Some((_, action)) = self
+                .regions
+                .header_buttons
+                .iter()
+                .find(|(r, _)| r.contains(at))
+                .copied()
+            {
                 let outcome = self.screen().top().header_action(action, &ctx);
                 self.apply(outcome, false);
                 return;
@@ -481,7 +527,12 @@ impl App {
         if area.height >= hero_rows + MIN_PAGE_ROWS {
             return (
                 Rect::new(area.x, area.y, area.width, hero_rows),
-                Rect::new(area.x, area.y + hero_rows, area.width, area.height - hero_rows),
+                Rect::new(
+                    area.x,
+                    area.y + hero_rows,
+                    area.width,
+                    area.height - hero_rows,
+                ),
                 true,
             );
         }
@@ -507,19 +558,31 @@ impl App {
             .filter(|(_, at)| at.elapsed() < MESSAGE_TIME)
             .map(|(m, _)| m.clone());
         let bottom_rows = u16::from(self.cmdline.is_some()) + u16::from(message.is_some());
-        let main = Rect::new(full.x, full.y, full.width, full.height.saturating_sub(bottom_rows));
+        let main = Rect::new(
+            full.x,
+            full.y,
+            full.width,
+            full.height.saturating_sub(bottom_rows),
+        );
 
         let (player_area, content, _hero) = self.split(main);
         self.regions = Regions::default();
         let on_lyrics_or_cover = false;
-        self.player.draw(frame, player_area, &ctx, self.count, !on_lyrics_or_cover);
+        self.player
+            .draw(frame, player_area, &ctx, self.count, !on_lyrics_or_cover);
         self.regions.player = player_area;
 
         // Tab row (design T1).
         let mut y = content.y;
         if content.height > 2 {
             let labels: Vec<String> = self.screens.iter().map(|s| s.label.to_string()).collect();
-            self.regions.tabs = draw_tab_row(frame, Rect::new(content.x, y, content.width, 1), &labels, self.current, &ctx);
+            self.regions.tabs = draw_tab_row(
+                frame,
+                Rect::new(content.x, y, content.width, 1),
+                &labels,
+                self.current,
+                &ctx,
+            );
             y += 2;
         }
 
@@ -534,18 +597,32 @@ impl App {
             screen.root.title()
         };
         let remaining = content.bottom().saturating_sub(y);
-        let show_header = header.is_some() && remaining >= HEADER_ROWS + MIN_ROWS_BELOW_HEADER + 1;
+        let show_header = header.is_some() && remaining > HEADER_ROWS + MIN_ROWS_BELOW_HEADER;
         if has_stack || (!show_header && remaining > 4) {
             let buf = frame.buffer_mut();
             let mut x = content.x + 2;
             if has_stack {
                 let back = format!("‹ {parent}");
-                let written = put(buf, x, y, &back, usize::from(content.width / 2), styles.secondary());
+                let written = put(
+                    buf,
+                    x,
+                    y,
+                    &back,
+                    usize::from(content.width / 2),
+                    styles.secondary(),
+                );
                 self.regions.back = Some(Rect::new(x, y, written as u16, 1));
                 x += written as u16 + 3;
             }
             if !show_header && has_stack {
-                put(buf, x, y, &page_title, usize::from(content.right().saturating_sub(x + 2)), bold(styles.accent()));
+                put(
+                    buf,
+                    x,
+                    y,
+                    &page_title,
+                    usize::from(content.right().saturating_sub(x + 2)),
+                    bold(styles.accent()),
+                );
             }
             let subtitle = screen.top_ref().subtitle();
             if !subtitle.is_empty() && !show_header {
@@ -564,10 +641,17 @@ impl App {
             y += HEADER_ROWS;
         }
 
-        let page_area = Rect::new(content.x, y, content.width, content.bottom().saturating_sub(y));
+        let page_area = Rect::new(
+            content.x,
+            y,
+            content.width,
+            content.bottom().saturating_sub(y),
+        );
         self.regions.page = page_area;
         let focused = self.overlays.is_empty();
-        self.screens[self.current].top().draw(frame, page_area, &ctx, focused);
+        self.screens[self.current]
+            .top()
+            .draw(frame, page_area, &ctx, focused);
 
         // Command line and message.
         let mut row = main.bottom();
@@ -582,16 +666,40 @@ impl App {
             };
             let line = Rect::new(full.x, row, full.width, 1);
             fill(frame.buffer_mut(), line, style);
-            put(frame.buffer_mut(), full.x + 1, row, &text, usize::from(full.width - 1), style);
+            put(
+                frame.buffer_mut(),
+                full.x + 1,
+                row,
+                &text,
+                usize::from(full.width - 1),
+                style,
+            );
             row += 1;
         }
         if let Some(line) = &self.cmdline {
-            let style = ratatui::style::Style::new().fg(ctx.palette.cmdline).bg(ctx.palette.cmdline_bg);
+            let style = ratatui::style::Style::new()
+                .fg(ctx.palette.cmdline)
+                .bg(ctx.palette.cmdline_bg);
             let area = Rect::new(full.x, row, full.width, 1);
             fill(frame.buffer_mut(), area, style);
             let text = format!("{}{}", line.prefix, line.text);
-            put(frame.buffer_mut(), full.x, row, &truncate(&text, usize::from(full.width)), usize::MAX, style);
-            let cursor_x = full.x + 1 + line.text.chars().take(line.cursor).collect::<String>().chars().count() as u16;
+            put(
+                frame.buffer_mut(),
+                full.x,
+                row,
+                &truncate(&text, usize::from(full.width)),
+                usize::MAX,
+                style,
+            );
+            let cursor_x = full.x
+                + 1
+                + line
+                    .text
+                    .chars()
+                    .take(line.cursor)
+                    .collect::<String>()
+                    .chars()
+                    .count() as u16;
             frame.set_cursor_position((cursor_x.min(full.right().saturating_sub(1)), row));
             if let Some(cell) = frame.buffer_mut().cell_mut((cursor_x, row)) {
                 cell.modifier.insert(Modifier::REVERSED);
@@ -621,7 +729,11 @@ fn word_completion(input: &str, dictionary: &[&str]) -> String {
     };
     let mut prefix: Vec<char> = first.chars().collect();
     for word in matching {
-        let common = prefix.iter().zip(word.chars()).take_while(|(a, b)| **a == *b).count();
+        let common = prefix
+            .iter()
+            .zip(word.chars())
+            .take_while(|(a, b)| **a == *b)
+            .count();
         prefix.truncate(common);
     }
     prefix.into_iter().collect()

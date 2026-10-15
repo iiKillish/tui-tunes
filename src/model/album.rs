@@ -1,7 +1,5 @@
-use rand::{rng, seq::IteratorRandom};
 use rspotify::model::Id;
 use std::fmt;
-use std::sync::{Arc, RwLock};
 
 use chrono::{DateTime, Utc};
 use log::debug;
@@ -13,8 +11,8 @@ use crate::model::playable::Playable;
 use crate::model::track::Track;
 use crate::queue::Queue;
 use crate::spotify::Spotify;
-use crate::traits::{OpenTarget};
-use crate::traits::{ListItem};
+use crate::traits::ListItem;
+use crate::traits::OpenTarget;
 
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Album {

@@ -104,7 +104,13 @@ impl Page for Tabbed {
             return;
         }
         let labels: Vec<String> = self.tabs.iter().map(|(l, _)| l.clone()).collect();
-        self.tab_rects = draw_tab_row(frame, Rect::new(area.x, area.y, area.width, 1), &labels, self.current, ctx);
+        self.tab_rects = draw_tab_row(
+            frame,
+            Rect::new(area.x, area.y, area.width, 1),
+            &labels,
+            self.current,
+            ctx,
+        );
         if let Some((_, page)) = self.tabs.get_mut(self.current) {
             let inner = Rect::new(area.x, area.y + 2, area.width, area.height - 2);
             page.draw(frame, inner, ctx, focused);
@@ -149,7 +155,9 @@ impl Page for Tabbed {
     }
 
     fn captures_text(&self) -> bool {
-        self.tabs.get(self.current).is_some_and(|(_, p)| p.captures_text())
+        self.tabs
+            .get(self.current)
+            .is_some_and(|(_, p)| p.captures_text())
     }
 
     fn key(&mut self, key: ratatui::crossterm::event::KeyEvent, ctx: &Ctx) -> Outcome {

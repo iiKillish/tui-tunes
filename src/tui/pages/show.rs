@@ -13,7 +13,7 @@ impl ListPage<Episode> {
         let episodes = ctx.spotify.api.show_episodes(&show.id);
         let list = ItemList::new(episodes.items.clone()).with_source(&show.name);
         episodes.apply_pagination(list.pagination());
-        ListPage::new(show.name.clone(), list).with_header(PageHeader {
+        Self::new(show.name.clone(), list).with_header(PageHeader {
             kind: "Podcast".into(),
             title: show.name.clone(),
             details: Vec::new(),

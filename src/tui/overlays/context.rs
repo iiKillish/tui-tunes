@@ -29,10 +29,17 @@ pub fn context_menu(item: Box<dyn ListItem>, ctx: &Ctx) -> Box<dyn Overlay> {
     if let Some(track) = item.track() {
         let saved = ctx.library.is_saved_track(&Playable::Track(track.clone()));
         let t = track.clone();
-        entries.push(Entry::new(if saved { "Remove from Liked Songs" } else { "Save to Liked Songs" }, move |ctx| {
-            ctx.library.toggle_saved_track_in_background(&t);
-            Outcome::Consumed
-        }));
+        entries.push(Entry::new(
+            if saved {
+                "Remove from Liked Songs"
+            } else {
+                "Save to Liked Songs"
+            },
+            move |ctx| {
+                ctx.library.toggle_saved_track_in_background(&t);
+                Outcome::Consumed
+            },
+        ));
         let t = track.clone();
         entries.push(Entry::new("Add to playlist…", move |ctx| {
             Outcome::Replace(nav::add_to_playlist(vec![t.clone()], ctx))
@@ -44,10 +51,16 @@ pub fn context_menu(item: Box<dyn ListItem>, ctx: &Ctx) -> Box<dyn Overlay> {
         }));
     }
     if let Some(artists) = item.artists().filter(|a| !a.is_empty()) {
-        let label = if artists.len() == 1 { "Go to artist" } else { "Go to artists…" };
-        entries.push(Entry::new(label, move |ctx| match nav::go_to_artists(artists.clone(), ctx) {
-            Outcome::Overlay(menu) => Outcome::Replace(menu),
-            other => other,
+        let label = if artists.len() == 1 {
+            "Go to artist"
+        } else {
+            "Go to artists…"
+        };
+        entries.push(Entry::new(label, move |ctx| {
+            match nav::go_to_artists(artists.clone(), ctx) {
+                Outcome::Overlay(menu) => Outcome::Replace(menu),
+                other => other,
+            }
         }));
     }
     #[cfg(feature = "share_clipboard")]

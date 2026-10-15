@@ -126,9 +126,7 @@ impl<I: ListItem + Clone> ItemList<I> {
     fn try_paginate(&self, ctx: &Ctx) {
         let len = self.len();
         let visible = usize::from(self.area.height);
-        if self.can_paginate()
-            && (self.selected + 1 >= len || self.first + visible >= len)
-        {
+        if self.can_paginate() && (self.selected + 1 >= len || self.first + visible >= len) {
             self.pagination.call(&self.content, ctx.library.clone());
         }
     }
@@ -185,9 +183,15 @@ impl<I: ListItem + Clone> ItemList<I> {
                 break;
             };
             let playing = item.is_playing(&ctx.queue) && current.is_some();
-            let unplayable = item.track().is_some_and(|t| t.is_local || t.is_playable == Some(false));
+            let unplayable = item
+                .track()
+                .is_some_and(|t| t.is_local || t.is_playable == Some(false));
             let style = if index == self.selected {
-                if focused { styles.selected() } else { styles.selected_inactive() }
+                if focused {
+                    styles.selected()
+                } else {
+                    styles.selected_inactive()
+                }
             } else if playing {
                 styles.playing()
             } else if unplayable {
@@ -233,19 +237,43 @@ impl<I: ListItem + Clone> ItemList<I> {
 
             let room = usize::from(right_x.saturating_sub(x + 1));
             if center.is_empty() {
-                put(buf, x, y, &left, room, if playing || index == self.selected { bold(style) } else { style });
+                put(
+                    buf,
+                    x,
+                    y,
+                    &left,
+                    room,
+                    if playing || index == self.selected {
+                        bold(style)
+                    } else {
+                        style
+                    },
+                );
             } else {
                 let left_room = room * 6 / 10;
                 put(buf, x, y, &left, left_room.saturating_sub(1), style);
                 let center_x = x + left_room as u16;
                 let center_room = usize::from(right_x.saturating_sub(center_x + 1));
-                let center_style = if index == self.selected { style } else { styles.secondary() };
+                let center_style = if index == self.selected {
+                    style
+                } else {
+                    styles.secondary()
+                };
                 put(buf, center_x, y, &center, center_room, center_style);
             }
 
             // `/` search matches stand out.
             if self.matches.contains(&index) && index != self.selected {
-                put(buf, area.x, y, "›", 1, styles.accent().bg(style.bg.unwrap_or(ctx.palette.background)));
+                put(
+                    buf,
+                    area.x,
+                    y,
+                    "›",
+                    1,
+                    styles
+                        .accent()
+                        .bg(style.bg.unwrap_or(ctx.palette.background)),
+                );
             }
         }
     }
@@ -255,10 +283,8 @@ impl<I: ListItem + Clone> ItemList<I> {
     fn play(&self, ctx: &Ctx) {
         let content = self.content.read().unwrap();
         let any = &*content as &dyn std::any::Any;
-        let tracks: Option<Vec<Playable>> = any
-            .downcast_ref::<Vec<Playable>>()
-            .cloned()
-            .or_else(|| {
+        let tracks: Option<Vec<Playable>> =
+            any.downcast_ref::<Vec<Playable>>().cloned().or_else(|| {
                 any.downcast_ref::<Vec<Track>>()
                     .map(|t| t.iter().cloned().map(Playable::Track).collect())
             });
@@ -431,7 +457,9 @@ impl<I: ListItem + Clone> ItemList<I> {
                 // Clicking the selected track plays it; clicking an album or playlist opens it.
                 let already = index == self.selected;
                 self.selected = index;
-                let is_track = self.selected_item().is_some_and(|i| i.track().is_some() || i.is_playable());
+                let is_track = self
+                    .selected_item()
+                    .is_some_and(|i| i.track().is_some() || i.is_playable());
                 if is_track {
                     if already {
                         self.play(ctx);

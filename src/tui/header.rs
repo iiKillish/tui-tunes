@@ -78,8 +78,22 @@ pub fn draw(
     }
     let width = usize::from(area.right().saturating_sub(text_x + 2));
 
-    put(buf, text_x, area.y + 1, &header.kind, width, fg(palette.secondary));
-    put(buf, text_x, area.y + 2, &header.title, width, bold(fg(palette.title)));
+    put(
+        buf,
+        text_x,
+        area.y + 1,
+        &header.kind,
+        width,
+        fg(palette.secondary),
+    );
+    put(
+        buf,
+        text_x,
+        area.y + 2,
+        &header.title,
+        width,
+        bold(fg(palette.title)),
+    );
     put(
         buf,
         text_x,
@@ -95,7 +109,14 @@ pub fn draw(
     let y = area.y + 5;
     let mut button = |label: &str, style: Style, action: HeaderAction, x: &mut u16| {
         let text = format!(" {label} ");
-        let written = put(buf, *x, y, &text, usize::from(area.right().saturating_sub(*x)), style);
+        let written = put(
+            buf,
+            *x,
+            y,
+            &text,
+            usize::from(area.right().saturating_sub(*x)),
+            style,
+        );
         if written > 0 {
             buttons.push((Rect::new(*x, y, written as u16, 1), action));
         }
@@ -103,7 +124,12 @@ pub fn draw(
     };
     if header.playable {
         button("▶ Play", styles.button(), HeaderAction::Play, &mut x);
-        button("⇄ Shuffle", fg(palette.primary), HeaderAction::Shuffle, &mut x);
+        button(
+            "⇄ Shuffle",
+            fg(palette.primary),
+            HeaderAction::Shuffle,
+            &mut x,
+        );
     }
     if let Some(liked) = header.liked {
         let (label, style) = if liked {

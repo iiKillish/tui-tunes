@@ -23,8 +23,8 @@ use crate::model::episode::Episode;
 use crate::model::playable::Playable;
 use crate::model::playlist::Playlist;
 use crate::model::track::Track;
-use crate::spotify_worker::WorkerCommand;
 use crate::pagination::{ApiPage, ApiResult};
+use crate::spotify_worker::WorkerCommand;
 
 /// A track from the user's listening history.
 pub struct RecentPlay {

@@ -12,6 +12,6 @@ impl ListPage<Playlist> {
         let playlists = ctx.spotify.api.category_playlists(&category.id);
         let list = ItemList::new(playlists.items.clone());
         playlists.apply_pagination(list.pagination());
-        ListPage::new(category.name.clone(), list)
+        Self::new(category.name.clone(), list)
     }
 }

@@ -125,7 +125,9 @@ pub fn render(overlays: &[Rect]) {
         // Keep what's already placed and still wanted; remove the rest.
         let mut kept = Vec::new();
         for placed in std::mem::take(&mut layer.placed) {
-            if desired.contains(&placed.request) && !kept.iter().any(|k: &Placed| k.request == placed.request) {
+            if desired.contains(&placed.request)
+                && !kept.iter().any(|k: &Placed| k.request == placed.request)
+            {
                 kept.push(placed);
             } else {
                 let _ = delete(placed.id);
@@ -139,7 +141,11 @@ pub fn render(overlays: &[Rect]) {
                 request.area.width * font.width,
                 request.area.height * font.height,
             );
-            let key = (request.source.clone(), u32::from(pixels.width), u32::from(pixels.height));
+            let key = (
+                request.source.clone(),
+                u32::from(pixels.width),
+                u32::from(pixels.height),
+            );
             if !layer.cache.contains_key(&key) {
                 let Some(image) = load(&request.source, pixels) else {
                     continue;

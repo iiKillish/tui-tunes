@@ -1,8 +1,4 @@
-use std::collections::HashSet;
-use std::sync::{Arc, RwLock};
 use std::{cmp::Ordering, iter::Iterator};
-
-use rand::{rng, seq::IteratorRandom};
 
 use log::{debug, warn};
 use rspotify::model::Id;
@@ -12,8 +8,8 @@ use crate::model::playable::Playable;
 use crate::model::track::Track;
 use crate::queue::Queue;
 use crate::spotify::Spotify;
-use crate::traits::{OpenTarget};
-use crate::traits::{ListItem};
+use crate::traits::ListItem;
+use crate::traits::OpenTarget;
 use crate::{command::SortDirection, command::SortKey, library::Library};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

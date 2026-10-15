@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::mpsc::{Sender, channel};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Mutex, OnceLock, RwLock};
 use std::thread;
 
 use rspotify::model::Id;
@@ -12,8 +12,8 @@ use crate::model::playable::Playable;
 use crate::model::track::Track;
 use crate::queue::Queue;
 use crate::spotify::Spotify;
-use crate::traits::{OpenTarget};
-use crate::traits::{ListItem};
+use crate::traits::ListItem;
+use crate::traits::OpenTarget;
 
 /// Artists' pictures by artist ID, for cards. Filled whenever an artist comes from the Web API
 /// with its pictures (search results, followed and top artists); others are looked up one at a

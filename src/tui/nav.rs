@@ -13,7 +13,9 @@ use crate::tui::pages;
 pub fn open_target(target: OpenTarget, ctx: &Ctx) -> Box<dyn Page> {
     match target {
         OpenTarget::Album(album) => Box::new(pages::album::AlbumPage::new(album, ctx)),
-        OpenTarget::Playlist(playlist) => Box::new(pages::playlist::PlaylistPage::new(playlist, ctx)),
+        OpenTarget::Playlist(playlist) => {
+            Box::new(pages::playlist::PlaylistPage::new(playlist, ctx))
+        }
         OpenTarget::Artist(artist) => Box::new(pages::artist::ArtistPage::new(artist, ctx)),
         OpenTarget::Show(show) => Box::new(pages::show::ShowPage::new_show(show, ctx)),
         OpenTarget::Category(category) => {

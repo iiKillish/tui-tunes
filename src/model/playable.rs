@@ -7,10 +7,9 @@ use crate::model::artist::Artist;
 use crate::model::episode::Episode;
 use crate::model::track::Track;
 use crate::queue::Queue;
-use crate::traits::{ListItem};
+use crate::traits::ListItem;
 use crate::utils::ms_to_hms;
 use std::fmt;
-use std::sync::Arc;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(tag = "type")]

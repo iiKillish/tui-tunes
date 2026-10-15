@@ -16,11 +16,11 @@ use ratatui::style::Style;
 use crate::model::playable::Playable;
 use crate::queue::RepeatSetting;
 use crate::spotify::{PlayerEvent, VOLUME_PERCENT};
+#[cfg(feature = "cover")]
+use crate::tui::icons::Icon;
 use crate::tui::images;
 #[cfg(feature = "cover")]
 use crate::tui::images::Source;
-#[cfg(feature = "cover")]
-use crate::tui::icons::Icon;
 use crate::tui::page::{Ctx, Outcome};
 use crate::tui::style::{Styles, bold, duration, fill, put, rgb, width};
 
@@ -184,13 +184,18 @@ impl Player {
             area.y,
             text,
             usize::from(area.width),
-            bold(Style::new().fg(color).bg(styles.panel().bg.unwrap_or_default())),
+            bold(
+                Style::new()
+                    .fg(color)
+                    .bg(styles.panel().bg.unwrap_or_default()),
+            ),
         );
     }
 
     /// A horizontal bar filled to `fraction`.
     fn draw_bar(frame: &mut Frame, area: Rect, fraction: f64, ctx: &Ctx, background: Style) {
-        let filled = ((fraction.clamp(0.0, 1.0) * f64::from(area.width)).round() as u16).min(area.width);
+        let filled =
+            ((fraction.clamp(0.0, 1.0) * f64::from(area.width)).round() as u16).min(area.width);
         let buf = frame.buffer_mut();
         let empty = background.fg(ctx.palette.statusbar_progress_bg);
         let full = background.fg(ctx.palette.statusbar_progress);
@@ -201,7 +206,14 @@ impl Player {
     }
 
     /// The text lines: title (with the like button), artists, album. Centered in the hero.
-    fn draw_text(&mut self, frame: &mut Frame, area: Rect, centered: bool, ctx: &Ctx, background: Style) {
+    fn draw_text(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        centered: bool,
+        ctx: &Ctx,
+        background: Style,
+    ) {
         let styles = Styles(&ctx.palette);
         let track = ctx.queue.get_current();
         let (title, artists, album) = match &track {
@@ -230,18 +242,50 @@ impl Player {
         let buf = frame.buffer_mut();
         let title_width = width(&title) + if liked.is_some() { 3 } else { 0 };
         let x = line_x(title_width);
-        put(buf, x, area.y, &title, w, bold(background.fg(ctx.palette.primary)));
+        put(
+            buf,
+            x,
+            area.y,
+            &title,
+            w,
+            bold(background.fg(ctx.palette.primary)),
+        );
         self.hits.like = None;
         if let Some(liked) = liked {
             let like_x = x + width(&title) as u16 + 2;
-            let color = if liked { ctx.palette.title } else { ctx.palette.secondary };
-            put(buf, like_x, area.y, Self::like_text(liked, ctx), 2, background.fg(color));
+            let color = if liked {
+                ctx.palette.title
+            } else {
+                ctx.palette.secondary
+            };
+            put(
+                buf,
+                like_x,
+                area.y,
+                Self::like_text(liked, ctx),
+                2,
+                background.fg(color),
+            );
             self.hits.like = Some(Rect::new(like_x, area.y, 2, 1));
         }
         let artists = crate::tui::style::truncate(&artists, w);
         let album = crate::tui::style::truncate(&album, w);
-        put(buf, line_x(width(&artists)), area.y + 1, &artists, w, background.fg(ctx.palette.secondary));
-        put(buf, line_x(width(&album)), area.y + 2, &album, w, background.fg(styles.accent().fg.unwrap_or_default()));
+        put(
+            buf,
+            line_x(width(&artists)),
+            area.y + 1,
+            &artists,
+            w,
+            background.fg(ctx.palette.secondary),
+        );
+        put(
+            buf,
+            line_x(width(&album)),
+            area.y + 2,
+            &album,
+            w,
+            background.fg(styles.accent().fg.unwrap_or_default()),
+        );
     }
 
     /// The count prefix being typed, library loading and rate limits, top right.
@@ -259,12 +303,29 @@ impl Player {
         if status.is_empty() {
             return;
         }
-        let text = crate::tui::style::truncate(&status.join("  "), usize::from(area.width.saturating_sub(4)));
+        let text = crate::tui::style::truncate(
+            &status.join("  "),
+            usize::from(area.width.saturating_sub(4)),
+        );
         let x = area.right().saturating_sub(width(&text) as u16 + 2);
-        put(frame.buffer_mut(), x, area.y, &text, usize::MAX, background.fg(ctx.palette.secondary));
+        put(
+            frame.buffer_mut(),
+            x,
+            area.y,
+            &text,
+            usize::MAX,
+            background.fg(ctx.palette.secondary),
+        );
     }
 
-    pub fn draw(&mut self, frame: &mut Frame, area: Rect, ctx: &Ctx, count: usize, show_cover: bool) {
+    pub fn draw(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        ctx: &Ctx,
+        count: usize,
+        show_cover: bool,
+    ) {
         self.hits = Hits::default();
         if area.height >= HERO_MIN_ROWS {
             self.draw_hero(frame, area, ctx, count, show_cover);
@@ -273,7 +334,14 @@ impl Player {
         }
     }
 
-    fn draw_hero(&mut self, frame: &mut Frame, area: Rect, ctx: &Ctx, count: usize, show_cover: bool) {
+    fn draw_hero(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        ctx: &Ctx,
+        count: usize,
+        show_cover: bool,
+    ) {
         // Design V1: no fill of its own, the main background.
         let background = Style::new().bg(ctx.palette.background);
         let track = ctx.queue.get_current();
@@ -296,13 +364,22 @@ impl Player {
             && let Some(url) = track.as_ref().and_then(Playable::cover_url)
         {
             let w = images::square_width(cover_rows);
-            images::cover(&url, Rect::new(area.x + (area.width - w) / 2, top + 1, w, cover_rows));
+            images::cover(
+                &url,
+                Rect::new(area.x + (area.width - w) / 2, top + 1, w, cover_rows),
+            );
         }
 
         let text_top = top + 1 + cover_rows + 1;
         let content_width = area.width.saturating_sub(6).min(64);
         let left = area.x + (area.width - content_width) / 2;
-        self.draw_text(frame, Rect::new(left, text_top, content_width, 3), true, ctx, background);
+        self.draw_text(
+            frame,
+            Rect::new(left, text_top, content_width, 3),
+            true,
+            ctx,
+            background,
+        );
 
         // Progress, with the times under its ends.
         let progress_row = text_top + 4;
@@ -310,47 +387,112 @@ impl Player {
         let (elapsed, total) = match &track {
             Some(t) => {
                 let total = t.duration();
-                ((ctx.spotify.get_current_progress().as_millis() as u32).min(total), total)
+                (
+                    (ctx.spotify.get_current_progress().as_millis() as u32).min(total),
+                    total,
+                )
             }
             None => (0, 0),
         };
-        let fraction = if total > 0 { f64::from(elapsed) / f64::from(total) } else { 0.0 };
+        let fraction = if total > 0 {
+            f64::from(elapsed) / f64::from(total)
+        } else {
+            0.0
+        };
         Self::draw_bar(frame, bar, fraction, ctx, background);
         self.hits.progress = Some(bar);
         if track.is_some() {
             let buf = frame.buffer_mut();
             let secondary = background.fg(ctx.palette.secondary);
-            put(buf, left, progress_row + 1, &duration(elapsed), 10, secondary);
+            put(
+                buf,
+                left,
+                progress_row + 1,
+                &duration(elapsed),
+                10,
+                secondary,
+            );
             let remaining = format!("-{}", duration(total - elapsed));
-            put(buf, bar.right().saturating_sub(width(&remaining) as u16), progress_row + 1, &remaining, 10, secondary);
+            put(
+                buf,
+                bar.right().saturating_sub(width(&remaining) as u16),
+                progress_row + 1,
+                &remaining,
+                10,
+                secondary,
+            );
         }
 
         // Shuffle at the bar's left end, repeat at its right end, the rest centered.
         let (bw, bh) = Self::button_size();
         let controls_row = progress_row + 2;
-        self.draw_control(frame, Rect::new(left, controls_row, bw, bh), Control::Shuffle, ctx);
-        self.draw_control(frame, Rect::new(bar.right().saturating_sub(bw), controls_row, bw, bh), Control::Repeat, ctx);
+        self.draw_control(
+            frame,
+            Rect::new(left, controls_row, bw, bh),
+            Control::Shuffle,
+            ctx,
+        );
+        self.draw_control(
+            frame,
+            Rect::new(bar.right().saturating_sub(bw), controls_row, bw, bh),
+            Control::Repeat,
+            ctx,
+        );
         let gap = bw;
         let middle = 3 * bw + 2 * gap;
         let mx = area.x + (area.width.saturating_sub(middle)) / 2;
-        for (i, control) in [Control::Previous, Control::PlayPause, Control::Next].into_iter().enumerate() {
-            self.draw_control(frame, Rect::new(mx + i as u16 * (bw + gap), controls_row, bw, bh), control, ctx);
+        for (i, control) in [Control::Previous, Control::PlayPause, Control::Next]
+            .into_iter()
+            .enumerate()
+        {
+            self.draw_control(
+                frame,
+                Rect::new(mx + i as u16 * (bw + gap), controls_row, bw, bh),
+                control,
+                ctx,
+            );
         }
 
         // Volume, centered under the controls.
         let volume_row = controls_row + bh + 1;
         if volume_row < area.bottom() {
             let vx = area.x + area.width.saturating_sub(VOLUME_BAR_WIDTH + 3) / 2;
-            put(frame.buffer_mut(), vx, volume_row, Self::volume_text(ctx), 2, background.fg(ctx.palette.primary));
+            put(
+                frame.buffer_mut(),
+                vx,
+                volume_row,
+                Self::volume_text(ctx),
+                2,
+                background.fg(ctx.palette.primary),
+            );
             let vbar = Rect::new(vx + 3, volume_row, VOLUME_BAR_WIDTH, 1);
-            Self::draw_bar(frame, vbar, f64::from(ctx.spotify.volume()) / f64::from(u16::MAX), ctx, background);
+            Self::draw_bar(
+                frame,
+                vbar,
+                f64::from(ctx.spotify.volume()) / f64::from(u16::MAX),
+                ctx,
+                background,
+            );
             self.hits.volume = Some(Rect::new(vx, volume_row, VOLUME_BAR_WIDTH + 3, 1));
         }
 
-        Self::draw_status(frame, Rect::new(area.x, area.y, area.width, 1), count, ctx, background);
+        Self::draw_status(
+            frame,
+            Rect::new(area.x, area.y, area.width, 1),
+            count,
+            ctx,
+            background,
+        );
     }
 
-    fn draw_bar_layout(&mut self, frame: &mut Frame, area: Rect, ctx: &Ctx, count: usize, show_cover: bool) {
+    fn draw_bar_layout(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        ctx: &Ctx,
+        count: usize,
+        show_cover: bool,
+    ) {
         let styles = Styles(&ctx.palette);
         let background = styles.panel();
         fill(frame.buffer_mut(), area, background);
@@ -372,29 +514,80 @@ impl Player {
         let center_width = (area.width * 2 / 5).clamp(30, 80);
         let center_x = area.x + area.width.saturating_sub(center_width) / 2;
         let text_width = center_x.saturating_sub(text_x + 2);
-        self.draw_text(frame, Rect::new(text_x, mid.saturating_sub(1), text_width, 3), false, ctx, background);
+        self.draw_text(
+            frame,
+            Rect::new(text_x, mid.saturating_sub(1), text_width, 3),
+            false,
+            ctx,
+            background,
+        );
 
         // Controls over the progress bar, K3 order: shuffle, previous, play, next, repeat.
-        let (bw, bh) = if image_controls() && area.height >= 4 { Self::button_size() } else { (3, 1) };
+        let (bw, bh) = if image_controls() && area.height >= 4 {
+            Self::button_size()
+        } else {
+            (3, 1)
+        };
         let gap = 2;
         let controls_width = 5 * bw + 4 * gap;
         let cx = area.x + area.width.saturating_sub(controls_width) / 2;
-        let row = if bh > 1 { mid.saturating_sub(2) } else { mid.saturating_sub(1) };
-        for (i, control) in [Control::Shuffle, Control::Previous, Control::PlayPause, Control::Next, Control::Repeat].into_iter().enumerate() {
-            self.draw_control(frame, Rect::new(cx + i as u16 * (bw + gap), row, bw, bh), control, ctx);
+        let row = if bh > 1 {
+            mid.saturating_sub(2)
+        } else {
+            mid.saturating_sub(1)
+        };
+        for (i, control) in [
+            Control::Shuffle,
+            Control::Previous,
+            Control::PlayPause,
+            Control::Next,
+            Control::Repeat,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            self.draw_control(
+                frame,
+                Rect::new(cx + i as u16 * (bw + gap), row, bw, bh),
+                control,
+                ctx,
+            );
         }
 
         let progress_row = (mid + 1).min(area.bottom().saturating_sub(1));
-        let bar = Rect::new(center_x + 6, progress_row, center_width.saturating_sub(13), 1);
+        let bar = Rect::new(
+            center_x + 6,
+            progress_row,
+            center_width.saturating_sub(13),
+            1,
+        );
         if let Some(t) = &track {
             let total = t.duration();
             let elapsed = (ctx.spotify.get_current_progress().as_millis() as u32).min(total);
             let buf = frame.buffer_mut();
             let secondary = background.fg(ctx.palette.secondary);
             let e = duration(elapsed);
-            put(buf, bar.x.saturating_sub(width(&e) as u16 + 1), progress_row, &e, 10, secondary);
-            put(buf, bar.right() + 1, progress_row, &format!("-{}", duration(total - elapsed)), 10, secondary);
-            let fraction = if total > 0 { f64::from(elapsed) / f64::from(total) } else { 0.0 };
+            put(
+                buf,
+                bar.x.saturating_sub(width(&e) as u16 + 1),
+                progress_row,
+                &e,
+                10,
+                secondary,
+            );
+            put(
+                buf,
+                bar.right() + 1,
+                progress_row,
+                &format!("-{}", duration(total - elapsed)),
+                10,
+                secondary,
+            );
+            let fraction = if total > 0 {
+                f64::from(elapsed) / f64::from(total)
+            } else {
+                0.0
+            };
             Self::draw_bar(frame, bar, fraction, ctx, background);
         } else {
             Self::draw_bar(frame, bar, 0.0, ctx, background);
@@ -404,11 +597,30 @@ impl Player {
         let right_space = area.right().saturating_sub(center_x + center_width);
         if right_space >= VOLUME_BAR_WIDTH + 6 {
             let vx = area.right().saturating_sub(VOLUME_BAR_WIDTH + 5);
-            put(frame.buffer_mut(), vx, mid, Self::volume_text(ctx), 2, background.fg(ctx.palette.primary));
-            Self::draw_bar(frame, Rect::new(vx + 3, mid, VOLUME_BAR_WIDTH, 1), f64::from(ctx.spotify.volume()) / f64::from(u16::MAX), ctx, background);
+            put(
+                frame.buffer_mut(),
+                vx,
+                mid,
+                Self::volume_text(ctx),
+                2,
+                background.fg(ctx.palette.primary),
+            );
+            Self::draw_bar(
+                frame,
+                Rect::new(vx + 3, mid, VOLUME_BAR_WIDTH, 1),
+                f64::from(ctx.spotify.volume()) / f64::from(u16::MAX),
+                ctx,
+                background,
+            );
             self.hits.volume = Some(Rect::new(vx, mid, VOLUME_BAR_WIDTH + 3, 1));
         }
-        Self::draw_status(frame, Rect::new(area.x, mid.saturating_sub(1), area.width, 1), count, ctx, background);
+        Self::draw_status(
+            frame,
+            Rect::new(area.x, mid.saturating_sub(1), area.width, 1),
+            count,
+            ctx,
+            background,
+        );
     }
 
     fn activate(control: Control, ctx: &Ctx) {
@@ -436,7 +648,8 @@ impl Player {
         let in_rect = |r: &Option<Rect>| r.is_some_and(|r| r.contains(at));
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
-                if let Some((_, control)) = self.hits.controls.iter().find(|(r, _)| r.contains(at)) {
+                if let Some((_, control)) = self.hits.controls.iter().find(|(r, _)| r.contains(at))
+                {
                     Self::activate(*control, ctx);
                 } else if in_rect(&self.hits.like) {
                     if let Some(Playable::Track(track)) = ctx.queue.get_current() {
@@ -445,24 +658,33 @@ impl Player {
                 } else if let Some(bar) = self.hits.progress.filter(|r| r.contains(at)) {
                     if let Some(track) = ctx.queue.get_current() {
                         let fraction = f64::from(at.x - bar.x) / f64::from(bar.width.max(1));
-                        ctx.spotify.seek((f64::from(track.duration()) * fraction) as u32);
+                        ctx.spotify
+                            .seek((f64::from(track.duration()) * fraction) as u32);
                     }
                 } else if let Some(volume) = self.hits.volume.filter(|r| r.contains(at)) {
                     let bar_x = volume.x + 3;
                     if at.x >= bar_x {
-                        let fraction = (f64::from(at.x - bar_x + 1) / f64::from(VOLUME_BAR_WIDTH)).min(1.0);
-                        ctx.spotify.set_volume((f64::from(u16::MAX) * fraction) as u16, true);
+                        let fraction =
+                            (f64::from(at.x - bar_x + 1) / f64::from(VOLUME_BAR_WIDTH)).min(1.0);
+                        ctx.spotify
+                            .set_volume((f64::from(u16::MAX) * fraction) as u16, true);
                     }
                 }
             }
             MouseEventKind::ScrollUp if in_rect(&self.hits.volume) => {
-                ctx.spotify.set_volume(ctx.spotify.volume().saturating_add(VOLUME_PERCENT), true);
+                ctx.spotify
+                    .set_volume(ctx.spotify.volume().saturating_add(VOLUME_PERCENT), true);
             }
             MouseEventKind::ScrollDown if in_rect(&self.hits.volume) => {
-                ctx.spotify.set_volume(ctx.spotify.volume().saturating_sub(VOLUME_PERCENT), true);
+                ctx.spotify
+                    .set_volume(ctx.spotify.volume().saturating_sub(VOLUME_PERCENT), true);
             }
-            MouseEventKind::ScrollUp if in_rect(&self.hits.progress) => ctx.spotify.seek_relative(-5000),
-            MouseEventKind::ScrollDown if in_rect(&self.hits.progress) => ctx.spotify.seek_relative(5000),
+            MouseEventKind::ScrollUp if in_rect(&self.hits.progress) => {
+                ctx.spotify.seek_relative(-5000)
+            }
+            MouseEventKind::ScrollDown if in_rect(&self.hits.progress) => {
+                ctx.spotify.seek_relative(5000)
+            }
             _ => return Outcome::Ignored,
         }
         Outcome::Consumed
