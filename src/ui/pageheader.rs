@@ -1,8 +1,10 @@
 //! The header above album and playlist pages, like Spotify's: a big cover, what the page is, its
 //! name and details (artist or owner, year, number of songs, length).
 
+use cursive::Printer;
+#[cfg(feature = "cover")]
+use cursive::Vec2;
 use cursive::theme::{ColorStyle, ColorType, Effect, PaletteColor};
-use cursive::{Printer, Vec2};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 #[cfg(feature = "cover")]
@@ -12,6 +14,7 @@ use crate::ui::cover::{
 
 /// Rows the header takes: the cover, then a blank row above the page.
 pub const HEADER_ROWS: usize = 8;
+#[cfg(feature = "cover")]
 const COVER_ROWS: usize = HEADER_ROWS - 1;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,6 +60,7 @@ impl HeaderRenderer {
     /// Draw `header` into `printer`, which should be [HEADER_ROWS] tall.
     pub fn draw(&self, printer: &Printer<'_, '_>, header: &PageHeader) {
         let x = 2;
+        #[allow(unused_mut)]
         let mut text_x = x;
         #[cfg(feature = "cover")]
         {

@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::PathBuf;
 
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use cursive::theme::{ColorStyle, ColorType, PaletteColor};
 use cursive::{Cursive, Printer, Vec2, View};
@@ -17,11 +17,17 @@ use crate::queue::Queue;
 use crate::traits::{IntoBoxedViewExt, ListItem, ViewExt};
 use crate::ui::album::AlbumView;
 use crate::ui::artist::ArtistView;
+use crate::ui::lyricsview::LyricsView;
 
+/// The cover screen: the current track's cover, big, with its lyrics beside it (on wide
+/// windows) or below it, like Spotify's lyrics view.
 pub struct CoverView {
     queue: Arc<Queue>,
     library: Arc<Library>,
     cover: CoverRenderer,
+    lyrics: LyricsView,
+    /// Where the lyrics were drawn last (offset and size within the view), for the mouse.
+    lyrics_area: RwLock<(Vec2, Vec2)>,
 }
 
 /// Draws album art straight to the terminal (Kitty, iTerm2 or Sixel graphics via viuer), outside
@@ -35,6 +41,10 @@ pub struct CoverRenderer {
     cover_max_scale: Option<f32>,
     font_size: Vec2,
 }
+
+/// Narrowest the lyrics get beside the cover on the cover screen; narrower windows show them
+/// below it.
+const MIN_LYRICS_WIDTH: usize = 40;
 
 /// A rectangle of terminal cells: top-left offset and size.
 pub type Area = (Vec2, Vec2);
@@ -140,6 +150,45 @@ impl ImageLayer {
     }
 }
 
+/// Images requested while drawing the current frame (see [request_frame_image]), and whether a
+/// frame has been drawn since they were last put on the terminal.
+static FRAME_IMAGES: Mutex<(Vec<ImageRequest>, bool)> = Mutex::new((Vec::new(), false));
+static FRAME_LAYER: OnceLock<ImageLayer> = OnceLock::new();
+
+/// Start a new frame: forget the images requested for the last one. Called by the layout, which
+/// cursive draws first on every redraw.
+pub fn begin_frame_images() {
+    *FRAME_IMAGES.lock().unwrap() = (Vec::new(), true);
+}
+
+/// Show the image at `url` filling `cells` at `offset` (terminal cells) for this frame. Views
+/// call this while drawing; whatever isn't requested again in the next frame is removed, so
+/// views that stop being drawn (other tabs, screens or pages) don't have to clean up.
+pub fn request_frame_image(url: String, offset: Vec2, cells: Vec2) {
+    let mut frame = FRAME_IMAGES.lock().unwrap();
+    let image_id = FRAME_IMAGE_ID + frame.0.len() as u32;
+    frame.0.push(ImageRequest {
+        image_id,
+        url,
+        offset,
+        cells,
+    });
+}
+
+/// Put the images requested for the last frame drawn on the terminal; call after cursive has
+/// drawn. Covers still downloading are retried on later calls.
+pub fn render_frame_images(overlays: &[Area]) {
+    let layer = FRAME_LAYER.get_or_init(ImageLayer::default);
+    {
+        let mut frame = FRAME_IMAGES.lock().unwrap();
+        if frame.1 {
+            layer.set(frame.0.clone());
+            frame.1 = false;
+        }
+    }
+    layer.render_to_terminal(overlays, terminal_font_size());
+}
+
 #[derive(Clone, PartialEq, Eq)]
 struct CoverRequest {
     url: String,
@@ -151,9 +200,11 @@ struct CoverRequest {
 impl CoverView {
     pub fn new(queue: Arc<Queue>, library: Arc<Library>, config: &Config) -> Self {
         Self {
+            lyrics: LyricsView::new(queue.clone(), library.clone()).spacious(),
             queue,
             library,
             cover: CoverRenderer::new(config, COVER_VIEW_IMAGE_ID),
+            lyrics_area: RwLock::new((Vec2::zero(), Vec2::zero())),
         }
     }
 
@@ -405,8 +456,8 @@ pub(crate) const HEADER_COVER_IMAGE_ID: u32 = 3;
 pub(crate) const CONTROL_ICON_IMAGE_ID: u32 = 10;
 /// First of the queue panel's thumbnail IDs (one per visible item).
 pub(crate) const QUEUE_THUMBNAIL_IMAGE_ID: u32 = 100;
-/// First of the home screen's card covers.
-pub(crate) const HOME_CARD_IMAGE_ID: u32 = 300;
+/// First of the images requested with [request_frame_image] (cards).
+const FRAME_IMAGE_ID: u32 = 1000;
 
 /// Place `pixels` over `cells` terminal cells at `offset` with the Kitty graphics protocol as
 /// image `image_id` (replacing any image with that ID), without moving the cursor (`C=1`) or
@@ -542,17 +593,71 @@ impl View for CoverView {
             }
         });
 
-        let cover_url = self.queue.get_current().and_then(|t| t.cover_url());
+        // Cover and lyrics side by side when there's room for a square cover (cells are about
+        // twice as tall as wide) and readable lyrics next to it, else the cover above.
+        let size = printer.size;
+        let (cover_area, lyrics_area) = if size.x >= size.y * 2 + MIN_LYRICS_WIDTH {
+            let cover_width = (size.y * 2).min(size.x / 2);
+            (
+                (
+                    Vec2::new(2, 1),
+                    Vec2::new(cover_width, size.y.saturating_sub(2)),
+                ),
+                (
+                    Vec2::new(cover_width + 4, 1),
+                    Vec2::new(
+                        size.x.saturating_sub(cover_width + 6),
+                        size.y.saturating_sub(2),
+                    ),
+                ),
+            )
+        } else {
+            let cover_rows = size.y * 2 / 5;
+            (
+                (Vec2::new(0, 1), Vec2::new(size.x, cover_rows)),
+                (
+                    Vec2::new(2, cover_rows + 2),
+                    Vec2::new(
+                        size.x.saturating_sub(4),
+                        size.y.saturating_sub(cover_rows + 3),
+                    ),
+                ),
+            )
+        };
 
+        let cover_url = self.queue.get_current().and_then(|t| t.cover_url());
         if let Some(url) = cover_url {
-            self.cover.draw_cover(url, printer.offset, printer.size);
+            self.cover
+                .draw_cover(url, printer.offset + cover_area.0, cover_area.1);
         } else {
             self.cover.clear_cover();
         }
+
+        self.lyrics
+            .draw(&printer.offset(lyrics_area.0).cropped(lyrics_area.1), 2);
+        *self.lyrics_area.write().unwrap() = lyrics_area;
     }
 
     fn required_size(&mut self, constraint: Vec2) -> Vec2 {
         Vec2::new(constraint.x, 2)
+    }
+
+    fn on_event(&mut self, event: cursive::event::Event) -> cursive::event::EventResult {
+        if let cursive::event::Event::Mouse {
+            offset,
+            position,
+            event,
+        } = event
+        {
+            let (area_offset, area_size) = *self.lyrics_area.read().unwrap();
+            if let Some(position) = position.checked_sub(offset + area_offset)
+                && position.fits_in(area_size)
+            {
+                self.lyrics.on_mouse(event, position);
+            }
+            return cursive::event::EventResult::consumed();
+        }
+        cursive::event::EventResult::Ignored
     }
 }
 
@@ -567,6 +672,9 @@ impl ViewExt for CoverView {
     }
 
     fn on_command(&mut self, _s: &mut Cursive, cmd: &Command) -> Result<CommandResult, String> {
+        if self.lyrics.handle_command(cmd) {
+            return Ok(CommandResult::Consumed(None));
+        }
         match cmd {
             Command::Save => {
                 if let Some(mut track) = self.queue.get_current() {

@@ -11,8 +11,8 @@ use crate::library::Library;
 use crate::queue::Queue;
 use crate::traits::ViewExt;
 use crate::ui::browse::BrowseView;
+use crate::ui::cards::{Card, CardGrid, CardLayout, Section};
 use crate::ui::listview::ListView;
-use crate::ui::playlists::PlaylistsView;
 use crate::ui::tabbedview::TabbedView;
 
 pub struct LibraryView {
@@ -37,17 +37,49 @@ impl LibraryView {
                     ListView::new(library.tracks.clone(), queue.clone(), library.clone())
                         .with_source("Liked Songs"),
                 ),
+                // Playlists, albums and artists as grids of covers, like Spotify's library.
                 LibraryTab::Albums => tabview.add_tab(
                     "Albums",
-                    ListView::new(library.albums.clone(), queue.clone(), library.clone()),
+                    grid(&queue, &library, |library| {
+                        library
+                            .albums
+                            .read()
+                            .unwrap()
+                            .iter()
+                            .cloned()
+                            .map(Card::album)
+                            .collect()
+                    }),
                 ),
                 LibraryTab::Artists => tabview.add_tab(
                     "Artists",
-                    ListView::new(library.artists.clone(), queue.clone(), library.clone()),
+                    grid(&queue, &library, |library| {
+                        library
+                            .artists
+                            .read()
+                            .unwrap()
+                            .iter()
+                            .cloned()
+                            .map(Card::artist)
+                            .collect()
+                    }),
                 ),
                 LibraryTab::Playlists => tabview.add_tab(
                     "Playlists",
-                    PlaylistsView::new(queue.clone(), library.clone()),
+                    grid(&queue, &library, |library| {
+                        let liked = library.tracks.read().unwrap().len();
+                        std::iter::once(Card::liked_songs(liked))
+                            .chain(
+                                library
+                                    .playlists
+                                    .read()
+                                    .unwrap()
+                                    .iter()
+                                    .cloned()
+                                    .map(Card::playlist),
+                            )
+                            .collect()
+                    }),
                 ),
                 LibraryTab::Podcasts => tabview.add_tab(
                     "Podcasts",
@@ -71,6 +103,29 @@ impl LibraryView {
             },
         }
     }
+}
+
+/// A grid of the cards `cards` makes from the library, kept up to date as the library loads.
+fn grid(
+    queue: &Arc<Queue>,
+    library: &Arc<Library>,
+    cards: impl Fn(&Library) -> Vec<Card> + Send + Sync + 'static,
+) -> CardGrid {
+    let source = {
+        let library = library.clone();
+        Box::new(move || {
+            let cards = cards(&library);
+            // Still loading the first time, before the cache exists.
+            if cards.is_empty() && !*library.is_done.read().unwrap() {
+                return None;
+            }
+            Some(vec![Section {
+                title: String::new(),
+                cards,
+            }])
+        })
+    };
+    CardGrid::new(queue.clone(), library.clone(), CardLayout::Grid, source)
 }
 
 impl ViewWrapper for LibraryView {

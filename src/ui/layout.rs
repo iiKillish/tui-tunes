@@ -261,6 +261,7 @@ impl Layout {
     #[cfg(feature = "cover")]
     pub fn render_images(&self, overlays: &[crate::ui::cover::Area]) {
         self.header.render_to_terminal(overlays);
+        crate::ui::cover::render_frame_images(overlays);
         if let Some(view) = self.get_top_view() {
             view.render_images(overlays);
         }
@@ -480,6 +481,10 @@ impl Layout {
 
 impl View for Layout {
     fn draw(&self, printer: &Printer<'_, '_>) {
+        // Views request this frame's images (cards) while drawing; see request_frame_image.
+        #[cfg(feature = "cover")]
+        crate::ui::cover::begin_frame_images();
+
         // Clear everything first. Views only paint the rows they use (a short list leaves the
         // rest of its area alone), and the bottom bar moves when the command line or a result
         // message appears, so anything not repainted would keep whatever was drawn there before.

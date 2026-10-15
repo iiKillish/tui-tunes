@@ -1,6 +1,5 @@
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
-use std::time::{Duration, Instant};
 
 use cursive::event::{Event, EventResult, MouseButton, MouseEvent};
 use cursive::theme::{ColorStyle, ColorType, Effect, PaletteColor};
@@ -11,14 +10,13 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 use crate::command::{Command, MoveAmount, MoveMode, ShiftMode};
 use crate::config::Config;
 use crate::library::Library;
-use crate::lyrics::{Lyrics, LyricsStore};
 use crate::model::playable::Playable;
 use crate::queue::Queue;
-use crate::spotify::Spotify;
 #[cfg(feature = "cover")]
 use crate::ui::cover::{
     Area, ImageLayer, ImageRequest, QUEUE_THUMBNAIL_IMAGE_ID, kitty_supported, terminal_font_size,
 };
+use crate::ui::lyricsview::LyricsView;
 
 /// Default width of the panel in columns.
 const DEFAULT_WIDTH: usize = 40;
@@ -30,10 +28,6 @@ const CONTENT_ROW: usize = 3;
 /// Tab labels and where they start; each is drawn with a space either side.
 const QUEUE_TAB: (&str, usize) = ("Queue", 1);
 const LYRICS_TAB: (&str, usize) = ("Lyrics", 9);
-/// How long the lyrics stay where they were scrolled to before following the song again.
-const LYRICS_MANUAL_SCROLL: Duration = Duration::from_secs(5);
-/// Rows moved by one step of the mouse wheel in the lyrics.
-const LYRICS_WHEEL_ROWS: usize = 3;
 /// Items moved by a page up/down (`MoveAmount::Float`) in the queue.
 const QUEUE_PAGE: usize = 5;
 
@@ -54,7 +48,6 @@ pub enum PanelTab {
 /// work on the panel instead of the main view.
 pub struct QueuePanel {
     queue: Arc<Queue>,
-    spotify: Spotify,
     library: Arc<Library>,
     width: usize,
     tab: RwLock<PanelTab>,
@@ -71,13 +64,7 @@ pub struct QueuePanel {
     /// For each row drawn last, the queue index of the item shown there (for clicks).
     row_items: RwLock<Vec<Option<usize>>>,
 
-    lyrics: LyricsStore,
-    /// First lyrics row shown last, and a scroll position set with the mouse wheel or keys (and
-    /// when), which applies for [LYRICS_MANUAL_SCROLL].
-    lyrics_top: AtomicUsize,
-    lyrics_scroll: RwLock<Option<(usize, Instant)>>,
-    /// For each row drawn last in the lyrics, the start time of the line shown there (for clicks).
-    lyrics_rows: RwLock<Vec<Option<u32>>>,
+    lyrics: LyricsView,
 
     #[cfg(feature = "cover")]
     thumbnails: ImageLayer,
@@ -88,7 +75,7 @@ pub struct QueuePanel {
 impl QueuePanel {
     pub fn new(queue: Arc<Queue>, library: Arc<Library>, config: &Config) -> Self {
         Self {
-            spotify: queue.get_spotify(),
+            lyrics: LyricsView::new(queue.clone(), library.clone()).on_panel_background(),
             queue,
             library,
             width: config.values().queue_panel_width.unwrap_or(DEFAULT_WIDTH),
@@ -99,10 +86,6 @@ impl QueuePanel {
             selected: AtomicUsize::new(0),
             follow_selection: AtomicBool::new(false),
             row_items: RwLock::new(Vec::new()),
-            lyrics: LyricsStore::default(),
-            lyrics_top: AtomicUsize::new(0),
-            lyrics_scroll: RwLock::new(None),
-            lyrics_rows: RwLock::new(Vec::new()),
             #[cfg(feature = "cover")]
             thumbnails: ImageLayer::default(),
             #[cfg(feature = "cover")]
@@ -169,7 +152,7 @@ impl QueuePanel {
             _ => {
                 return match self.tab() {
                     PanelTab::Queue => self.queue_command(cmd),
-                    PanelTab::Lyrics => self.lyrics_command(cmd),
+                    PanelTab::Lyrics => self.lyrics.handle_command(cmd),
                 };
             }
         }
@@ -244,95 +227,6 @@ impl QueuePanel {
             _ => return false,
         }
         true
-    }
-
-    fn lyrics_command(&self, cmd: &Command) -> bool {
-        match cmd {
-            Command::Move(mode @ (MoveMode::Up | MoveMode::Down), amount) => {
-                let step = match amount {
-                    MoveAmount::Integer(n) => n.unsigned_abs() as usize,
-                    MoveAmount::Float(_) => 10,
-                    MoveAmount::Extreme => usize::MAX / 2,
-                };
-                self.scroll_lyrics(if matches!(mode, MoveMode::Up) {
-                    -(step as isize)
-                } else {
-                    step as isize
-                });
-            }
-            // Back to following the song.
-            Command::Move(MoveMode::Playing, _) | Command::Play => {
-                *self.lyrics_scroll.write().unwrap() = None;
-            }
-            _ => return false,
-        }
-        true
-    }
-
-    fn scroll_lyrics(&self, rows: isize) {
-        let top = self.lyrics_top.load(Ordering::Relaxed);
-        let top = top.saturating_add_signed(rows);
-        *self.lyrics_scroll.write().unwrap() = Some((top, Instant::now()));
-    }
-
-    /// Lyrics to show, as rows of text with the line each came from, and the line being sung.
-    fn lyrics_rows(&self, width: usize) -> (Vec<LyricsRow>, Option<usize>) {
-        let message = |text: &str| -> Vec<LyricsRow> {
-            wrap(text, width)
-                .into_iter()
-                .map(LyricsRow::message)
-                .collect()
-        };
-        let track = match self.queue.get_current() {
-            Some(Playable::Track(track)) => track,
-            Some(Playable::Episode(_)) => return (message("No lyrics for podcasts"), None),
-            None => return (message("Nothing playing"), None),
-        };
-        let library = self.library.clone();
-        let lyrics = self.lyrics.get(&track, move || library.trigger_redraw());
-
-        let progress = self.spotify.get_current_progress().as_millis() as u32;
-        let current = lyrics.current_line(progress);
-        let mut rows = Vec::new();
-        match &lyrics {
-            Lyrics::Loading => rows = message("Loading lyrics…"),
-            Lyrics::NotFound => rows = message("No lyrics found for this track"),
-            Lyrics::Instrumental => rows = message("Instrumental"),
-            Lyrics::Failed(e) => {
-                rows = message("Couldn't load lyrics:");
-                rows.extend(message(e));
-            }
-            Lyrics::Synced(lines) => {
-                for (i, line) in lines.iter().enumerate() {
-                    let text = if line.text.is_empty() {
-                        "♪"
-                    } else {
-                        &line.text
-                    };
-                    rows.extend(wrap(text, width).into_iter().map(|text| LyricsRow {
-                        text,
-                        line: Some(i),
-                        time: Some(line.time),
-                    }));
-                }
-            }
-            Lyrics::Plain(lines) => {
-                rows.extend(message("Not synced to the song"));
-                rows.push(LyricsRow::message(String::new()));
-                for (i, line) in lines.iter().enumerate() {
-                    rows.extend(wrap(line, width).into_iter().map(|text| LyricsRow {
-                        text,
-                        line: Some(i),
-                        time: None,
-                    }));
-                }
-            }
-        }
-        if matches!(lyrics, Lyrics::Synced(_) | Lyrics::Plain(_)) {
-            rows.push(LyricsRow::message(String::new()));
-            rows.push(LyricsRow::message("Lyrics from LRCLIB".to_string()));
-        }
-        (rows, current)
     }
 
     fn draw_tabs(&self, printer: &Printer<'_, '_>) {
@@ -536,86 +430,14 @@ impl QueuePanel {
 
     fn draw_lyrics(&self, printer: &Printer<'_, '_>) {
         let size = printer.size;
-        let palette = &printer.theme.palette;
-        let background = ColorType::Color(*palette.custom("statusbar_bg").unwrap());
-        let style = |front: ColorType| ColorStyle::new(front, background);
-        let primary = style(ColorType::Palette(PaletteColor::Primary));
-        let secondary = style(ColorType::Palette(PaletteColor::Secondary));
-        let accent = style(ColorType::Palette(PaletteColor::TitlePrimary));
-
-        let x = 2;
-        let (rows, current) = self.lyrics_rows(size.x.saturating_sub(x + 2));
-        let available = size.y.saturating_sub(CONTENT_ROW);
-        let max_top = rows.len().saturating_sub(available);
-
-        // Follow the song, keeping the current line a third of the way down, unless scrolled by
-        // hand recently.
-        let manual = {
-            let mut scroll = self.lyrics_scroll.write().unwrap();
-            if scroll.is_some_and(|(_, at)| at.elapsed() > LYRICS_MANUAL_SCROLL) {
-                *scroll = None;
-            }
-            scroll.map(|(top, _)| top)
-        };
-        let top = match (manual, current) {
-            (Some(top), _) => top,
-            (None, Some(line)) => rows
-                .iter()
-                .position(|row| row.line == Some(line))
-                .unwrap_or(0)
-                .saturating_sub(available / 3),
-            (None, None) => 0,
-        }
-        .min(max_top);
-        self.lyrics_top.store(top, Ordering::Relaxed);
-        if let Some(manual) = manual
-            && manual != top
-            && let Some((stored, _)) = self.lyrics_scroll.write().unwrap().as_mut()
-        {
-            // Scrolled past an end: keep the clamped position so scrolling back is immediate.
-            *stored = top;
-        }
-
-        let mut times = vec![None; size.y];
-        for (i, row) in rows.iter().skip(top).take(available).enumerate() {
-            let y = CONTENT_ROW + i;
-            let row_style = match (row.line, current) {
-                (None, _) => secondary,
-                (Some(line), Some(current)) if line == current => accent,
-                (Some(line), Some(current)) if line < current => secondary,
-                _ => primary,
-            };
-            let is_current = row.line.is_some() && row.line == current;
-            printer.with_color(row_style, |printer| {
-                if is_current {
-                    printer.with_effect(Effect::Bold, |printer| printer.print((x, y), &row.text));
-                } else {
-                    printer.print((x, y), &row.text);
-                }
-            });
-            times[y] = row.time;
-        }
-        *self.lyrics_rows.write().unwrap() = times;
+        self.lyrics.draw(
+            &printer
+                .offset((0, CONTENT_ROW))
+                .cropped((size.x, size.y.saturating_sub(CONTENT_ROW))),
+            2,
+        );
         // No thumbnails on this tab.
         self.hide();
-    }
-}
-
-/// One row of the lyrics tab: text and, for lyrics (rather than messages), which line it's part
-/// of and when that line starts.
-struct LyricsRow {
-    text: String,
-    line: Option<usize>,
-    time: Option<u32>,
-}
-
-impl LyricsRow {
-    fn message(text: String) -> Self {
-        Self {
-            text,
-            line: None,
-            time: None,
-        }
     }
 }
 
@@ -665,44 +487,6 @@ fn truncate(text: &str, width: usize) -> String {
     }
     out.push('…');
     out
-}
-
-/// Word-wrap `text` into lines at most `width` columns wide, breaking words only when they're
-/// longer than a line. Always at least one line (empty for empty text).
-fn wrap(text: &str, width: usize) -> Vec<String> {
-    let width = width.max(1);
-    let mut lines = Vec::new();
-    let mut current = String::new();
-    let mut used = 0;
-    for word in text.split_whitespace() {
-        let word_width = word.width();
-        if used > 0 && used + 1 + word_width > width {
-            lines.push(std::mem::take(&mut current));
-            used = 0;
-        }
-        if word_width > width {
-            for c in word.chars() {
-                let w = c.width().unwrap_or(0);
-                if used + w > width {
-                    lines.push(std::mem::take(&mut current));
-                    used = 0;
-                }
-                current.push(c);
-                used += w;
-            }
-            continue;
-        }
-        if used > 0 {
-            current.push(' ');
-            used += 1;
-        }
-        current.push_str(word);
-        used += word_width;
-    }
-    if !current.is_empty() || lines.is_empty() {
-        lines.push(current);
-    }
-    lines
 }
 
 impl View for QueuePanel {
@@ -783,25 +567,10 @@ impl View for QueuePanel {
                 self.scroll
                     .store(scroll.saturating_sub(1), Ordering::Relaxed);
             }
-            (PanelTab::Lyrics, MouseEvent::Press(MouseButton::Left)) => {
-                // Jump to the clicked line, and follow the song from there.
-                let time = self
-                    .lyrics_rows
-                    .read()
-                    .unwrap()
-                    .get(position.y)
-                    .copied()
-                    .flatten();
-                if let Some(time) = time {
-                    self.spotify.seek(time);
-                    *self.lyrics_scroll.write().unwrap() = None;
+            (PanelTab::Lyrics, event) => {
+                if let Some(position) = position.checked_sub((0, CONTENT_ROW)) {
+                    self.lyrics.on_mouse(event, position);
                 }
-            }
-            (PanelTab::Lyrics, MouseEvent::WheelDown) => {
-                self.scroll_lyrics(LYRICS_WHEEL_ROWS as isize);
-            }
-            (PanelTab::Lyrics, MouseEvent::WheelUp) => {
-                self.scroll_lyrics(-(LYRICS_WHEEL_ROWS as isize));
             }
             _ => {}
         }
@@ -837,14 +606,5 @@ mod tests {
         // 10 rows fit a header and 3 items (1 + 3 + 3 + 2 = 9), not 4 (12).
         let s = sources(&[Some("A"); 10]);
         assert_eq!(max_scroll(&s, 10), 7);
-    }
-
-    #[test]
-    fn test_wrap() {
-        assert_eq!(wrap("one two three", 7), vec!["one two", "three"]);
-        assert_eq!(wrap("one two three", 20), vec!["one two three"]);
-        assert_eq!(wrap("abcdefghij", 4), vec!["abcd", "efgh", "ij"]);
-        assert_eq!(wrap("", 10), vec![""]);
-        assert_eq!(wrap("  spaced   out  ", 20), vec!["spaced out"]);
     }
 }

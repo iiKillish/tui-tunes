@@ -13,6 +13,7 @@ use crate::queue::Queue;
 use crate::spotify::{Spotify, UriType};
 use crate::spotify_url::SpotifyUrl;
 use crate::traits::{ListItem, ViewExt};
+use crate::ui::cards::{Card, CardGrid, CardLayout, Section};
 use crate::ui::listview::ListView;
 use crate::ui::pagination::Pagination;
 use crate::ui::tabbedview::TabbedView;
@@ -69,10 +70,22 @@ impl SearchResultsView {
         let pagination_playlists = list_playlists.get_pagination().clone();
         let list_shows = ListView::new(results_shows.clone(), queue.clone(), library.clone());
         let pagination_shows = list_shows.get_pagination().clone();
-        let list_episodes = ListView::new(results_episodes.clone(), queue.clone(), library);
+        let list_episodes = ListView::new(results_episodes.clone(), queue.clone(), library.clone());
         let pagination_episodes = list_episodes.get_pagination().clone();
 
         let mut tabs = TabbedView::new();
+        tabs.add_tab(
+            "All",
+            Self::overview(
+                &search_term,
+                &results_tracks,
+                &results_albums,
+                &results_artists,
+                &results_playlists,
+                queue.clone(),
+                library.clone(),
+            ),
+        );
         tabs.add_tab("Tracks", list_tracks);
         tabs.add_tab("Albums", list_albums);
         tabs.add_tab("Artists", list_artists);
@@ -101,6 +114,103 @@ impl SearchResultsView {
 
         view.run_search();
         view
+    }
+
+    /// The "All" tab, like Spotify's search page: the top result, then rows of songs, artists,
+    /// albums and playlists. Filled from the other tabs' results as they arrive.
+    fn overview(
+        search_term: &str,
+        tracks: &Arc<RwLock<Vec<Track>>>,
+        albums: &Arc<RwLock<Vec<Album>>>,
+        artists: &Arc<RwLock<Vec<Artist>>>,
+        playlists: &Arc<RwLock<Vec<Playlist>>>,
+        queue: Arc<Queue>,
+        library: Arc<Library>,
+    ) -> CardGrid {
+        const PER_ROW: usize = 10;
+        let (tracks, albums, artists, playlists) = (
+            tracks.clone(),
+            albums.clone(),
+            artists.clone(),
+            playlists.clone(),
+        );
+        let query = search_term.trim().to_lowercase();
+        let source = Box::new(move || {
+            let tracks = tracks.read().unwrap();
+            let albums = albums.read().unwrap();
+            let artists = artists.read().unwrap();
+            let playlists = playlists.read().unwrap();
+
+            // An exact name match wins (artist, then album, then playlist), else the top song.
+            let top = artists
+                .iter()
+                .find(|a| a.name.to_lowercase() == query)
+                .map(|a| Card::artist(a.clone()))
+                .or_else(|| {
+                    albums
+                        .iter()
+                        .find(|a| a.title.to_lowercase() == query)
+                        .map(|a| Card::album(a.clone()))
+                })
+                .or_else(|| {
+                    playlists
+                        .iter()
+                        .find(|p| p.name.to_lowercase() == query)
+                        .map(|p| Card::playlist(p.clone()))
+                })
+                .or_else(|| tracks.first().map(|t| Card::track(t.clone())))
+                .or_else(|| artists.first().map(|a| Card::artist(a.clone())));
+
+            let rows = [
+                ("Top result", top.into_iter().collect()),
+                (
+                    "Songs",
+                    tracks
+                        .iter()
+                        .take(PER_ROW)
+                        .cloned()
+                        .map(Card::track)
+                        .collect(),
+                ),
+                (
+                    "Artists",
+                    artists
+                        .iter()
+                        .take(PER_ROW)
+                        .cloned()
+                        .map(Card::artist)
+                        .collect(),
+                ),
+                (
+                    "Albums",
+                    albums
+                        .iter()
+                        .take(PER_ROW)
+                        .cloned()
+                        .map(Card::album)
+                        .collect(),
+                ),
+                (
+                    "Playlists",
+                    playlists
+                        .iter()
+                        .take(PER_ROW)
+                        .cloned()
+                        .map(Card::playlist)
+                        .collect(),
+                ),
+            ];
+            Some(
+                rows.into_iter()
+                    .filter(|(_, cards): &(&str, Vec<Card>)| !cards.is_empty())
+                    .map(|(title, cards)| Section {
+                        title: title.into(),
+                        cards,
+                    })
+                    .collect(),
+            )
+        });
+        CardGrid::new(queue, library, CardLayout::Rows, source).empty_message("Searching…")
     }
 
     fn get_track(
@@ -407,7 +517,7 @@ impl SearchResultsView {
                         &query,
                         None,
                     );
-                    self.tabs.set_selected(0);
+                    self.tabs.set_selected(1);
                 }
                 UriType::Album => {
                     self.perform_search(
@@ -416,7 +526,7 @@ impl SearchResultsView {
                         &query,
                         None,
                     );
-                    self.tabs.set_selected(1);
+                    self.tabs.set_selected(2);
                 }
                 UriType::Artist => {
                     self.perform_search(
@@ -425,7 +535,7 @@ impl SearchResultsView {
                         &query,
                         None,
                     );
-                    self.tabs.set_selected(2);
+                    self.tabs.set_selected(3);
                 }
                 UriType::Playlist => {
                     self.perform_search(
@@ -434,7 +544,7 @@ impl SearchResultsView {
                         &query,
                         None,
                     );
-                    self.tabs.set_selected(3);
+                    self.tabs.set_selected(4);
                 }
                 UriType::Show => {
                     self.perform_search(
@@ -443,7 +553,7 @@ impl SearchResultsView {
                         &query,
                         None,
                     );
-                    self.tabs.set_selected(4);
+                    self.tabs.set_selected(5);
                 }
                 UriType::Episode => {
                     self.perform_search(
@@ -452,7 +562,7 @@ impl SearchResultsView {
                         &query,
                         None,
                     );
-                    self.tabs.set_selected(5);
+                    self.tabs.set_selected(6);
                 }
             }
         // Is the query a spotify URL?
@@ -466,7 +576,7 @@ impl SearchResultsView {
                         &url.id,
                         None,
                     );
-                    self.tabs.set_selected(0);
+                    self.tabs.set_selected(1);
                 }
                 UriType::Album => {
                     self.perform_search(
@@ -475,7 +585,7 @@ impl SearchResultsView {
                         &url.id,
                         None,
                     );
-                    self.tabs.set_selected(1);
+                    self.tabs.set_selected(2);
                 }
                 UriType::Artist => {
                     self.perform_search(
@@ -484,7 +594,7 @@ impl SearchResultsView {
                         &url.id,
                         None,
                     );
-                    self.tabs.set_selected(2);
+                    self.tabs.set_selected(3);
                 }
                 UriType::Playlist => {
                     self.perform_search(
@@ -493,7 +603,7 @@ impl SearchResultsView {
                         &url.id,
                         None,
                     );
-                    self.tabs.set_selected(3);
+                    self.tabs.set_selected(4);
                 }
                 UriType::Show => {
                     self.perform_search(
@@ -502,7 +612,7 @@ impl SearchResultsView {
                         &url.id,
                         None,
                     );
-                    self.tabs.set_selected(4);
+                    self.tabs.set_selected(5);
                 }
                 UriType::Episode => {
                     self.perform_search(
@@ -511,7 +621,7 @@ impl SearchResultsView {
                         &url.id,
                         None,
                     );
-                    self.tabs.set_selected(5);
+                    self.tabs.set_selected(6);
                 }
             }
         } else {

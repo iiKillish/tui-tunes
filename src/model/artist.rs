@@ -1,5 +1,8 @@
+use std::collections::HashMap;
 use std::fmt;
-use std::sync::{Arc, RwLock};
+use std::sync::mpsc::{Sender, channel};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::thread;
 
 use rspotify::model::Id;
 use rspotify::model::artist::{FullArtist, SimplifiedArtist};
@@ -12,6 +15,35 @@ use crate::spotify::Spotify;
 use crate::traits::{IntoBoxedViewExt, ListItem, ViewExt};
 use crate::ui::{artist::ArtistView, listview::ListView};
 
+/// Artists' pictures by artist ID, for cards. Filled whenever an artist comes from the Web API
+/// with its pictures (search results, followed and top artists); others are looked up one at a
+/// time in the background once [init_image_lookups] has run. `None` means looked up, no picture.
+static IMAGES: OnceLock<RwLock<HashMap<String, Option<String>>>> = OnceLock::new();
+static LOOKUPS: OnceLock<Mutex<Sender<String>>> = OnceLock::new();
+
+fn images() -> &'static RwLock<HashMap<String, Option<String>>> {
+    IMAGES.get_or_init(Default::default)
+}
+
+/// Start looking up pictures of artists that come without one, calling `on_found` after each.
+pub fn init_image_lookups(spotify: Spotify, on_found: impl Fn() + Send + 'static) {
+    let (tx, rx) = channel::<String>();
+    if LOOKUPS.set(Mutex::new(tx)).is_err() {
+        return;
+    }
+    thread::spawn(move || {
+        for id in rx {
+            let image = spotify
+                .api
+                .artist(&id)
+                .ok()
+                .and_then(|a| a.images.first().map(|i| i.url.clone()));
+            images().write().unwrap().insert(id, image);
+            on_found();
+        }
+    });
+}
+
 #[derive(Clone, Deserialize, Serialize)]
 pub struct Artist {
     pub id: Option<String>,
@@ -22,6 +54,29 @@ pub struct Artist {
 }
 
 impl Artist {
+    /// URL of the artist's picture, if it's known already.
+    pub fn known_image_url(&self) -> Option<String> {
+        images()
+            .read()
+            .unwrap()
+            .get(self.id.as_ref()?)
+            .cloned()
+            .flatten()
+    }
+
+    /// URL of the artist's picture, if known. Starts a lookup the first time it's unknown.
+    pub fn image_url(&self) -> Option<String> {
+        let id = self.id.as_ref()?;
+        if let Some(image) = images().read().unwrap().get(id) {
+            return image.clone();
+        }
+        if let Some(lookups) = LOOKUPS.get() {
+            images().write().unwrap().insert(id.clone(), None);
+            let _ = lookups.lock().unwrap().send(id.clone());
+        }
+        None
+    }
+
     pub fn new(id: String, name: String) -> Self {
         Self {
             id: Some(id),
@@ -55,6 +110,11 @@ impl From<&SimplifiedArtist> for Artist {
 
 impl From<&FullArtist> for Artist {
     fn from(fa: &FullArtist) -> Self {
+        let id = fa.id.id().to_string();
+        images()
+            .write()
+            .unwrap()
+            .insert(id, fa.images.first().map(|i| i.url.clone()));
         Self {
             id: Some(fa.id.id().to_string()),
             name: fa.name.clone(),

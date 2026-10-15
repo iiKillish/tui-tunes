@@ -87,7 +87,7 @@ One-shot, toggle and menu commands (e.g. <kbd>O</kbd>, <kbd>A</kbd>,
 | <kbd>F2</kbd>     | Search.                                                                       |
 | <kbd>F3</kbd>     | Library (See [specific commands](#library)).                                  |
 | <kbd>F4</kbd>     | Home: jump back in, recently played, your top tracks and artists.             |
-| <kbd>F8</kbd>     | Album Art (if built with the `cover` feature).                                |
+| <kbd>F8</kbd>     | Album art with the lyrics beside or below it (if built with the `cover` feature). |
 | <kbd>/</kbd>      | Open a Vim-like search bar (See [specific commands](#vim-like-search-bar)).   |
 | <kbd>:</kbd>      | Open a Vim-like command prompt (See [specific commands](#vim-like-commands)). |
 | <kbd>Escape</kbd> | Close Vim-like search bar, command prompt, or Search screen.                  |
@@ -175,6 +175,11 @@ When pressing <kbd>O</kbd>:
 | <kbd>Ctrl</kbd>+<kbd>S</kbd> | Save the current queue.              |
 
 ### Library
+Playlists (with a _Liked Songs_ card first), albums and artists are shown as grids of covers:
+<kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd> (<kbd>H</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd>)
+move between cards (and to the next tab at the edge), <kbd>Return</kbd> opens one. Search results
+start with an _All_ tab: the top result, then rows of songs, artists, albums and playlists.
+
 | Key          | Command                                 |
 |--------------|-----------------------------------------|
 | <kbd>D</kbd> | Delete the currently selected playlist. |

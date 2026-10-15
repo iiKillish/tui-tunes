@@ -190,6 +190,13 @@ impl ViewExt for TabbedView {
     fn on_command(&mut self, s: &mut Cursive, cmd: &Command) -> Result<CommandResult, String> {
         match cmd {
             Command::Move(mode, amount) if matches!(mode, MoveMode::Left | MoveMode::Right) => {
+                // Grids move between their cards first, and leave the move to us at their edge.
+                if let Some(tab) = self.tabs.get_mut(self.selected)
+                    && tab.handles_horizontal_moves()
+                    && let CommandResult::Consumed(output) = tab.on_command(s, cmd)?
+                {
+                    return Ok(CommandResult::Consumed(output));
+                }
                 if matches!(mode, MoveMode::Left) && !self.on_first_tab() {
                     match amount {
                         MoveAmount::Extreme => self.select_first(),

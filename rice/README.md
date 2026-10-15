@@ -15,6 +15,10 @@ player. Changes on top, one commit each:
   `Shift+L` switches to the lyrics
 - home screen (`F4`, the start screen in `rice/config.toml`): cards with covers for jump back
   in, recently played, your top tracks and top artists
+- library playlists (with Liked Songs), albums and artists as grids of covers, and an "All" tab
+  first in search results: top result, then rows of songs, artists, albums and playlists
+- the cover screen (`F8`) shows the lyrics beside or below the cover, centered and following the
+  song
 - album, playlist and artist pages start with a Spotify-style header: big cover, name, artist or
   owner, year, number of songs and length
 - like button (heart) after the title in the player bar, also `Shift+H` or `:like`

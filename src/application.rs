@@ -202,6 +202,14 @@ impl Application {
 
         let homeview = ui::home::HomeView::new(queue.clone(), library.clone());
 
+        // Pictures for artist cards that come without one.
+        {
+            let library = library.clone();
+            crate::model::artist::init_image_lookups(spotify.clone(), move || {
+                library.trigger_redraw();
+            });
+        }
+
         #[cfg(feature = "cover")]
         let coverview = ui::cover::CoverView::new(queue.clone(), library.clone(), &configuration);
 

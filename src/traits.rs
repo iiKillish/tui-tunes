@@ -85,6 +85,13 @@ pub trait ViewExt: View {
     /// [crate::ui::cover::ImageLayer].
     fn render_images(&self, _overlays: &[(cursive::Vec2, cursive::Vec2)]) {}
 
+    /// Whether left/right moves are for the view itself (like a grid of cards) rather than for
+    /// switching tabs. A tab view gives them to such a view first, and switches tabs only if it
+    /// ignores them (at its edge).
+    fn handles_horizontal_moves(&self) -> bool {
+        false
+    }
+
     fn on_command(&mut self, _s: &mut Cursive, _cmd: &Command) -> Result<CommandResult, String> {
         Ok(CommandResult::Ignored)
     }
@@ -109,6 +116,11 @@ impl<V: ViewExt> ViewExt for NamedView<V> {
 
     fn render_images(&self, overlays: &[(cursive::Vec2, cursive::Vec2)]) {
         self.with_view(|v| v.render_images(overlays));
+    }
+
+    fn handles_horizontal_moves(&self) -> bool {
+        self.with_view(|v| v.handles_horizontal_moves())
+            .unwrap_or(false)
     }
 
     fn on_command(&mut self, s: &mut Cursive, cmd: &Command) -> Result<CommandResult, String> {
@@ -203,6 +215,10 @@ impl ViewExt for BoxedViewExt {
 
     fn render_images(&self, overlays: &[(cursive::Vec2, cursive::Vec2)]) {
         self.boxed_view.render_images(overlays);
+    }
+
+    fn handles_horizontal_moves(&self) -> bool {
+        self.boxed_view.handles_horizontal_moves()
     }
 
     fn on_command(&mut self, s: &mut Cursive, cmd: &Command) -> Result<CommandResult, String> {
