@@ -7,7 +7,7 @@
 //! Arrow keys (or hjkl) move between cards, Enter opens an album, playlist or artist and plays a
 //! track (with the rest of its row after it). Cards can be clicked too.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread;
@@ -30,7 +30,7 @@ use crate::model::playlist::Playlist;
 use crate::model::track::Track;
 use crate::queue::Queue;
 use crate::spotify::Spotify;
-use crate::spotify_api::PlayContext;
+use crate::spotify_api::{PlayContext, RecentPlay};
 use crate::traits::{ListItem, ViewExt};
 #[cfg(feature = "cover")]
 use crate::ui::cover::{
@@ -134,43 +134,31 @@ fn load(spotify: &Spotify, library: &Library) -> Vec<Section> {
         Vec::new()
     });
 
-    // Jump back in: what recent tracks were played from, falling back to their album.
-    let mut seen = HashSet::new();
+    // Jump back in: what recent tracks were played from, or their album when that's unknown or
+    // can't be loaded (Spotify doesn't let apps load its own mixes, like Daily Mix playlists).
+    let mut loaded: HashMap<(PlayContext, String), Option<Card>> = HashMap::new();
+    let mut shown = HashSet::new();
     let mut jump_back_in = Vec::new();
     for play in &plays {
         if jump_back_in.len() >= MAX_CARDS {
             break;
         }
-        let (kind, id) = match &play.context {
-            Some((kind, id)) => (*kind, id.clone()),
-            None => match &play.album.id {
-                Some(id) => (PlayContext::Album, id.clone()),
-                None => continue,
-            },
-        };
-        if !seen.insert((kind, id.clone())) {
-            continue;
+        let context_card = play.context.as_ref().and_then(|(kind, id)| {
+            loaded
+                .entry((*kind, id.clone()))
+                .or_insert_with(|| load_context(api, library, play, *kind, id))
+                .clone()
+                .map(|card| ((*kind, id.clone()), card))
+        });
+        let card = context_card.or_else(|| {
+            let id = play.album.id.clone()?;
+            Some(((PlayContext::Album, id), Card::album(play.album.clone())))
+        });
+        if let Some((key, card)) = card
+            && shown.insert(key)
+        {
+            jump_back_in.push(card);
         }
-        let card = match kind {
-            PlayContext::Album if play.album.id.as_ref() == Some(&id) => {
-                Some(Card::album(play.album.clone()))
-            }
-            PlayContext::Album => api.album(&id).ok().map(|a| Card::album((&a).into())),
-            PlayContext::Playlist => library
-                .playlists
-                .read()
-                .unwrap()
-                .iter()
-                .find(|p| p.id == id)
-                .cloned()
-                .or_else(|| api.playlist(&id).ok().map(|p| (&p).into()))
-                .map(Card::playlist),
-            PlayContext::Artist => api.artist(&id).ok().map(|a| {
-                let image = a.images.first().map(|i| i.url.clone());
-                Card::artist((&a).into(), image)
-            }),
-        };
-        jump_back_in.extend(card);
     }
 
     let mut seen = HashSet::new();
@@ -204,6 +192,35 @@ fn load(spotify: &Spotify, library: &Library) -> Vec<Section> {
     .filter(|(_, cards)| !cards.is_empty())
     .map(|(title, cards)| Section { title, cards })
     .collect()
+}
+
+/// A card for the album, playlist or artist `play` was played from, if it can be loaded.
+fn load_context(
+    api: &crate::spotify_api::WebApi,
+    library: &Library,
+    play: &RecentPlay,
+    kind: PlayContext,
+    id: &str,
+) -> Option<Card> {
+    match kind {
+        PlayContext::Album if play.album.id.as_deref() == Some(id) => {
+            Some(Card::album(play.album.clone()))
+        }
+        PlayContext::Album => api.album(id).ok().map(|a| Card::album((&a).into())),
+        PlayContext::Playlist => library
+            .playlists
+            .read()
+            .unwrap()
+            .iter()
+            .find(|p| p.id == id)
+            .cloned()
+            .or_else(|| api.playlist(id).ok().map(|p| (&p).into()))
+            .map(Card::playlist),
+        PlayContext::Artist => api.artist(id).ok().map(|a| {
+            let image = a.images.first().map(|i| i.url.clone());
+            Card::artist((&a).into(), image)
+        }),
+    }
 }
 
 pub struct HomeView {
