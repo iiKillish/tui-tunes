@@ -277,8 +277,9 @@ impl App {
                 self.set_screen("queue");
             }
             Command::Panel(PanelAction::Focus) => {}
-            // Pages without tabs of their own: move between the main screens instead.
-            Command::Tab(next) => {
+            // Pages without tabs of their own have nothing to switch.
+            Command::Tab(_) => {}
+            Command::Screen(next) => {
                 let len = self.screens.len();
                 let index = if *next {
                     (self.current + 1) % len

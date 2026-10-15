@@ -143,8 +143,8 @@ fn default_keybindings() -> HashMap<String, Vec<Command>> {
     kb.insert("q".into(), vec![Command::Quit]);
     kb.insert("Ctrl+l".into(), vec![Command::Redraw]);
     kb.insert("Shift+h".into(), vec![Command::Like]);
-    kb.insert("Tab".into(), vec![Command::Tab(true)]);
-    kb.insert("Shift+Tab".into(), vec![Command::Tab(false)]);
+    kb.insert("Tab".into(), vec![Command::Screen(true)]);
+    kb.insert("Shift+Tab".into(), vec![Command::Screen(false)]);
     kb.insert("Shift+l".into(), vec![Command::Panel(PanelAction::Lyrics)]);
     kb.insert("F5".into(), vec![Command::Focus("lyrics".into())]);
     kb.insert("Alt+h".into(), vec![Command::Tab(false)]);
