@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use crate::application::ASYNC_RUNTIME;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
-use log::{debug, error, info};
+use log::{debug, error, info, warn};
 use rspotify::http::HttpError;
 use rspotify::model::{
     AlbumId, AlbumType, ArtistId, CursorBasedPage, EpisodeId, FullAlbum, FullArtist, FullEpisode,
@@ -25,6 +25,9 @@ use crate::model::playlist::Playlist;
 use crate::model::track::Track;
 use crate::spotify_worker::WorkerCommand;
 use crate::ui::pagination::{ApiPage, ApiResult};
+
+/// Longest rate-limit wait (seconds) honoured on the UI thread; see [WebApi::api_with_retry].
+const MAX_UI_THREAD_RATE_LIMIT_WAIT: u64 = 2;
 
 /// Convenient wrapper around the rspotify web API functionality.
 #[derive(Clone)]
@@ -127,8 +130,19 @@ impl WebApi {
                             let waiting_duration = response
                                 .header("Retry-After")
                                 .and_then(|v| v.parse::<u64>().ok());
-                            debug!("rate limit hit. waiting {waiting_duration:?} seconds");
-                            thread::sleep(Duration::from_secs(waiting_duration.unwrap_or(0)));
+                            let waiting_duration = waiting_duration.unwrap_or(0);
+                            // Sleeping on the UI thread freezes the whole interface (Spotify asks
+                            // for waits of 20-30s), so there only short waits are honoured and
+                            // the request is otherwise given up. Background loaders still wait.
+                            let on_ui_thread = thread::current().name() == Some("main");
+                            if on_ui_thread && waiting_duration > MAX_UI_THREAD_RATE_LIMIT_WAIT {
+                                warn!(
+                                    "rate limited for {waiting_duration}s; not blocking the UI, giving up on request"
+                                );
+                                return None;
+                            }
+                            debug!("rate limit hit. waiting {waiting_duration} seconds");
+                            thread::sleep(Duration::from_secs(waiting_duration));
                             api_call(&self.api).ok()
                         }
                         401 => {
