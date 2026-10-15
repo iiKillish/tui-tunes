@@ -195,11 +195,15 @@ impl Layout {
         }
     }
 
-    /// Draw the player bar's images in the terminal; see [NowPlaying::render_to_terminal].
+    /// Draw the player bar's and queue panel's images in the terminal; see
+    /// [NowPlaying::render_to_terminal] and [QueuePanel::render_to_terminal].
     #[cfg(feature = "cover")]
-    pub fn render_now_playing(&self, overlays: &[crate::ui::cover::Area]) {
+    pub fn render_images(&self, overlays: &[crate::ui::cover::Area]) {
         if let Some(bar) = &self.now_playing {
             bar.render_to_terminal(overlays);
+        }
+        if let Some(panel) = &self.queue_panel {
+            panel.render_to_terminal(overlays);
         }
     }
 
@@ -438,14 +442,16 @@ impl View for Layout {
 
         // Queue panel on the right, from the top down to the bottom bar.
         let panel_width = self.queue_panel_width(printer.size.x);
-        if let Some(panel) = &self.queue_panel
-            && panel_width > 0
-        {
-            panel.draw(
-                &printer
-                    .offset((printer.size.x - panel_width, 0))
-                    .cropped((panel_width, main_rows)),
-            );
+        if let Some(panel) = &self.queue_panel {
+            if panel_width > 0 {
+                panel.draw(
+                    &printer
+                        .offset((printer.size.x - panel_width, 0))
+                        .cropped((panel_width, main_rows)),
+                );
+            } else {
+                panel.hide();
+            }
         }
 
         let full_printer = printer;

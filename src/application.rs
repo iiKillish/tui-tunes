@@ -288,7 +288,7 @@ impl Application {
                     });
                 self.cursive
                     .call_on_name("main", |layout: &mut ui::layout::Layout| {
-                        layout.render_now_playing(&overlays);
+                        layout.render_images(&overlays);
                     });
             }
             #[cfg(unix)]

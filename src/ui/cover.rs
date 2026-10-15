@@ -30,7 +30,6 @@ pub struct CoverView {
 pub struct CoverRenderer {
     /// Kitty image ID, so this cover can be removed without touching other images.
     image_id: u32,
-    loading: Arc<RwLock<HashSet<String>>>,
     desired_cover: RwLock<Option<CoverRequest>>,
     rendered_cover: RwLock<Option<CoverRequest>>,
     cover_max_scale: Option<f32>,
@@ -78,35 +77,12 @@ impl CoverView {
 impl CoverRenderer {
     /// `image_id` identifies this renderer's image in the terminal; each renderer needs its own.
     pub fn new(config: &Config, image_id: u32) -> Self {
-        // Determine size of window both in pixels and chars
-        let (rows, cols, xpixels, ypixels) = unsafe {
-            let mut query: (u16, u16, u16, u16) = (0, 0, 0, 0);
-            ioctl(1, TIOCGWINSZ, &mut query);
-            query
-        };
-
-        debug!("Determined window dimensions: {xpixels}x{ypixels}, {cols}x{rows}");
-
-        // Determine font size. Some terminals report physical pixels here, but
-        // the aspect ratio is still useful when mapping images to terminal cells.
-        let font_size = if cols == 0 || rows == 0 || xpixels == 0 || ypixels == 0 {
-            Vec2::new(8, 16)
-        } else {
-            Vec2::new(
-                std::cmp::max(1, xpixels / cols) as usize,
-                std::cmp::max(1, ypixels / rows) as usize,
-            )
-        };
-
-        debug!("Determined font size: {}x{}", font_size.x, font_size.y);
-
         Self {
             image_id,
-            loading: Arc::new(RwLock::new(HashSet::new())),
             desired_cover: RwLock::new(None),
             rendered_cover: RwLock::new(None),
             cover_max_scale: config.values().cover_max_scale,
-            font_size,
+            font_size: terminal_font_size(),
         }
     }
 
@@ -199,29 +175,7 @@ impl CoverRenderer {
     }
 
     fn cache_path(&self, url: String) -> Option<PathBuf> {
-        let path = crate::utils::cache_path_for_url(url.clone());
-
-        let mut loading = self.loading.write().unwrap();
-        if loading.contains(&url) {
-            return None;
-        }
-
-        if path.exists() {
-            return Some(path);
-        }
-
-        loading.insert(url.clone());
-
-        let loading_thread = self.loading.clone();
-        std::thread::spawn(move || {
-            if let Err(e) = crate::utils::download(url.clone(), path.clone()) {
-                error!("Failed to download cover: {e}");
-            }
-            let mut loading = loading_thread.write().unwrap();
-            loading.remove(&url.clone());
-        });
-
-        None
+        cached_cover_path(&url)
     }
 
     /// Update the terminal to show the requested cover, unless it would cover one of `overlays`
@@ -251,6 +205,53 @@ impl CoverRenderer {
 
         *rendered_cover = desired_cover;
     }
+}
+
+/// Size of a terminal cell in pixels. Some terminals report physical pixels, but the aspect ratio
+/// is still what matters when mapping images to cells.
+pub(crate) fn terminal_font_size() -> Vec2 {
+    let (rows, cols, xpixels, ypixels) = unsafe {
+        let mut query: (u16, u16, u16, u16) = (0, 0, 0, 0);
+        ioctl(1, TIOCGWINSZ, &mut query);
+        query
+    };
+    debug!("Determined window dimensions: {xpixels}x{ypixels}, {cols}x{rows}");
+    if cols == 0 || rows == 0 || xpixels == 0 || ypixels == 0 {
+        Vec2::new(8, 16)
+    } else {
+        Vec2::new(
+            std::cmp::max(1, xpixels / cols) as usize,
+            std::cmp::max(1, ypixels / rows) as usize,
+        )
+    }
+}
+
+/// Local path of the cover image at `url`, or `None` while it's still being downloaded (a download
+/// is started in the background the first time). Shared by everything that shows covers, so each
+/// is only downloaded once.
+pub(crate) fn cached_cover_path(url: &str) -> Option<PathBuf> {
+    static LOADING: OnceLock<Arc<RwLock<HashSet<String>>>> = OnceLock::new();
+    let loading = LOADING.get_or_init(Default::default).clone();
+
+    let path = crate::utils::cache_path_for_url(url.to_string());
+    let mut in_progress = loading.write().unwrap();
+    if in_progress.contains(url) {
+        return None;
+    }
+    if path.exists() {
+        return Some(path);
+    }
+    in_progress.insert(url.to_string());
+    drop(in_progress);
+
+    let url = url.to_string();
+    std::thread::spawn(move || {
+        if let Err(e) = crate::utils::download(url.clone(), path) {
+            error!("Failed to download cover: {e}");
+        }
+        loading.write().unwrap().remove(&url);
+    });
+    None
 }
 
 fn render_cover_to_terminal(
@@ -312,6 +313,8 @@ pub(crate) const COVER_VIEW_IMAGE_ID: u32 = 1;
 pub(crate) const NOW_PLAYING_COVER_IMAGE_ID: u32 = 2;
 /// First of the player bar's control icon IDs (one per button).
 pub(crate) const CONTROL_ICON_IMAGE_ID: u32 = 10;
+/// First of the queue panel's thumbnail IDs (one per visible item).
+pub(crate) const QUEUE_THUMBNAIL_IMAGE_ID: u32 = 100;
 
 /// Place `pixels` over `cells` terminal cells at `offset` with the Kitty graphics protocol as
 /// image `image_id` (replacing any image with that ID), without moving the cursor (`C=1`) or
