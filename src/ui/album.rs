@@ -46,7 +46,8 @@ impl AlbumView {
                 queue.clone(),
                 library.clone(),
             )
-            .with_source(&album.title),
+            .with_source(&album.title)
+            .without_thumbnails(),
         );
         tabs.add_tab(
             "Artists",

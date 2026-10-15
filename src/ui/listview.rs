@@ -53,6 +53,8 @@ pub struct ListView<I: ListItem> {
     /// Name of what these items are (an album, playlist, …), recorded in the queue when playing
     /// from this list so the queue panel can show "Next from: …".
     source: Option<String>,
+    /// Whether to show a small cover before each item that has one.
+    thumbnails: bool,
 }
 
 impl<I: ListItem> Scroller for ListView<I> {
@@ -81,6 +83,7 @@ impl<I: ListItem + Clone> ListView<I> {
             pagination: Pagination::default(),
             title: "".to_string(),
             source: None,
+            thumbnails: true,
         };
         result.try_paginate();
         result
@@ -92,6 +95,30 @@ impl<I: ListItem + Clone> ListView<I> {
     }
 
     /// Name the queue panel shows for tracks played from this list ("Next from: <source>").
+    /// No covers before the items, e.g. for an album's tracks, which all share one.
+    pub fn without_thumbnails(mut self) -> Self {
+        self.thumbnails = false;
+        self
+    }
+
+    /// Width in cells of the covers before items (one row tall), or 0 if there are none: they're
+    /// disabled, images aren't supported, or the items don't have covers.
+    fn thumbnail_width(&self, content: &[I]) -> usize {
+        #[cfg(feature = "cover")]
+        if self.thumbnails
+            && crate::ui::cover::kitty_supported()
+            && content
+                .iter()
+                .take(20)
+                .any(|item| item.thumbnail_url().is_some())
+        {
+            let font = crate::ui::cover::terminal_font_size();
+            return font.y.div_ceil(font.x.max(1));
+        }
+        let _ = content;
+        0
+    }
+
     pub fn with_source(mut self, source: &str) -> Self {
         self.source = Some(source.to_string());
         self
@@ -347,6 +374,7 @@ impl<I: ListItem + Clone> ListView<I> {
 impl<I: ListItem + Clone> View for ListView<I> {
     fn draw(&self, printer: &Printer<'_, '_>) {
         let content = self.content.read().unwrap();
+        let thumbnail_width = self.thumbnail_width(&content);
 
         scroll::draw_lines(self, printer, |_, printer, i| {
             // draw paginator after content
@@ -395,9 +423,26 @@ impl<I: ListItem + Clone> View for ListView<I> {
                 let right = item.display_right(&self.library);
                 let draw_center = !center.is_empty();
 
-                // draw left string
+                // Cover, then the text after it.
                 printer.with_color(style, |printer| {
                     printer.print_hline((0, 0), printer.size.x, " ");
+                });
+                let printer = &if thumbnail_width > 0 {
+                    #[cfg(feature = "cover")]
+                    if let Some(url) = item.thumbnail_url() {
+                        crate::ui::cover::request_frame_image(
+                            url,
+                            printer.offset.saturating_sub(printer.content_offset),
+                            Vec2::new(thumbnail_width, 1),
+                        );
+                    }
+                    printer.offset((thumbnail_width + 1, 0))
+                } else {
+                    printer.clone()
+                };
+
+                // draw left string
+                printer.with_color(style, |printer| {
                     printer.print((0, 0), &left);
                 });
 

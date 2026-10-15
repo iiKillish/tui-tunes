@@ -21,8 +21,8 @@ use crate::queue::{Queue, RepeatSetting};
 use crate::spotify::{PlayerEvent, Spotify, VOLUME_PERCENT};
 #[cfg(feature = "cover")]
 use crate::ui::cover::{
-    Area, CONTROL_ICON_IMAGE_ID, CoverRenderer, NOW_PLAYING_COVER_IMAGE_ID, kitty_delete,
-    kitty_place, kitty_supported, overlaps,
+    Area, CONTROL_ICON_IMAGE_ID, CoverRenderer, NOW_PLAYING_COVER_IMAGE_ID, image_generation,
+    kitty_delete, kitty_place, kitty_supported, overlaps,
 };
 #[cfg(feature = "cover")]
 use crate::ui::icons::{self, Icon};
@@ -127,6 +127,8 @@ type IconKey = (Icon, [u8; 3], (u32, u32));
 struct IconLayer {
     desired: RwLock<Vec<IconRequest>>,
     rendered: RwLock<Vec<IconRequest>>,
+    /// [image_generation] when the icons were last put on the terminal.
+    generation: std::sync::atomic::AtomicU64,
     cache: RwLock<HashMap<IconKey, image::RgbaImage>>,
 }
 
@@ -152,6 +154,10 @@ impl IconLayer {
             .cloned()
             .collect();
         let mut rendered = self.rendered.write().unwrap();
+        if self.generation.swap(image_generation(), Ordering::Relaxed) != image_generation() {
+            // The terminal's images were all removed (see reset_terminal_images).
+            rendered.clear();
+        }
         if *rendered == desired {
             return;
         }

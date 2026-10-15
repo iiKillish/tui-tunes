@@ -49,6 +49,11 @@ pub trait ListItem: Sync + Send + 'static {
         None
     }
 
+    /// Cover to show next to the item in lists, if it has one.
+    fn thumbnail_url(&self) -> Option<String> {
+        None
+    }
+
     #[allow(unused_variables)]
     #[inline]
     fn is_saved(&self, library: &Library) -> Option<bool> {

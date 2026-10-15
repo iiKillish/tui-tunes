@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::PathBuf;
 
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use cursive::theme::{ColorStyle, ColorType, PaletteColor};
@@ -38,6 +39,8 @@ pub struct CoverRenderer {
     image_id: u32,
     desired_cover: RwLock<Option<CoverRequest>>,
     rendered_cover: RwLock<Option<CoverRequest>>,
+    /// [image_generation] when the cover was last put on the terminal.
+    generation: AtomicU64,
     cover_max_scale: Option<f32>,
     font_size: Vec2,
 }
@@ -80,6 +83,8 @@ pub struct ImageRequest {
 pub struct ImageLayer {
     desired: RwLock<Vec<ImageRequest>>,
     rendered: RwLock<Vec<ImageRequest>>,
+    /// [image_generation] when the images were last put on the terminal.
+    generation: AtomicU64,
     /// Resized thumbnails per cover URL and pixel size.
     cache: RwLock<HashMap<(String, u32, u32), image::RgbaImage>>,
 }
@@ -101,6 +106,10 @@ impl ImageLayer {
             .cloned()
             .collect();
         let mut rendered = self.rendered.write().unwrap();
+        if self.generation.swap(image_generation(), Ordering::Relaxed) != image_generation() {
+            // The terminal's images were all removed (see reset_terminal_images).
+            rendered.clear();
+        }
         if *rendered == desired {
             return;
         }
@@ -220,6 +229,7 @@ impl CoverRenderer {
             image_id,
             desired_cover: RwLock::new(None),
             rendered_cover: RwLock::new(None),
+            generation: AtomicU64::new(image_generation()),
             cover_max_scale: config.values().cover_max_scale,
             font_size: terminal_font_size(),
         }
@@ -326,6 +336,10 @@ impl CoverRenderer {
                 .any(|overlay| overlaps((cover.offset, cover.size), *overlay))
         });
         let mut rendered_cover = self.rendered_cover.write().unwrap();
+        if self.generation.swap(image_generation(), Ordering::Relaxed) != image_generation() {
+            // The terminal's images were all removed (see reset_terminal_images).
+            *rendered_cover = None;
+        }
 
         if *rendered_cover == desired_cover {
             return;
@@ -506,6 +520,26 @@ pub(crate) fn kitty_place(
 }
 
 /// Delete Kitty image `image_id` and its placements.
+/// Counts [reset_terminal_images] calls; image layers compare it with the value when they last
+/// drew to know their images are gone.
+static IMAGE_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+pub(crate) fn image_generation() -> u64 {
+    IMAGE_GENERATION.load(Ordering::Relaxed)
+}
+
+/// Remove every image from the terminal and make all image layers draw theirs again. Needed after
+/// the window is resized: the terminal moves or clips images as it reflows, so they're no longer
+/// where they were drawn.
+pub fn reset_terminal_images() {
+    if kitty_supported() {
+        let mut stdout = std::io::stdout().lock();
+        let _ = write!(stdout, "\x1b_Ga=d,d=A,q=2\x1b\\");
+        let _ = stdout.flush();
+    }
+    IMAGE_GENERATION.fetch_add(1, Ordering::Relaxed);
+}
+
 pub(crate) fn kitty_delete(image_id: u32) -> std::io::Result<()> {
     let mut stdout = std::io::stdout().lock();
     write!(stdout, "\x1b_Ga=d,d=I,i={image_id},q=2\x1b\\")?;

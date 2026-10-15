@@ -155,6 +155,10 @@ impl fmt::Debug for Album {
 }
 
 impl ListItem for Album {
+    fn thumbnail_url(&self) -> Option<String> {
+        self.cover_url.clone()
+    }
+
     fn is_playing(&self, queue: &Queue) -> bool {
         if let Some(tracks) = self.tracks.as_ref() {
             let playing: Vec<String> = queue

@@ -176,6 +176,10 @@ impl fmt::Display for Playable {
 }
 
 impl ListItem for Playable {
+    fn thumbnail_url(&self) -> Option<String> {
+        self.cover_url()
+    }
+
     fn is_playable(&self) -> bool {
         self.as_listitem().is_playable()
     }

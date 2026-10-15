@@ -172,6 +172,10 @@ impl fmt::Display for Track {
 }
 
 impl ListItem for Track {
+    fn thumbnail_url(&self) -> Option<String> {
+        self.cover_url.clone()
+    }
+
     fn is_playing(&self, queue: &Queue) -> bool {
         let current = queue.get_current();
         current.map(|t| t.id() == self.id).unwrap_or(false)

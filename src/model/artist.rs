@@ -138,6 +138,10 @@ impl fmt::Debug for Artist {
 }
 
 impl ListItem for Artist {
+    fn thumbnail_url(&self) -> Option<String> {
+        self.known_image_url()
+    }
+
     fn is_playing(&self, queue: &Queue) -> bool {
         if let Some(tracks) = &self.tracks {
             let playing: Vec<String> = queue

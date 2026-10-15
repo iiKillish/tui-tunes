@@ -277,11 +277,19 @@ impl Application {
         let mut signals =
             Signals::new([SIGTERM, SIGHUP]).expect("could not register signal handler");
 
+        #[cfg(feature = "cover")]
+        let mut screen_size = self.cursive.screen_size();
+
         // cursive event loop
         while self.cursive.is_running() {
             self.cursive.step();
             #[cfg(feature = "cover")]
             {
+                // The terminal moves images around when it's resized: start over.
+                if self.cursive.screen_size() != screen_size {
+                    screen_size = self.cursive.screen_size();
+                    ui::cover::reset_terminal_images();
+                }
                 // Dialogs and menus are layers on top of the layout. Terminal images would be
                 // drawn over them, so images overlapping one are left out while it's open.
                 let screen = self.cursive.screen();
