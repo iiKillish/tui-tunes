@@ -464,8 +464,7 @@ impl CardGrid {
         Some(Modal::new(dialog))
     }
 
-    /// Move the selection; returns false when it's already at the edge in that direction (so a
-    /// surrounding tab view can switch tabs instead).
+    /// Move the selection; returns false when it's already at the edge in that direction.
     fn move_selection(
         &mut self,
         sections: &[Section],

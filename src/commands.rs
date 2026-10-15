@@ -368,6 +368,7 @@ impl CommandManager {
             | Command::Insert(_)
             | Command::ShowRecommendations(_)
             | Command::Panel(_)
+            | Command::Tab(_)
             | Command::Sort(_, _) => Err(format!(
                 "The command \"{}\" is unsupported in this view",
                 cmd.basename()
@@ -516,6 +517,10 @@ impl CommandManager {
         kb.insert("Shift+h".into(), vec![Command::Like]);
         kb.insert("Tab".into(), vec![Command::Panel(PanelAction::Focus)]);
         kb.insert("Shift+l".into(), vec![Command::Panel(PanelAction::Lyrics)]);
+        kb.insert("Alt+h".into(), vec![Command::Tab(false)]);
+        kb.insert("Alt+l".into(), vec![Command::Tab(true)]);
+        kb.insert("Shift+Left".into(), vec![Command::Tab(false)]);
+        kb.insert("Shift+Right".into(), vec![Command::Tab(true)]);
         kb.insert("Shift+p".into(), vec![Command::TogglePlay]);
         kb.insert("Shift+u".into(), vec![Command::UpdateLibrary]);
         kb.insert("Shift+s".into(), vec![Command::Stop]);

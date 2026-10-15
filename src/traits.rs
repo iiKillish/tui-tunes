@@ -86,8 +86,7 @@ pub trait ViewExt: View {
     fn render_images(&self, _overlays: &[(cursive::Vec2, cursive::Vec2)]) {}
 
     /// Whether left/right moves are for the view itself (like a grid of cards) rather than for
-    /// switching tabs. A tab view gives them to such a view first, and switches tabs only if it
-    /// ignores them (at its edge).
+    /// switching tabs. A tab view then leaves them to it; `tab next`/`previous` still switch.
     fn handles_horizontal_moves(&self) -> bool {
         false
     }

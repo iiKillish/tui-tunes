@@ -52,6 +52,7 @@ const EXECUTE_CMD: &str = "exec";
 const RECONNECT_CMD: &str = "reconnect";
 const LIKE_CMD: &str = "like";
 const PANEL_CMD: &str = "panel";
+const TAB_CMD: &str = "tab";
 
 pub const ALL_COMMANDS: &[&str] = &[
     QUIT_CMD,
@@ -100,6 +101,7 @@ pub const ALL_COMMANDS: &[&str] = &[
     RECONNECT_CMD,
     LIKE_CMD,
     PANEL_CMD,
+    TAB_CMD,
 ];
 
 /// What the `panel` command does with the side panel (queue and lyrics).
@@ -268,6 +270,8 @@ pub enum Command {
     /// Save the current track to the library, or remove it if it's saved.
     Like,
     Panel(PanelAction),
+    /// Switch to the next (true) or previous (false) tab.
+    Tab(bool),
 }
 
 impl fmt::Display for Command {
@@ -311,6 +315,7 @@ impl fmt::Display for Command {
             Self::ShowRecommendations(mode) => vec![mode.to_string()],
             Self::Execute(cmd) => vec![cmd.to_owned()],
             Self::Panel(action) => vec![action.to_string()],
+            Self::Tab(next) => vec![(if *next { "next" } else { "previous" }).into()],
             Self::Quit
             | Self::TogglePlay
             | Self::Stop
@@ -390,6 +395,7 @@ impl Command {
             Self::Reconnect => RECONNECT_CMD,
             Self::Like => LIKE_CMD,
             Self::Panel(_) => PANEL_CMD,
+            Self::Tab(_) => TAB_CMD,
         }
     }
 
@@ -939,6 +945,17 @@ pub fn parse(input: &str) -> Result<Vec<Command>, CommandParseError> {
                 EXECUTE_CMD => Command::Execute(args.join(" ")),
                 RECONNECT_CMD => Command::Reconnect,
                 LIKE_CMD => Command::Like,
+                TAB_CMD => Command::Tab(match args.first().copied() {
+                    Some("next") | None => true,
+                    Some("previous" | "prev") => false,
+                    Some(arg) => {
+                        return Err(E::BadEnumArg {
+                            arg: arg.into(),
+                            accept: vec!["next".into(), "previous".into()],
+                            optional: true,
+                        });
+                    }
+                }),
                 PANEL_CMD => Command::Panel(match args.first().copied() {
                     None | Some("focus") => PanelAction::Focus,
                     Some("queue") => PanelAction::Queue,

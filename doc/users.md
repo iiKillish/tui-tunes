@@ -177,7 +177,8 @@ When pressing <kbd>O</kbd>:
 ### Library
 Playlists (with a _Liked Songs_ card first), albums and artists are shown as grids of covers:
 <kbd>←</kbd><kbd>↑</kbd><kbd>↓</kbd><kbd>→</kbd> (<kbd>H</kbd><kbd>J</kbd><kbd>K</kbd><kbd>L</kbd>)
-move between cards (and to the next tab at the edge), <kbd>Return</kbd> opens one. Search results
+move between cards, <kbd>Return</kbd> opens one. <kbd>Alt</kbd>+<kbd>H</kbd>/<kbd>L</kbd> or
+<kbd>Shift</kbd>+<kbd>←</kbd>/<kbd>→</kbd> (`tab previous`/`tab next`) switch tabs anywhere. Search results
 start with an _All_ tab: the top result, then rows of songs, artists, albums and playlists.
 
 | Key          | Command                                 |
@@ -224,6 +225,7 @@ Note: \<FOO\> - mandatory arg; [BAR] - optional arg
 | `reconnect`                                                      | Reconnect to Spotify (useful when session has expired or connection was lost)                                                                                                                                                                                   |
 | `add [current]`                                                  | Add selected track to playlist, if `current` is passed the currently playing track will be added                                                                                                                                                                |
 | `save [current]`                                                 | Save selected item, if `current` is passed the currently playing item will be saved                                                                                                                                                                             |
+| `tab` [`next`\|`previous`]                                         | Switch to the next (default) or previous tab, e.g. from Playlists to Albums in the library.                                                                                                                                                                     |
 | `like`                                                           | Save the currently playing track to your library, or remove it if it's saved.                                                                                                                                                                                   |
 | `panel` [`focus`\|`queue`\|`lyrics`]                              | Side panel: `focus` (the default) moves keyboard focus to it or back, `queue` shows the queue, `lyrics` shows the lyrics (or the queue if they're showing).                                                                                                    |
 
