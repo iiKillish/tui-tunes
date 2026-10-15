@@ -44,7 +44,7 @@ pub fn web_api_client_id() -> &'static str {
 fn web_api_redirect_uri() -> String {
     match custom_web_api_client_id() {
         Some(_) => CUSTOM_CLIENT_REDIRECT_URI.to_string(),
-        None => get_client_redirect_uri(),
+        None => get_client_redirect_uri(ClientUriSuffix::Ncspot),
     }
 }
 
@@ -108,10 +108,17 @@ pub fn find_free_port() -> Result<u16, String> {
         .map_err(|e| e.to_string())
 }
 
-pub fn get_client_redirect_uri() -> String {
+enum ClientUriSuffix {
+    Ncspot,
+    Spotify,
+}
+
+fn get_client_redirect_uri(suffix: ClientUriSuffix) -> String {
     let auth_port = find_free_port().expect("Could not find free port");
-    let redirect_url = format!("http://127.0.0.1:{auth_port}/login");
-    redirect_url
+    match suffix {
+        ClientUriSuffix::Ncspot => format!("http://127.0.0.1:{auth_port}/ncspot_login"),
+        ClientUriSuffix::Spotify => format!("http://127.0.0.1:{auth_port}/login"),
+    }
 }
 
 /// Get credentials for use with librespot. This first tries to get cached credentials. If no cached
@@ -153,7 +160,7 @@ pub fn create_credentials() -> Result<RespotCredentials, String> {
 
     let client_builder = OAuthClientBuilder::new(
         SPOTIFY_CLIENT_ID,
-        &get_client_redirect_uri(),
+        &get_client_redirect_uri(ClientUriSuffix::Spotify),
         OAUTH_SCOPES.to_vec(),
     );
     let oauth_client = client_builder.build().map_err(|e| e.to_string())?;

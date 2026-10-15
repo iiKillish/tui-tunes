@@ -189,6 +189,8 @@ impl Application {
         cmd_manager.register_all();
         cmd_manager.register_keybindings(&mut cursive);
 
+        let pending_count = cmd_manager.pending_count();
+
         cursive.set_user_data(Rc::new(UserDataInner { cmd: cmd_manager }));
 
         let search =
@@ -201,21 +203,34 @@ impl Application {
         #[cfg(feature = "cover")]
         let coverview = ui::cover::CoverView::new(queue.clone(), library.clone(), &configuration);
 
-        let status = ui::statusbar::StatusBar::new(queue.clone(), Arc::clone(&library));
+        let status = ui::statusbar::StatusBar::new(
+            queue.clone(),
+            Arc::clone(&library),
+            pending_count.clone(),
+        );
 
-        let now_playing =
-            ui::nowplaying::NowPlaying::new(queue.clone(), library.clone(), &configuration);
+        let now_playing = ui::nowplaying::NowPlaying::new(
+            queue.clone(),
+            library.clone(),
+            &configuration,
+            pending_count.clone(),
+        );
 
         let queue_panel =
             ui::queuepanel::QueuePanel::new(queue.clone(), library.clone(), &configuration);
 
-        let mut layout =
-            ui::layout::Layout::new(status, &event_manager, theme, Arc::clone(&configuration))
-                .now_playing(now_playing)
-                .queue_panel(queue_panel)
-                .screen("search", search.with_name("search"))
-                .screen("library", libraryview.with_name("library"))
-                .screen("queue", queueview);
+        let mut layout = ui::layout::Layout::new(
+            status,
+            &event_manager,
+            theme,
+            Arc::clone(&configuration),
+            pending_count,
+        )
+        .now_playing(now_playing)
+        .queue_panel(queue_panel)
+        .screen("search", search.with_name("search"))
+        .screen("library", libraryview.with_name("library"))
+        .screen("queue", queueview);
 
         #[cfg(feature = "cover")]
         layout.add_screen("cover", coverview.with_name("cover"));

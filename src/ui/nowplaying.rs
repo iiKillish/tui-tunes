@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 #[cfg(feature = "cover")]
 use std::sync::RwLock;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use cursive::event::{Event, EventResult, MouseButton, MouseEvent};
@@ -90,6 +90,8 @@ pub struct NowPlaying {
     height: usize,
     /// Whether to draw the small cover (off on the cover screen, which shows a big one).
     show_cover: AtomicBool,
+    /// Vim-style count prefix being typed (like the `10` of `10j`), shown while non-zero.
+    pending_count: Arc<AtomicUsize>,
     last_size: Vec2,
     #[cfg(feature = "cover")]
     cover: CoverRenderer,
@@ -190,9 +192,15 @@ fn rgb(color: Color) -> [u8; 3] {
 }
 
 impl NowPlaying {
-    pub fn new(queue: Arc<Queue>, library: Arc<Library>, config: &Config) -> Self {
+    pub fn new(
+        queue: Arc<Queue>,
+        library: Arc<Library>,
+        config: &Config,
+        pending_count: Arc<AtomicUsize>,
+    ) -> Self {
         Self {
             spotify: queue.get_spotify(),
+            pending_count,
             queue,
             library,
             height: config.values().now_playing_height.unwrap_or(DEFAULT_HEIGHT),
@@ -624,9 +632,18 @@ impl View for NowPlaying {
                 VOLUME_BAR_WIDTH,
                 self.spotify.volume() as f64 / u16::MAX as f64,
             );
+            // Above the volume: the count prefix being typed, and library loading.
+            let mut status = Vec::new();
+            match self.pending_count.load(Ordering::Relaxed) {
+                0 => {}
+                count => status.push(count.to_string()),
+            }
             if !*self.library.is_done.read().unwrap() {
+                status.push("updating library…".to_string());
+            }
+            if !status.is_empty() {
                 printer.with_color(secondary, |printer| {
-                    printer.print((volume_x, geometry.controls_row), "updating library…");
+                    printer.print((volume_x, geometry.controls_row), &status.join("  "));
                 });
             }
         }

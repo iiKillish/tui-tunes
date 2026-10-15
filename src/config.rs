@@ -101,6 +101,11 @@ pub struct ConfigValues {
     pub library_tabs: Option<Vec<LibraryTab>>,
     pub hide_display_names: Option<bool>,
     pub ap_port: Option<u16>,
+    /// Proxy used for all of ncspot's network traffic: the Spotify access
+    /// point, the Spotify APIs, OAuth and cover art downloads. Supported
+    /// schemes: `http://` (CONNECT proxy) and `socks5h://` (SOCKS5 proxy with
+    /// remote DNS resolution). Both accept `user:password@host:port`.
+    pub proxy: Option<String>,
     /// Client ID of your own Spotify developer app, used for Web API requests instead of
     /// ncspot's shared one (which is frequently rate limited). The app must have
     /// `http://127.0.0.1:8989/login` registered as a redirect URI.
@@ -333,6 +338,50 @@ fn load_theme_file(
     toml::Value::Table(theme)
         .try_into()
         .map_err(|e| format!("error in theme file {}: {e}", path.display()))
+}
+
+/// Read only the `proxy` setting from the user's configuration file, without
+/// any side effects (missing files are simply ignored). Called very early in
+/// `main`, before the configuration is loaded for real, so that proxy
+/// environment variables can be exported before any threads are spawned.
+fn read_proxy_setting(filename: Option<String>) -> Option<String> {
+    let filename = filename.unwrap_or(CONFIGURATION_FILE_NAME.to_owned());
+    let contents = std::fs::read_to_string(config_path(&filename)).ok()?;
+    let values: ConfigValues = toml::from_str(&contents).ok()?;
+    let proxy = values.proxy?.trim().to_owned();
+    if proxy.is_empty() { None } else { Some(proxy) }
+}
+
+/// Export the configured `proxy` to the environment so that every HTTP client
+/// stack used by ncspot and its dependencies picks it up:
+///
+/// * `ALL_PROXY` is read by the reqwest stacks (OAuth token exchange and cover
+///   art downloads); reqwest understands `socks5h://` natively.
+/// * `all_proxy` is read by ureq (rspotify Web API). ureq does not know the
+///   `socks5h` scheme, but its `socks5` implementation already hands the
+///   hostname to the proxy, so the schemes are equivalent there.
+///
+/// The librespot session reads its proxy straight from the configuration
+/// instead (see `Spotify::session_config`).
+///
+/// # Safety
+///
+/// `std::env::set_var` is not thread safe; this must be called from the main
+/// thread before any other threads are spawned. It is only called from the
+/// top of `main`.
+pub fn preload_proxy_environment(filename: Option<String>) {
+    let Some(proxy) = read_proxy_setting(filename) else {
+        return;
+    };
+    let ureq_proxy = match proxy.split_once("://") {
+        Some(("socks5h", rest)) => format!("socks5://{rest}"),
+        _ => proxy.clone(),
+    };
+    log::info!("Setting proxy {proxy}");
+    unsafe {
+        std::env::set_var("ALL_PROXY", &proxy);
+        std::env::set_var("all_proxy", ureq_proxy);
+    }
 }
 
 /// Returns the plaform app directories for ncspot if they could be determined,
