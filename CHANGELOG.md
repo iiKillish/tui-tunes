@@ -46,9 +46,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - MPRIS announces capability changes, and `CanControl` is constant, so desktop
   media controls (e.g. KDE's) treat ncspot as controllable
 
+### Removed
+
+- The `similar` command and its <kbd>M</kbd>/<kbd>Shift</kbd>+<kbd>M</kbd>
+  keybindings, as Spotify no longer offers recommendations to third-party apps
+- `panel focus`; `panel` now takes `queue` or `lyrics`
+
 ### Fixed
 
 - Don't block the interface on long rate-limit waits
+- Set the PulseAudio stream properties once at startup instead of on every
+  (re)connect, which raced with other threads reading the environment
 
 ## [1.5.0]
 
