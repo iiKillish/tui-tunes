@@ -22,7 +22,7 @@ comments.
 - **Pages P1+P2**: header with the cover on the left, kind / bold title / details, buttons
   (▶ Play filled in the accent, ⇄ Shuffle, ♡ Like); the header background is tinted with the
   cover's color fading into the page. Then numbered rows with the length on the right.
-- **S2 selection**: the selected row gets a darker background (`statusbar_bg`) and a `▌` in the
+- **S2 selection**: the selected row gets a background just off the main one (`statusbar_bg`, derived from the terminal's colors) and a `▌` in the
   accent at its left edge (`Styles::selected` + `SELECTION_MARKER`/`Styles::marker`).
 - **R2 rows**: number, small cover (1 row), title, artist, length.
 - Covers via Kitty graphics (`tui::images`) in terminals that support it (Kitty, Ghostty, WezTerm).

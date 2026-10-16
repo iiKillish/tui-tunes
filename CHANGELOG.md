@@ -35,13 +35,14 @@ entries are ncspot's own history.
 - First-run setup that asks for the client ID of your own Spotify app and saves
   it; the `client_id` configuration option overrides it
 - `volume_curve` configuration option (`cubic`, `log` or `linear`)
-- `theme_file` configuration option to load the `[theme]` colors from a
-  separate file
 - Show a countdown in the player when Spotify rate limits a request
 - Remember where queued songs came from ("Next from") across restarts
 
 ### Changed
 
+- Colors come from the terminal by default: its own foreground and background,
+  an ANSI blue accent, and player and selection backgrounds derived from the
+  background it reports. `[theme]` still overrides any color
 - Renamed to ttunes: the binary, the config and cache directories
   (`~/.config/ttunes`, `~/.cache/ttunes`), the IPC socket and the MPRIS bus
   name `org.mpris.MediaPlayer2.ttunes`

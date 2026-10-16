@@ -50,11 +50,13 @@ pub fn draw(
     let buf = frame.buffer_mut();
 
     // Background: the cover's color fading into the page, row by row.
-    let base = rgb(palette.background);
-    let tint = header.cover_url.as_deref().and_then(images::cover_tint);
+    // Without a known background there is nothing to fade into: no tint.
+    let tint = palette
+        .base
+        .and_then(|base| Some((base, images::cover_tint(header.cover_url.as_deref()?)?)));
     for row in 0..area.height {
         let bg = match tint {
-            Some(tint) => {
+            Some((base, tint)) => {
                 let fade = f32::from(row) / f32::from(area.height.max(1));
                 mix(mix_rgb(base, tint, 0.45), base, fade)
             }

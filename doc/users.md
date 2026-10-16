@@ -283,7 +283,6 @@ Possible configuration values are:
 | `[keybindings]`                 | Custom keybindings                                             | See [custom keybindings](#custom-keybindings)                                         |                     |
 | `ap_port`                       | Set ap-port for librespot (for restrictive firewalls)          | `80`, `443`, `4070`                                                                   |                     |
 | `client_id`                     | Client ID of your own Spotify app for Web API requests<sup>[3]</sup> | String                                                                          | The ID saved at first run |
-| `theme_file`                    | TOML file of `[theme]` colors (relative to the config directory); `[theme]` overrides it | String                                                    |                     |
 
 1. Run `ttunes -h` for a list of devices.
 2. If built with the `notify` feature.
@@ -360,29 +359,50 @@ http_proxy="http://foo.bar:4444" ttunes
 ```
 
 ### Theming
+ttunes has no colors of its own: it uses your terminal's colors, so it matches whatever theme
+you already use. Text is in the terminal's foreground on its background, the accent is ANSI blue
+and dimmed text is ANSI bright black. At startup ttunes asks the terminal for its real
+background and foreground, and derives the player's and the selected row's background from them:
+the background moved about 7% towards the foreground, so lighter on dark themes and darker on
+light ones. Terminals that don't answer (older ones, tmux without passthrough) get the terminal's
+background there, and the selected row is still marked with a `▌` in the accent.
 
-The color palette can be modified in the configuration. For instance, to have
-`ttunes` match Spotify's official client, you can add the following entries to
-the configuration file:
+Any color can be set in the optional `[theme]` section. Colors are a name (`black`, `red`,
+`green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, the same with `light ` in front, e.g.
+`light blue`), `#rrggbb`, `#rgb`, or `default` for the terminal's own color.
+
+| Key                     | Used for                                                        | Default                    |
+|-------------------------|-----------------------------------------------------------------|----------------------------|
+| `background`            | The main background                                             | `default`                  |
+| `primary`               | Normal text                                                     | `default`                  |
+| `secondary`             | Dimmed text: artists, lengths, hints                            | `light black`              |
+| `title`                 | The accent: titles, the current tab, active toggles             | `blue`                     |
+| `playing`               | The track that's playing                                        | `blue`                     |
+| `playing_bg`            | Background of the track that's playing                          | `background`               |
+| `highlight`             | Text on filled buttons                                          | The terminal's background  |
+| `highlight_bg`          | Filled buttons (Play)                                           | `blue`                     |
+| `highlight_inactive_bg` | Selection in menus without focus, empty cover squares           | Derived, or `light black`  |
+| `statusbar_bg`          | The player, menus and the selected row                          | Derived, or `default`      |
+| `statusbar_progress`    | The filled part of the progress and volume bars                 | `blue`                     |
+| `statusbar_progress_bg` | The empty part of the progress and volume bars                  | `light black`              |
+| `error`                 | Error messages                                                  | `red`                      |
+| `error_bg`              | Background of error messages                                    | `background`               |
+| `cmdline`               | Text on the command line                                        | `default`                  |
+| `cmdline_bg`            | Background of the command line                                  | `background`               |
+
+Setting `background` to a `#rrggbb` color derives the surfaces from it instead of the terminal's
+background. For example, to look like Spotify's official client:
 
 ```toml
 [theme]
-background = "black"
-primary = "light white"
-secondary = "light black"
-title = "green"
-playing = "green"
-playing_bg = "black"
-highlight = "light white"
-highlight_bg = "#484848"
-error = "light white"
-error_bg = "red"
-statusbar_progress = "green"
-statusbar_bg = "green"
-cmdline = "light white"
-cmdline_bg = "black"
+background = "#121212"
+primary = "#ffffff"
+secondary = "#b3b3b3"
+title = "#1db954"
+playing = "#1db954"
+highlight_bg = "#1db954"
+statusbar_progress = "#1db954"
 ```
-
 
 ### Track Formatting
 It's possible to customize how tracks are shown in list views with `[track_format]`.

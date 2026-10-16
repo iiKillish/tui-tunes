@@ -83,6 +83,8 @@ impl Application {
 
         let configuration = Arc::new(Config::new(configuration_file_path));
         let credentials = authentication::get_credentials(&configuration)?;
+        // Before the UI takes over the terminal, which would swallow the answers.
+        crate::terminal_colors::detect();
         let palette = configuration.build_theme();
 
         if let Err(e) = authentication::get_rspotify_token() {

@@ -106,9 +106,6 @@ pub struct ConfigValues {
     /// saved by the first-run setup (see [crate::client_id]). The app must have
     /// `http://127.0.0.1:8989/login` registered as a redirect URI.
     pub client_id: Option<String>,
-    /// TOML file with theme colors (the keys of `[theme]`, at the top level), relative to the
-    /// configuration directory unless absolute. Colors in `[theme]` override it.
-    pub theme_file: Option<String>,
     /// How the volume slider maps to loudness: "cubic" (default, like system mixers), "log"
     /// (60 dB range, quiet sooner) or "linear".
     pub volume_curve: Option<String>,
@@ -283,7 +280,7 @@ impl Config {
         }
     }
 
-    /// The theme's colors, from the configuration file (and its theme file).
+    /// The theme's colors, from the configuration file and the terminal's own colors.
     pub fn build_theme(&self) -> crate::theme::Palette {
         crate::theme::load(&self.values().theme)
     }
@@ -302,38 +299,7 @@ impl Config {
 /// Parse the configuration file with name `filename` at the configuration base path.
 fn load(filename: &str) -> Result<ConfigValues, String> {
     let path = config_path(filename);
-    let mut values: ConfigValues =
-        TOML.load_or_generate_default(path, || Ok(ConfigValues::default()), false)?;
-    if let Some(theme_file) = values.theme_file.clone() {
-        values.theme = Some(load_theme_file(&theme_file, values.theme.as_ref())?);
-    }
-    Ok(values)
-}
-
-/// Read the theme in `theme_file` (see [ConfigValues::theme_file]), with the colors set in
-/// `overrides` (the configuration file's own `[theme]`) taking precedence.
-fn load_theme_file(
-    theme_file: &str,
-    overrides: Option<&ConfigTheme>,
-) -> Result<ConfigTheme, String> {
-    let path = PathBuf::from(theme_file);
-    let path = if path.is_absolute() {
-        path
-    } else {
-        config_path(theme_file)
-    };
-    let contents = fs::read_to_string(&path)
-        .map_err(|e| format!("can't read theme file {}: {e}", path.display()))?;
-    let mut theme: toml::Table = contents
-        .parse()
-        .map_err(|e| format!("error in theme file {}: {e}", path.display()))?;
-    if let Some(overrides) = overrides {
-        let overrides = toml::Table::try_from(overrides).map_err(|e| e.to_string())?;
-        theme.extend(overrides);
-    }
-    toml::Value::Table(theme)
-        .try_into()
-        .map_err(|e| format!("error in theme file {}: {e}", path.display()))
+    TOML.load_or_generate_default(path, || Ok(ConfigValues::default()), false)
 }
 
 /// Read the configuration file without any side effects (no error reporting,
@@ -494,34 +460,5 @@ mod queue_state_tests {
             "track_progress":{"secs":0,"nanos":0},"queue":[]}"#;
         let state: QueueState = serde_json::from_str(old).unwrap();
         assert!(state.sources.is_empty());
-    }
-}
-
-#[cfg(test)]
-mod theme_file_tests {
-    use super::{ConfigTheme, load_theme_file};
-
-    #[test]
-    fn test_theme_file_with_overrides() {
-        let path = std::env::temp_dir().join(format!("ttunes-theme-{}.toml", std::process::id()));
-        std::fs::write(&path, "background = \"#111111\"\nprimary = \"#222222\"\n").unwrap();
-
-        let overrides = ConfigTheme {
-            primary: Some("#333333".into()),
-            ..Default::default()
-        };
-        let theme = load_theme_file(path.to_str().unwrap(), Some(&overrides)).unwrap();
-        assert_eq!(theme.background.as_deref(), Some("#111111"));
-        assert_eq!(
-            theme.primary.as_deref(),
-            Some("#333333"),
-            "[theme] overrides the file"
-        );
-
-        let theme = load_theme_file(path.to_str().unwrap(), None).unwrap();
-        assert_eq!(theme.primary.as_deref(), Some("#222222"));
-
-        std::fs::remove_file(&path).unwrap();
-        assert!(load_theme_file(path.to_str().unwrap(), None).is_err());
     }
 }

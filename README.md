@@ -9,6 +9,7 @@ needs a Spotify Premium account.
 - Album, playlist and artist pages, and cover grids for the library and search results
 - Time-synced lyrics from [LRCLIB](https://lrclib.net)
 - Album covers drawn with the Kitty graphics protocol, supported in Kitty, Ghostty and WezTerm
+- Uses your terminal's colors, so it matches the theme you already have
 - Vim-style keys, mouse support, MPRIS and an IPC socket for remote control
 
 ## Install
@@ -50,7 +51,7 @@ Spotify logins in your browser, one for playback and one for your app.
 and <kbd>q</kbd> quits.
 
 Everything works without a configuration file. The optional `~/.config/ttunes/config.toml` changes
-keys, colours and behaviour; the full key list and every option are in
+keys, colors and behavior; the full key list and every option are in
 [the user docs](doc/users.md).
 
 ## Credits

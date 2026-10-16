@@ -166,7 +166,8 @@ pub fn fill(buf: &mut Buffer, area: Rect, style: Style) {
     }
 }
 
-/// RGB of a theme color, for icons and blending. Named colors get typical terminal values.
+/// Typical RGB of a color, when the terminal didn't report its own (see
+/// [Palette::rgb](crate::theme::Palette::rgb)).
 pub fn rgb(color: Color) -> [u8; 3] {
     match color {
         Color::Rgb(r, g, b) => [r, g, b],
@@ -186,7 +187,7 @@ pub fn rgb(color: Color) -> [u8; 3] {
         Color::LightMagenta => [214, 112, 214],
         Color::LightCyan => [41, 184, 219],
         Color::White => [229, 229, 229],
-        Color::Indexed(_) | Color::Reset => [30, 30, 46],
+        Color::Indexed(_) | Color::Reset => [0, 0, 0],
     }
 }
 

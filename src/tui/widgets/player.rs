@@ -22,8 +22,6 @@ use crate::tui::images;
 #[cfg(feature = "cover")]
 use crate::tui::images::Source;
 use crate::tui::page::{Ctx, Outcome};
-#[cfg(feature = "cover")]
-use crate::tui::style::rgb;
 use crate::tui::style::{Styles, bold, duration, fill, put, width};
 
 /// Rows the hero needs besides the cover: title, artist, album, gap, progress, times, controls
@@ -178,7 +176,7 @@ impl Player {
         #[cfg(feature = "cover")]
         if image_controls() {
             images::request_image(
-                Source::Icon(Self::control_image(control, ctx), rgb(color)),
+                Source::Icon(Self::control_image(control, ctx), ctx.palette.rgb(color)),
                 area,
                 0,
             );
