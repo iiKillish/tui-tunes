@@ -14,7 +14,11 @@ use crate::model::track::Track;
 
 const API: &str = "https://lrclib.net/api";
 /// LRCLIB asks clients to identify themselves.
-const USER_AGENT: &str = concat!("ncspot/", env!("CARGO_PKG_VERSION"), " (kde-ncspot fork)");
+const USER_AGENT: &str = concat!(
+    "ttunes/",
+    env!("CARGO_PKG_VERSION"),
+    " (https://github.com/iiKillish/ttunes)"
+);
 /// How long to wait before trying again after a failed request.
 const RETRY_AFTER: Duration = Duration::from_secs(60);
 /// Largest difference between a search result's length and the track's for it to count as the

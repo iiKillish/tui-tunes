@@ -6,7 +6,7 @@ use std::{path::PathBuf, process::exit};
 use application::{Application, setup_logging};
 use config::set_configuration_base_path;
 use log::error;
-use ncspot::program_arguments;
+use ttunes::program_arguments;
 
 mod application;
 mod authentication;

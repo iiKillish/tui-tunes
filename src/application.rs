@@ -39,7 +39,7 @@ pub fn setup_logging(filename: &Path) -> Result<(), fern::InitError> {
         // Add blanket level filter -
         .level(log::LevelFilter::Debug)
         // Set runtime log level for modules
-        .level_for("ncspot", log::LevelFilter::Trace)
+        .level_for("ttunes", log::LevelFilter::Trace)
         // Output to stdout, files, and other Dispatch configurations
         .chain(fern::log_file(filename)?)
         // Apply globally
@@ -50,7 +50,7 @@ pub fn setup_logging(filename: &Path) -> Result<(), fern::InitError> {
 /// The global Tokio runtime for running asynchronous tasks.
 pub static ASYNC_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
 
-/// The representation of an ncspot application.
+/// The representation of a ttunes application.
 pub struct Application {
     /// The music queue which controls playback order.
     queue: Arc<Queue>,
@@ -58,7 +58,7 @@ pub struct Application {
     spotify: Spotify,
     /// Internally shared
     event_manager: EventManager,
-    /// An IPC implementation using the D-Bus MPRIS protocol, used to control and inspect ncspot.
+    /// An IPC implementation using the D-Bus MPRIS protocol, used to control and inspect ttunes.
     #[cfg(unix)]
     ipc: Option<IpcSocket>,
     /// Handles for the UI.
@@ -66,7 +66,7 @@ pub struct Application {
 }
 
 impl Application {
-    /// Create a new ncspot application.
+    /// Create a new ttunes application.
     ///
     /// # Arguments
     ///
@@ -148,7 +148,7 @@ impl Application {
             Some(
                 ipc::IpcSocket::new(
                     ASYNC_RUNTIME.get().unwrap().handle(),
-                    runtime_directory.join("ncspot.sock"),
+                    runtime_directory.join("ttunes.sock"),
                     event_manager.clone(),
                 )
                 .map_err(|e| e.to_string())?,

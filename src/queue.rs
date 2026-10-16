@@ -647,7 +647,7 @@ impl Queue {
     }
 }
 
-/// Id of the last notification shown by ncspot
+/// Id of the last notification shown by ttunes
 #[cfg(all(feature = "notify", unix, not(target_os = "macos")))]
 static LAST_NOTIFICATION_ID: std::sync::Mutex<Option<u32>> = std::sync::Mutex::new(None);
 
@@ -670,7 +670,7 @@ fn insert_source(sources: &mut Vec<Option<Arc<str>>>, index: usize, source: Opti
 #[cfg(feature = "notify")]
 pub fn send_notification(summary_txt: &str, body_txt: &str, cover_url: Option<String>) {
     let mut n = Notification::new();
-    n.appname("ncspot").summary(summary_txt).body(body_txt);
+    n.appname("ttunes").summary(summary_txt).body(body_txt);
 
     // album cover image
     if let Some(u) = cover_url {
@@ -687,7 +687,7 @@ pub fn send_notification(summary_txt: &str, body_txt: &str, cover_url: Option<St
     #[cfg(all(unix, not(target_os = "macos")))]
     n.urgency(notify_rust::Urgency::Low)
         .hint(notify_rust::Hint::Transient(true))
-        .hint(notify_rust::Hint::DesktopEntry("ncspot".into()));
+        .hint(notify_rust::Hint::DesktopEntry("ttunes".into()));
 
     // reuse the id of the previous notification
     // so we replace it and not create a new one

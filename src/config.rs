@@ -5,8 +5,8 @@ use std::sync::{RwLock, RwLockReadGuard};
 use std::{fs, process};
 
 use log::{debug, error};
-use ncspot::{CONFIGURATION_FILE_NAME, USER_STATE_FILE_NAME};
 use platform_dirs::AppDirs;
+use ttunes::{CONFIGURATION_FILE_NAME, USER_STATE_FILE_NAME};
 
 use crate::command::{SortDirection, SortKey};
 use crate::model::playable::Playable;
@@ -16,7 +16,7 @@ use crate::serialization::{CBOR, Serializer, TOML};
 pub const CACHE_VERSION: u16 = 1;
 pub const DEFAULT_COMMAND_KEY: char = ':';
 
-/// The playback state when ncspot is started.
+/// The playback state when ttunes is started.
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub enum PlaybackState {
     Playing,
@@ -25,7 +25,7 @@ pub enum PlaybackState {
     Default,
 }
 
-/// The focussed library tab when ncspot is started.
+/// The focussed library tab when ttunes is started.
 #[derive(Clone, Serialize, Deserialize, Debug, Hash, strum_macros::EnumIter)]
 #[serde(rename_all = "lowercase")]
 pub enum LibraryTab {
@@ -71,7 +71,7 @@ impl NotificationFormat {
     }
 }
 
-/// The configuration of ncspot.
+/// The configuration of ttunes.
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct ConfigValues {
     pub command_key: Option<char>,
@@ -97,13 +97,13 @@ pub struct ConfigValues {
     pub library_tabs: Option<Vec<LibraryTab>>,
     pub hide_display_names: Option<bool>,
     pub ap_port: Option<u16>,
-    /// Proxy used for all of ncspot's network traffic: the Spotify access
+    /// Proxy used for all of ttunes's network traffic: the Spotify access
     /// point, the Spotify APIs, OAuth and cover art downloads. Supported
     /// schemes: `http://` (CONNECT proxy) and `socks5h://` (SOCKS5 proxy with
     /// remote DNS resolution). Both accept `user:password@host:port`.
     pub proxy: Option<String>,
     /// Client ID of your own Spotify developer app, used for Web API requests instead of
-    /// ncspot's shared one (which is frequently rate limited). The app must have
+    /// ttunes's shared one (which is frequently rate limited). The app must have
     /// `http://127.0.0.1:8989/login` registered as a redirect URI.
     pub client_id: Option<String>,
     /// TOML file with theme colors (the keys of `[theme]`, at the top level), relative to the
@@ -114,7 +114,7 @@ pub struct ConfigValues {
     pub volume_curve: Option<String>,
 }
 
-/// The ncspot theme.
+/// The ttunes theme.
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct ConfigTheme {
     pub background: Option<String>,
@@ -184,7 +184,7 @@ impl Default for UserState {
 /// Configuration files are read/written relative to this directory.
 static BASE_PATH: RwLock<Option<PathBuf>> = RwLock::new(None);
 
-/// The complete configuration (state + user configuration) of ncspot.
+/// The complete configuration (state + user configuration) of ttunes.
 pub struct Config {
     /// The configuration file path.
     filename: String,
@@ -344,10 +344,10 @@ fn read_startup_values(filename: Option<String>) -> Option<ConfigValues> {
     toml::from_str(&contents).ok()
 }
 
-/// Export the environment variables ncspot relies on, derived from the
+/// Export the environment variables ttunes relies on, derived from the
 /// configuration file:
 ///
-/// * The configured `proxy`, so that every HTTP client stack used by ncspot
+/// * The configured `proxy`, so that every HTTP client stack used by ttunes
 ///   and its dependencies picks it up:
 ///   * `ALL_PROXY` is read by the reqwest stacks (OAuth token exchange and
 ///     cover art downloads); reqwest understands `socks5h://` natively.
@@ -403,7 +403,7 @@ pub fn preload_environment(filename: Option<String>) {
     }
 }
 
-/// Returns the plaform app directories for ncspot if they could be determined,
+/// Returns the plaform app directories for ttunes if they could be determined,
 /// or an error otherwise.
 pub fn try_proj_dirs() -> Result<AppDirs, String> {
     match *BASE_PATH
@@ -416,7 +416,7 @@ pub fn try_proj_dirs() -> Result<AppDirs, String> {
             data_dir: basepath.join(".local/share"),
             state_dir: basepath.join(".local/state"),
         }),
-        None => AppDirs::new(Some("ncspot"), true)
+        None => AppDirs::new(Some("ttunes"), true)
             .ok_or_else(|| String::from("Couldn't determine platform standard directories")),
     }
 }
@@ -497,7 +497,7 @@ mod theme_file_tests {
 
     #[test]
     fn test_theme_file_with_overrides() {
-        let path = std::env::temp_dir().join(format!("ncspot-theme-{}.toml", std::process::id()));
+        let path = std::env::temp_dir().join(format!("ttunes-theme-{}.toml", std::process::id()));
         std::fs::write(&path, "background = \"#111111\"\nprimary = \"#222222\"\n").unwrap();
 
         let overrides = ConfigTheme {

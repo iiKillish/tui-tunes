@@ -77,11 +77,11 @@ pub fn user_runtime_directory() -> Option<PathBuf> {
     let unix_runtime_directory = PathBuf::from("/tmp/");
 
     if let Some(xdg_runtime_directory) = xdg_runtime_directory() {
-        Some(xdg_runtime_directory.join("ncspot"))
+        Some(xdg_runtime_directory.join("ttunes"))
     } else if cfg!(target_os = "linux") && linux_runtime_directory.exists() {
-        Some(linux_runtime_directory.join("ncspot"))
+        Some(linux_runtime_directory.join("ttunes"))
     } else if unix_runtime_directory.exists() {
-        Some(unix_runtime_directory.join(format!("ncspot-{}", unsafe { libc::getuid() })))
+        Some(unix_runtime_directory.join(format!("ttunes-{}", unsafe { libc::getuid() })))
     } else {
         None
     }

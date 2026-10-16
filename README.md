@@ -1,16 +1,7 @@
-<div align="center" style="text-align:center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="images/logo_text_dark.svg">
-    <source media="(prefers-color-scheme: light)" srcset="images/logo_text_light.svg">
-    <img alt="ncspot logo" height="128" src="images/logo_text_light.svg">
-  </picture>
-  <h3>An ncurses Spotify client written in Rust using librespot</h3>
+# ttunes
 
-[![Crates.io](https://img.shields.io/crates/v/ncspot.svg)](https://crates.io/crates/ncspot)
-[![Gitter](https://badges.gitter.im/ncspot/community.svg)](https://gitter.im/ncspot/community?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge)
+Spotify player for the terminal, based on [ncspot](https://github.com/hrkfdn/ncspot).
 
-  <img alt="ncspot search tab" src="images/screenshot.png">
-</div>
 
 ncspot is an ncurses Spotify client written in Rust using librespot. It is heavily inspired by
 ncurses MPD clients, such as [ncmpc](https://musicpd.org/clients/ncmpc/). My motivation was to

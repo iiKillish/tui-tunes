@@ -5,7 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.0]
+
+First release of ttunes, based on [ncspot](https://github.com/hrkfdn/ncspot)
+1.5.0. The entries below list what changed since ncspot 1.5.0; the older
+entries are ncspot's own history.
 
 ### Added
 
@@ -38,13 +42,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Renamed to ttunes: the binary, the config and cache directories
+  (`~/.config/ttunes`, `~/.cache/ttunes`), the IPC socket and the MPRIS bus
+  name `org.mpris.MediaPlayer2.ttunes`
 - The ratatui interface replaces cursive; the `crossterm_backend`,
   `ncurses_backend`, `pancurses_backend` and `termion_backend` features are gone
 - The volume slider uses a cubic curve by default, like system mixers
 - Shuffle reorders the queue itself, so _Up next_ shows the real play order
 - Search requests 10 results at a time, Spotify's new limit
 - MPRIS announces capability changes, and `CanControl` is constant, so desktop
-  media controls (e.g. KDE's) treat ncspot as controllable
+  media controls treat ttunes as controllable
 
 ### Removed
 
@@ -61,6 +68,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Don't block the interface on long rate-limit waits
 - Set the PulseAudio stream properties once at startup instead of on every
   (re)connect, which raced with other threads reading the environment
+
+## ncspot history
 
 ## [1.5.0]
 

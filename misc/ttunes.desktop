@@ -1,10 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=ncspot
-Comment=Cross-platform ncurses Spotify client written in Rust
-TryExec=ncspot
-Exec=ncspot
-Icon=ncspot
+Name=ttunes
+Comment=Spotify player for the terminal
+TryExec=ttunes
+Exec=ttunes
 Terminal=true
 Categories=AudioVideo;Audio;Player;ConsoleOnly
 Keywords=spotify;music;player

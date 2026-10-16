@@ -1,5 +1,6 @@
 ## Resource Footprint Comparison
-Measured using `ps_mem` on Linux during playback:
+Measured using `ps_mem` on Linux during playback, with ncspot (the client ttunes is based on).
+ttunes itself has not been measured yet:
 
 | Client  | Private Memory | Shared Memory | Total      |
 |---------|----------------|---------------|------------|

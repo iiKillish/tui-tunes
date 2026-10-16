@@ -1,67 +1,28 @@
 # User Documentation
 
 ## Installation Instructions
-[![Packaging status](https://repology.org/badge/vertical-allrepos/ncspot.svg)](https://repology.org/project/ncspot/versions)
 
-### On macOS
-`ncspot` is available via [Homebrew](https://brew.sh/):
+### From [crates.io](https://crates.io/crates/ttunes)
 
-```zsh
-brew install ncspot
-```
-
-### On Windows
-`ncspot` is available via [Scoop](https://scoop.sh/):
-
-```powershell
-scoop install ncspot
-```
-
-or via [winget](https://learn.microsoft.com/en-us/windows/package-manager/winget/):
-
-```powershell
-winget install hrkfdn.ncspot
-```
-
-### On Linux
-<div>
-<a href="https://flathub.org/apps/details/io.github.hrkfdn.ncspot"><img width="130" alt="Download on Flathub" src="https://flathub.org/assets/badges/flathub-badge-en.png"/></a>
-<a href="https://snapcraft.io/ncspot"><img alt="Download on Snapcraft" src="https://snapcraft.io//ncspot/badge.svg"/></a>
-</div>
-
-Your distribution may have packaged `ncspot` in its package repository.
-If so, simply install using your distribution's package manager - it
-is by far the easiest way. If not, you can build from source instead.
-See [Compiling](/doc/developers.md).
-
-In case your package manager does not perform dependency resolution,
-here are the runtime dependencies:
-
-- `dbus`, `libncurses`, `libssl`
-- `libpulse` (or `portaudio`, if built using the PortAudio backend)
-- `libxcb` (if built with the `clipboard` feature)
-
-### On BSD's
-Your distribution may have packaged `ncspot` in its package repository.
-If so, simply install using your distribution's package manager - it
-is by far the easiest way. If not, you can build from source instead.
-See [Compiling](/doc/developers.md).
-
-### From [crates.io](https://crates.io/crates/ncspot)
-
-`ncspot` can be installed with `cargo`. The `cargo` documentation recommends against installing
-software with it. If another option is available from the ones above, it should be preferred. If no
-recent version is available for your OS, you can use the following command to install `ncspot` from
-[crates.io](https://crates.io/crates/ncspot).
-
-```zsh
+```sh
 # The --locked option is important and the compilation process might fail without it
-cargo install --locked ncspot
+cargo install --locked ttunes
 ```
+
+Album covers need the `cover` feature: `cargo install --locked ttunes --features cover`.
+
+Building needs a [Rust installation](https://www.rust-lang.org/tools/install), `pkgconf`, and the
+development headers for PulseAudio (or ALSA, if built with the ALSA backend), OpenSSL and dbus.
+To build from a checkout instead, see [Compiling](/doc/developers.md#compiling).
+
+Runtime dependencies:
+
+- `dbus`, `libssl`
+- `libpulse` (or `portaudio`, if built using the PortAudio backend)
 
 ## Key Bindings
 The keybindings listed below are configured by default. Additionally, if you
-built `ncspot` with MPRIS support, you may be able to use media keys to control
+built `ttunes` with MPRIS support, you may be able to use media keys to control
 playback depending on your desktop environment settings. Have a look at the
 [configuration section](#configuration) if you want to set custom bindings.
 
@@ -94,7 +55,7 @@ playlist, an artist) stack on top of it; the `‹ name` link above them goes bac
 | <kbd>Escape</kbd> / <kbd>Backspace</kbd>                    | Back to the previous page.                                                    |
 | <kbd>/</kbd>                                                | Find in the current page (See [specific commands](#vim-like-search-bar)).     |
 | <kbd>:</kbd>                                                | Open a Vim-like command prompt (See [specific commands](#vim-like-commands)). |
-| <kbd>Q</kbd>                                                | Quit `ncspot`.                                                                |
+| <kbd>Q</kbd>                                                | Quit `ttunes`.                                                                |
 | <kbd>g</kbd> / <kbd>G</kbd>                                 | Go to the top / bottom of the current page.                                   |
 
 Everything can be clicked: tabs, cards, rows, the player's buttons, progress bar and volume (drag
@@ -201,8 +162,8 @@ Note: \<FOO\> - mandatory arg; [BAR] - optional arg
 | Command                                                          | Action                                                                                                                                                                                                                                                          |
 |------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `help`                                                           | Show current key bindings.                                                                                                                                                                                                                                      |
-| `quit`<br/>Aliases: `q`, `x`                                     | Quit `ncspot`.                                                                                                                                                                                                                                                  |
-| `logout`                                                         | Remove any cached credentials from disk and quit `ncspot`.                                                                                                                                                                                                      |
+| `quit`<br/>Aliases: `q`, `x`                                     | Quit `ttunes`.                                                                                                                                                                                                                                                  |
+| `logout`                                                         | Remove any cached credentials from disk and quit `ttunes`.                                                                                                                                                                                                      |
 | `playpause`<br/>Aliases: `pause`, `toggleplay`, `toggleplayback` | Toggle playback.                                                                                                                                                                                                                                                |
 | `stop`                                                           | Stop playback.                                                                                                                                                                                                                                                  |
 | `seek` [`+`\|`-`]\<TIME\>                                        | Seek to the specified position, or seek relative to current position by prepending `+`/`-`.<br/>\* TIME is anything accepted by [parse_duration](https://docs.rs/parse_duration/latest/parse_duration/)<br/>\* Default unit is `ms` for backward compatibility. |
@@ -228,13 +189,13 @@ Note: \<FOO\> - mandatory arg; [BAR] - optional arg
 | `panel` `queue`\|`lyrics`                                         | `queue` shows the _Up next_ screen, `lyrics` shows the _Lyrics_ screen (or goes back to the previous screen if it's showing).                                                                                                                                  |
 
 ## Remote control (IPC)
-Apart from MPRIS, ncspot will also create a domain socket on UNIX platforms (Linux, macOS, *BSD).
-The socket will be created in the platform's runtime directory. Run `ncspot info` to show the
+Apart from MPRIS, ttunes will also create a domain socket on UNIX platforms (Linux, macOS, *BSD).
+The socket will be created in the platform's runtime directory. Run `ttunes info` to show the
 location of this directory on your platform. Applications or scripts can connect to this socket to
 send commands or be notified of the currently playing track, i.e. with `netcat`:
 
 ```
-% nc -U $NCSPOT_CACHE_DIRECTORY/ncspot.sock
+% nc -U $TTUNES_CACHE_DIRECTORY/ttunes.sock
 play
 {"mode":{"Playing":{"secs_since_epoch":1672249086,"nanos_since_epoch":547517730}},"playable":{"type":"Track","id":"2wcrQZ7ZJolYEfIaPP9yL4","uri":"spotify:track:2wcrQZ7ZJolYEfIaPP9yL4","title":"Hit Me Where It Hurts","track_number":4,"disc_number":1,"duration":184132,"artists":["Caroline Polachek"],"artist_ids":["4Ge8xMJNwt6EEXOzVXju9a"],"album":"Pang","album_id":"4ClyeVlAKJJViIyfVW0yQD","album_artists":["Caroline Polachek"],"cover_url":"https://i.scdn.co/image/ab67616d0000b2737d983e7bf67c2806218c2759","url":"https://open.spotify.com/track/2wcrQZ7ZJolYEfIaPP9yL4","added_at":"2022-12-19T22:41:05Z","list_index":0}}
 playpause
@@ -246,9 +207,9 @@ command or simply by playing the queue), the current status will be published as
 a JSON structure.
 
 Possible use cases for this could be:
-- Controlling a detached ncspot session (in `tmux` for example)
+- Controlling a detached ttunes session (in `tmux` for example)
 - Displaying the currently playing track in your favorite application/status bar (see below)
-- Setting up routines, i.e. to play specific songs/playlists when ncspot starts
+- Setting up routines, i.e. to play specific songs/playlists when ttunes starts
 
 ### Extracting info on currently playing song
 Using `netcat` and the domain socket, you can query the currently playing track
@@ -258,7 +219,7 @@ as they typically tend to keep the connection to the socket open. OpenBSD's
 specific number of packets have been received.
 
 ```
-% nc -W 1 -U $NCSPOT_CACHE_DIRECTORY/ncspot.sock
+% nc -W 1 -U $TTUNES_CACHE_DIRECTORY/ttunes.sock
 {"mode":{"Playing":{"secs_since_epoch":1675188934,"nanos_since_epoch":50913345}},"playable":{"type":"Track","id":"5Cp6a1h2VnuOtsh1Nqxfv6","uri":"spotify:track:5Cp6a1h2VnuOtsh1Nqxfv6","title":"New Track","track_number":1,"disc_number":1,"duration":498358,"artists":["Francis Bebey"],"artist_ids":["0mdmrbu5UZ32uRcRp2z6mr"],"album":"African Electronic Music (1975-1982)","album_id":"7w99Aae1tYSTSb1OiDnxYY","album_artists":["Francis Bebey"],"cover_url":"https://i.scdn.co/image/ab67616d0000b2736ab57cedf27177fae1eaed87","url":"https://open.spotify.com/track/5Cp6a1h2VnuOtsh1Nqxfv6","added_at":"2020-12-22T09:57:17Z","list_index":0}}
 ```
 
@@ -267,16 +228,16 @@ For example, you can get the currently playing artist and title in your
 terminal as follows:
 
 ```
-% nc -W 1 -U $NCSPOT_CACHE_DIRECTORY/ncspot.sock | jq '.playable.title'
+% nc -W 1 -U $TTUNES_CACHE_DIRECTORY/ttunes.sock | jq '.playable.title'
 "PUMPIN' JUMPIN'"
 
-% nc -W 1 -U $NCSPOT_CACHE_DIRECTORY/ncspot.sock | jq '.playable.artists[0]'
+% nc -W 1 -U $TTUNES_CACHE_DIRECTORY/ttunes.sock | jq '.playable.artists[0]'
 "Hideki Naganuma"
 ```
 
 ## Configuration
 Configuration is saved to the `config.toml` file in the platform's standard configuration directory.
-Run `ncspot info` to show the location of this directory on your platform. To reload the
+Run `ttunes info` to show the location of this directory on your platform. To reload the
 configuration during runtime use the `reload` command.
 
 Possible configuration values are:
@@ -306,12 +267,12 @@ Possible configuration values are:
 | `[theme]`                       | Custom theme                                                   | See [custom theme](#theming)                                                          |                     |
 | `[keybindings]`                 | Custom keybindings                                             | See [custom keybindings](#custom-keybindings)                                         |                     |
 | `ap_port`                       | Set ap-port for librespot (for restrictive firewalls)          | `80`, `443`, `4070`                                                                   |                     |
-| `client_id`                     | Client ID of your own Spotify app for Web API requests<sup>[3]</sup> | String                                                                          | ncspot's shared ID |
+| `client_id`                     | Client ID of your own Spotify app for Web API requests<sup>[3]</sup> | String                                                                          | ttunes' shared ID |
 | `theme_file`                    | TOML file of `[theme]` colors (relative to the config directory); `[theme]` overrides it | String                                                    |                     |
 
-1. Run `ncspot -h` for a list of devices.
+1. Run `ttunes -h` for a list of devices.
 2. If built with the `notify` feature.
-3. ncspot's shared client ID is often rate limited. Create an app at
+3. ttunes' shared client ID is often rate limited. Create an app at
    https://developer.spotify.com/dashboard with the redirect URI `http://127.0.0.1:8989/login`
    and set its client ID here; you'll be asked to authorize it once.
 
@@ -358,7 +319,7 @@ To disable a default keybinding, set its command to `noop`:
 
 ### Proxy
 
-All of ncspot's network traffic (the Spotify access point, the Spotify APIs,
+All of ttunes' network traffic (the Spotify access point, the Spotify APIs,
 the OAuth login flow and cover art downloads) can be routed through a proxy
 configured in the configuration file:
 
@@ -376,19 +337,18 @@ hostname is resolved by the proxy, which is usually what you want when local
 DNS is unusable.
 
 Alternatively, the legacy behavior is still supported: without a `proxy`
-setting, ncspot honours the `http_proxy` environment variable (HTTP CONNECT
+setting, ttunes honours the `http_proxy` environment variable (HTTP CONNECT
 proxies only).
 
 ```sh
 # In sh-like shells
-http_proxy="http://foo.bar:4444" ncspot
+http_proxy="http://foo.bar:4444" ttunes
 ```
 
 ### Theming
-[Theme generator](https://ncspot-theme-generator.vaa.red/) by [@vaarad](https://github.com/vaared).
 
 The color palette can be modified in the configuration. For instance, to have
-`ncspot` match Spotify's official client, you can add the following entries to
+`ttunes` match Spotify's official client, you can add the following entries to
 the configuration file:
 
 ```toml
@@ -409,7 +369,6 @@ cmdline = "light white"
 cmdline_bg = "black"
 ```
 
-More examples can be found in [this pull request](https://github.com/hrkfdn/ncspot/pull/40).
 
 ### Track Formatting
 It's possible to customize how tracks are shown in list views with `[track_format]`.
@@ -473,7 +432,7 @@ right = "%album"
 </details>
 
 ### Notification Formatting
-`ncspot` also supports customizing the way notifications are displayed
+`ttunes` also supports customizing the way notifications are displayed
 (which appear when compiled with the `notify` feature and `notify = true`).
 The title and body of the notification can be set, with `title` and `body`, or the default will be used.
 The formatting options are the same as those for [track formatting](#track-formatting) (`%artists`, `%title`, etc)
@@ -487,18 +446,18 @@ body = "%artists"
 ```
 
 ### Cover Drawing
-When compiled with the `cover` feature, `ncspot` draws album art (in the player, on page
+When compiled with the `cover` feature, `ttunes` draws album art (in the player, on page
 headers and next to list items) with the Kitty graphics protocol, in terminals that support it
 (Kitty, Ghostty, WezTerm, Konsole). In other terminals no covers are shown.
 
 ## Authentication
-`ncspot` uses OAuth2 for authentication. When launched for the first time, a link will be generated
+`ttunes` uses OAuth2 for authentication. When launched for the first time, a link will be generated
 that can be opened in any browser. After logging in on the displayed page, you can start to use
-`ncspot`. The OAuth2 flow is the only supported one, as username/password authentication has been
+`ttunes`. The OAuth2 flow is the only supported one, as username/password authentication has been
 removed by Spotify.
 
 The credentials are stored in `librespot/credentials.json` in the user's cache directory. Run
-`ncspot info` to show the location of this directory.
+`ttunes info` to show the location of this directory.
 
 The `logout` command can be used to remove cached credentials. See
 [Vim-Like Commands](#vim-like-commands).

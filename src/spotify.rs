@@ -56,7 +56,7 @@ pub fn pulseaudio_environment(
         desired_backend.or_else(|| audio_backend::BACKENDS.first().map(|backend| backend.0));
     if backend_name == Some("pulseaudio") {
         &[
-            ("PULSE_PROP_application.name", "ncspot"),
+            ("PULSE_PROP_application.name", "ttunes"),
             ("PULSE_PROP_stream.description", "ncurses Spotify client"),
             ("PULSE_PROP_media.role", "music"),
         ]

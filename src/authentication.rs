@@ -20,7 +20,7 @@ const CUSTOM_CLIENT_REDIRECT_URI: &str = "http://127.0.0.1:8989/login";
 
 static CUSTOM_WEB_API_CLIENT_ID: OnceLock<Option<String>> = OnceLock::new();
 
-/// Use `client_id` (from the `client_id` config value) for the Web API instead of ncspot's
+/// Use `client_id` (from the `client_id` config value) for the Web API instead of the
 /// shared client ID. Must be called before any Web API client is created.
 pub fn set_web_api_client_id(client_id: Option<String>) {
     let client_id = client_id

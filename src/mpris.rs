@@ -51,7 +51,7 @@ impl MprisRoot {
 
     #[zbus(property)]
     fn identity(&self) -> &str {
-        "ncspot"
+        "ttunes"
     }
 
     #[zbus(property)]
@@ -151,7 +151,7 @@ impl MprisPlayer {
         hm.insert(
             "mpris:trackid".to_string(),
             Value::ObjectPath(ObjectPath::from_string_unchecked(format!(
-                "/org/ncspot/{}",
+                "/org/ttunes/{}",
                 playable
                     .filter(|t| t.id().is_some())
                     .map(|t| t.uri().replace(':', "/"))
@@ -314,7 +314,7 @@ impl MprisPlayer {
 
     /// Per the MPRIS spec this describes an intrinsic capability and isn't expected to change, so
     /// clients cache it (no change signal is defined for it). Reporting `false` whenever nothing
-    /// was loaded at startup made clients treat ncspot as uncontrollable for the whole session.
+    /// was loaded at startup made clients treat ttunes as uncontrollable for the whole session.
     #[zbus(property(emits_changed_signal = "const"))]
     fn can_control(&self) -> bool {
         true
@@ -588,7 +588,7 @@ impl MprisManager {
 /// <https://specifications.freedesktop.org/mpris-spec/2.2/#Bus-Name-Policy>
 pub fn instance_bus_name() -> String {
     format!(
-        "org.mpris.MediaPlayer2.ncspot.instance{}",
+        "org.mpris.MediaPlayer2.ttunes.instance{}",
         std::process::id()
     )
 }

@@ -26,19 +26,19 @@ If applicable, add screenshots to help explain your problem.
 **System (please complete the following information):**
  - OS: [e.g. Linux, macOS]
  - Terminal: [e.g. GNOME Terminal, Alacritty]
- - Version: [e.g. 0.4.0, `master` branch]
- - Installed from: [e.g. AUR, brew, cargo]
+ - Version: [e.g. 0.1.0, `main` branch]
+ - Installed from: [e.g. crates.io, source]
 
 **Backtrace/Debug log**
-Please attach a debug log and backtrace if ncspot has crashed.
+Please attach a debug log and backtrace if ttunes has crashed.
 
 Instructions on how to capture debug logs can be found in the [developers
-manual](https://github.com/hrkfdn/ncspot/blob/main/doc/developers.md#debugging).
+manual](https://github.com/iiKillish/ttunes/blob/main/doc/developers.md#debugging).
 
-For backtraces, make sure you run a debug build of ncspot, e.g. by running the
+For backtraces, make sure you run a debug build of ttunes, e.g. by running the
 command mentioned in the [compilation
-instructions](https://github.com/hrkfdn/ncspot/blob/main/doc/developers.md#compiling).  You can find the
-latest backtrace at `~/.cache/ncspot/backtrace.log`.
+instructions](https://github.com/iiKillish/ttunes/blob/main/doc/developers.md#compiling).  You can find the
+latest backtrace at `~/.cache/ttunes/backtrace.log`.
 
 **Additional context**
 Add any other context about the problem here.
