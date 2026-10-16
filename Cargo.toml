@@ -2,15 +2,24 @@
 name = "ttunes"
 readme = "README.md"
 version = "0.1.0"
-description = "Spotify player for the terminal, written in Rust using librespot and ratatui."
+description = "Spotify player for the terminal, written in Rust using librespot and ratatui"
 keywords = ["spotify", "music", "tui", "terminal", "player"]
+categories = ["command-line-utilities", "multimedia::audio"]
+include = [
+    "src/**",
+    "build.rs",
+    "Cargo.toml",
+    "Cargo.lock",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "doc/**",
+    "misc/ttunes.desktop",
+]
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-
-[badges]
-maintenance = {status = "actively-developed"}
 
 [workspace]
 members = [
