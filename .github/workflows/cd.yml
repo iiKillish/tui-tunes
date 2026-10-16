@@ -4,6 +4,16 @@ on:
   push:
     tags:
       - "v*.*.*"
+  # Build the release for an existing tag again, e.g. after a failed run.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build and release, e.g. v0.1.1"
+        required: true
+
+# Creating the GitHub release needs write access; the default token is read-only.
+permissions:
+  contents: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -14,6 +24,8 @@ jobs:
     name: Publishing ${{ matrix.build_target }}
     runs-on: ${{ matrix.os }}
     strategy:
+      # One platform failing shouldn't cancel the others' builds.
+      fail-fast: false
       matrix:
         include:
           - build_target: linux-x86_64
@@ -42,6 +54,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
         name: Checkout src
+        with:
+          ref: ${{ inputs.tag || github.ref }}
       - name: Install rustup
         if: runner.os != 'Windows'
         shell: bash
@@ -71,7 +85,7 @@ jobs:
         run: cargo build --release --target ${{ matrix.target }} ${{ matrix.features }}
       - name: Extract git tag
         shell: bash
-        run: echo "tag=${GITHUB_REF#refs/*/}" >> $GITHUB_OUTPUT
+        run: echo "tag=${{ inputs.tag || github.ref_name }}" >> $GITHUB_OUTPUT
         id: extract_tag
       - name: Packaging assets
         shell: bash
@@ -90,6 +104,7 @@ jobs:
       - name: Releasing assets
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ steps.extract_tag.outputs.tag }}
           files: target/${{ matrix.target }}/release/ttunes-*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
