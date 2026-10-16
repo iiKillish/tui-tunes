@@ -77,7 +77,7 @@ Counts apply to the movement keys, <kbd>Space</kbd> and <kbd>.</kbd>, seeking
 (<kbd>+</kbd>/<kbd>-</kbd>/<kbd>[</kbd>/<kbd>]</kbd>), track skipping
 (<kbd><</kbd>/<kbd>></kbd>) and search occurrences (<kbd>n</kbd>/<kbd>N</kbd>).
 One-shot, toggle and menu commands (e.g. <kbd>O</kbd>, <kbd>A</kbd>,
-<kbd>M</kbd>, <kbd>Return</kbd>, <kbd>R</kbd>, <kbd>Z</kbd>) ignore the count.
+<kbd>Return</kbd>, <kbd>R</kbd>, <kbd>Z</kbd>) ignore the count.
 
 ### Navigation
 The window has the player at the top (or on the left of wide windows), then a row of screens:
@@ -225,7 +225,7 @@ Note: \<FOO\> - mandatory arg; [BAR] - optional arg
 | `save [current]`                                                 | Save selected item, if `current` is passed the currently playing item will be saved                                                                                                                                                                             |
 | `tab` [`next`\|`previous`]                                         | Switch to the next (default) or previous tab, e.g. from Playlists to Albums in the library.                                                                                                                                                                     |
 | `like`                                                           | Save the currently playing track to your library, or remove it if it's saved.                                                                                                                                                                                   |
-| `panel` [`focus`\|`queue`\|`lyrics`]                              | Side panel: `focus` (the default) moves keyboard focus to it or back, `queue` shows the queue, `lyrics` shows the lyrics (or the queue if they're showing).                                                                                                    |
+| `panel` `queue`\|`lyrics`                                         | `queue` shows the _Up next_ screen, `lyrics` shows the _Lyrics_ screen (or goes back to the previous screen if it's showing).                                                                                                                                  |
 
 ## Remote control (IPC)
 Apart from MPRIS, ncspot will also create a domain socket on UNIX platforms (Linux, macOS, *BSD).

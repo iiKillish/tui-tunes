@@ -228,11 +228,6 @@ pub fn run(cmd: &Command, ctx: &Ctx) -> Outcome {
                 None => Outcome::Error("That isn't a Spotify link".into()),
             };
         }
-        Command::ShowRecommendations(TargetMode::Current) => {
-            return Outcome::Error(
-                "Spotify no longer offers recommendations to apps like this one".into(),
-            );
-        }
         _ => {
             error!("unhandled command: {cmd}");
             return Outcome::Ignored;
