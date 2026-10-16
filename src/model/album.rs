@@ -29,6 +29,22 @@ pub struct Album {
 }
 
 impl Album {
+    /// A copy without the tracks, which are slow to clone (e.g. for showing it as a card).
+    pub fn without_tracks(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            title: self.title.clone(),
+            artists: self.artists.clone(),
+            artist_ids: self.artist_ids.clone(),
+            year: self.year.clone(),
+            cover_url: self.cover_url.clone(),
+            url: self.url.clone(),
+            tracks: None,
+            added_at: self.added_at,
+            total_tracks: self.total_tracks,
+        }
+    }
+
     pub fn load_all_tracks(&mut self, spotify: Spotify) {
         if self.tracks.is_some() && self.tracks.as_ref().map(|t| t.len()) == self.total_tracks {
             return;
@@ -162,20 +178,9 @@ impl ListItem for Album {
     }
 
     fn is_playing(&self, queue: &Queue) -> bool {
-        if let Some(tracks) = self.tracks.as_ref() {
-            let playing: Vec<String> = queue
-                .queue
-                .read()
-                .unwrap()
-                .iter()
-                .filter_map(|t| t.id())
-                .collect();
-
-            let ids: Vec<String> = tracks.iter().filter_map(|t| t.id.clone()).collect();
-            !ids.is_empty() && playing == ids
-        } else {
-            false
-        }
+        self.tracks
+            .as_ref()
+            .is_some_and(|tracks| queue.consists_of(tracks.iter().filter_map(|t| t.id.as_deref())))
     }
 
     fn display_left(&self, _library: &Library) -> String {
@@ -228,20 +233,8 @@ impl ListItem for Album {
         }
     }
 
-    fn toggle_saved(&mut self, library: &Library) {
-        if library.is_saved_album(self) {
-            library.unsave_album(self);
-        } else {
-            library.save_album(self);
-        }
-    }
-
     fn save(&mut self, library: &Library) {
         library.save_album(self);
-    }
-
-    fn unsave(&mut self, library: &Library) {
-        library.unsave_album(self);
     }
 
     fn share_url(&self) -> Option<String> {
@@ -258,11 +251,6 @@ impl ListItem for Album {
                 .map(|(id, name)| Artist::new(id.clone(), name.clone()))
                 .collect(),
         )
-    }
-
-    #[inline]
-    fn is_saved(&self, library: &Library) -> Option<bool> {
-        Some(library.is_saved_album(self))
     }
 
     #[inline]

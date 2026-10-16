@@ -67,10 +67,7 @@ impl fmt::Display for Episode {
 
 impl ListItem for Episode {
     fn is_playing(&self, queue: &Queue) -> bool {
-        let current = queue.get_current();
-        current
-            .map(|t| t.id() == Some(self.id.clone()))
-            .unwrap_or(false)
+        queue.is_current_id(Some(&self.id))
     }
 
     fn display_left(&self, _library: &Library) -> String {
@@ -94,11 +91,7 @@ impl ListItem for Episode {
         queue.append(Playable::Episode(self.clone()));
     }
 
-    fn toggle_saved(&mut self, _library: &Library) {}
-
     fn save(&mut self, _library: &Library) {}
-
-    fn unsave(&mut self, _library: &Library) {}
 
     fn share_url(&self) -> Option<String> {
         Some(format!("https://open.spotify.com/episode/{}", self.id))

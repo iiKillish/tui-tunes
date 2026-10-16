@@ -20,63 +20,64 @@ pub enum Playable {
 
 impl Playable {
     pub fn format(playable: &Self, formatting: &str, library: &Library) -> String {
-        formatting
-            .replace(
-                "%artists",
-                if let Some(artists) = playable.artists() {
-                    artists
-                        .iter()
-                        .map(|artist| artist.clone().name)
-                        .collect::<Vec<String>>()
-                        .join(", ")
+        // The artists with an ID, as [ListItem::artists] lists them.
+        let artists = || -> Vec<&str> {
+            match playable {
+                Self::Track(track) => track
+                    .artists
+                    .iter()
+                    .take(track.artist_ids.len())
+                    .map(String::as_str)
+                    .collect(),
+                Self::Episode(_) => Vec::new(),
+            }
+        };
+        let mut text = formatting.to_string();
+        // Only work out what the format uses ("%artists" before "%artist", which it contains).
+        if text.contains("%artists") {
+            text = text.replace("%artists", &artists().join(", "));
+        }
+        if text.contains("%artist") {
+            text = text.replace("%artist", artists().first().copied().unwrap_or_default());
+        }
+        if text.contains("%title") {
+            let title = match playable {
+                Self::Episode(episode) => &episode.name,
+                Self::Track(track) => &track.title,
+            };
+            text = text.replace("%title", title);
+        }
+        if text.contains("%album") {
+            let album = match playable {
+                Self::Track(track) => track.album.as_deref().unwrap_or_default(),
+                Self::Episode(_) => "",
+            };
+            text = text.replace("%album", album);
+        }
+        if text.contains("%saved") {
+            let saved = if library.is_saved_track(playable) {
+                if library.cfg.values().use_nerdfont.unwrap_or_default() {
+                    "\u{f012c}"
                 } else {
-                    String::new()
+                    "✓"
                 }
-                .as_str(),
-            )
-            .replace(
-                "%artist",
-                if let Some(artists) = playable.artists() {
-                    artists
-                        .first()
-                        .map_or(String::from(""), |artist| artist.name.clone())
-                } else {
-                    String::new()
-                }
-                .as_str(),
-            )
-            .replace(
-                "%title",
-                match playable.clone() {
-                    Self::Episode(episode) => episode.name,
-                    Self::Track(track) => track.title,
-                }
-                .as_str(),
-            )
-            .replace(
-                "%album",
-                match playable.clone() {
-                    Self::Track(track) => track.album.unwrap_or_default(),
-                    _ => String::new(),
-                }
-                .as_str(),
-            )
-            .replace(
-                "%saved",
-                if library.is_saved_track(&match playable.clone() {
-                    Self::Episode(episode) => Self::Episode(episode),
-                    Self::Track(track) => Self::Track(track),
-                }) {
-                    if library.cfg.values().use_nerdfont.unwrap_or_default() {
-                        "\u{f012c}"
-                    } else {
-                        "✓"
-                    }
-                } else {
-                    ""
-                },
-            )
-            .replace("%duration", playable.duration_str().as_str())
+            } else {
+                ""
+            };
+            text = text.replace("%saved", saved);
+        }
+        if text.contains("%duration") {
+            text = text.replace("%duration", &playable.duration_str());
+        }
+        text
+    }
+
+    /// The ID, without copying it.
+    pub fn id_ref(&self) -> Option<&str> {
+        match self {
+            Self::Track(track) => track.id.as_deref(),
+            Self::Episode(episode) => Some(&episode.id),
+        }
     }
 
     pub fn id(&self) -> Option<String> {
@@ -132,6 +133,21 @@ impl Playable {
         ms_to_hms(self.duration())
     }
 
+    /// The track or episode, for [ListItem] calls without the copy [Self::as_listitem] makes.
+    fn inner(&self) -> &dyn ListItem {
+        match self {
+            Self::Track(track) => track,
+            Self::Episode(episode) => episode,
+        }
+    }
+
+    fn inner_mut(&mut self) -> &mut dyn ListItem {
+        match self {
+            Self::Track(track) => track,
+            Self::Episode(episode) => episode,
+        }
+    }
+
     pub fn as_listitem(&self) -> Box<dyn ListItem> {
         match self {
             Self::Track(track) => track.as_listitem(),
@@ -180,63 +196,55 @@ impl ListItem for Playable {
     }
 
     fn is_playable(&self) -> bool {
-        self.as_listitem().is_playable()
+        self.inner().is_playable()
     }
 
     fn is_playing(&self, queue: &Queue) -> bool {
-        self.as_listitem().is_playing(queue)
+        self.inner().is_playing(queue)
     }
 
     fn display_left(&self, library: &Library) -> String {
-        self.as_listitem().display_left(library)
+        self.inner().display_left(library)
     }
 
     fn display_center(&self, library: &Library) -> String {
-        self.as_listitem().display_center(library)
+        self.inner().display_center(library)
     }
 
     fn display_right(&self, library: &Library) -> String {
-        self.as_listitem().display_right(library)
+        self.inner().display_right(library)
     }
 
     fn play(&mut self, queue: &Queue) {
-        self.as_listitem().play(queue)
+        self.inner_mut().play(queue)
     }
 
     fn play_next(&mut self, queue: &Queue) {
-        self.as_listitem().play_next(queue)
+        self.inner_mut().play_next(queue)
     }
 
     fn queue(&mut self, queue: &Queue) {
-        self.as_listitem().queue(queue)
-    }
-
-    fn toggle_saved(&mut self, library: &Library) {
-        self.as_listitem().toggle_saved(library)
+        self.inner_mut().queue(queue)
     }
 
     fn save(&mut self, library: &Library) {
-        self.as_listitem().save(library)
-    }
-
-    fn unsave(&mut self, library: &Library) {
-        self.as_listitem().unsave(library)
+        self.inner_mut().save(library)
     }
 
     fn share_url(&self) -> Option<String> {
-        self.as_listitem().share_url()
+        self.inner().share_url()
     }
 
     fn album(&self, queue: &Queue) -> Option<Album> {
-        self.as_listitem().album(queue)
+        self.inner().album(queue)
     }
 
     fn artists(&self) -> Option<Vec<Artist>> {
-        self.as_listitem().artists()
+        self.inner().artists()
     }
 
     fn track(&self) -> Option<Track> {
-        self.as_listitem().track()
+        self.inner().track()
     }
 
     fn as_listitem(&self) -> Box<dyn ListItem> {

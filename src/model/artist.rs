@@ -147,19 +147,9 @@ impl ListItem for Artist {
     }
 
     fn is_playing(&self, queue: &Queue) -> bool {
-        if let Some(tracks) = &self.tracks {
-            let playing: Vec<String> = queue
-                .queue
-                .read()
-                .unwrap()
-                .iter()
-                .filter_map(|t| t.id())
-                .collect();
-            let ids: Vec<String> = tracks.iter().filter_map(|t| t.id.clone()).collect();
-            !ids.is_empty() && playing == ids
-        } else {
-            false
-        }
+        self.tracks
+            .as_ref()
+            .is_some_and(|tracks| queue.consists_of(tracks.iter().filter_map(|t| t.id.as_deref())))
     }
 
     fn display_left(&self, _library: &Library) -> String {
@@ -219,31 +209,14 @@ impl ListItem for Artist {
         }
     }
 
-    fn toggle_saved(&mut self, library: &Library) {
-        if library.is_followed_artist(self) {
-            library.unfollow_artist(self);
-        } else {
-            library.follow_artist(self);
-        }
-    }
-
     fn save(&mut self, library: &Library) {
         library.follow_artist(self);
-    }
-
-    fn unsave(&mut self, library: &Library) {
-        library.unfollow_artist(self);
     }
 
     fn share_url(&self) -> Option<String> {
         self.id
             .clone()
             .map(|id| format!("https://open.spotify.com/artist/{id}"))
-    }
-
-    #[inline]
-    fn is_saved(&self, library: &Library) -> Option<bool> {
-        Some(library.is_followed_artist(self))
     }
 
     #[inline]

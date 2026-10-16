@@ -14,6 +14,7 @@ use ratatui::layout::{Position, Rect};
 use ratatui::style::Style;
 
 use crate::command::{Command, GotoMode, JumpMode, MoveAmount, MoveMode, TargetMode};
+use crate::library::Library;
 use crate::model::album::Album;
 use crate::model::artist::Artist;
 use crate::model::playable::Playable;
@@ -112,6 +113,29 @@ impl Card {
             CardItem::Track(track) => track.as_listitem(),
             CardItem::LikedSongs => return None,
         })
+    }
+
+    /// The card with its album or playlist as stored in the library, tracks included: library
+    /// grids make their cards without them (see [crate::tui::pages::library]), so they're put
+    /// back before acting on the card instead of being loaded from Spotify again.
+    fn resolved(&self, library: &Library) -> Self {
+        let mut card = self.clone();
+        match &mut card.item {
+            CardItem::Playlist(playlist) if playlist.tracks.is_none() => {
+                let playlists = library.playlists.read().unwrap();
+                if let Some(full) = playlists.iter().find(|p| p.id == playlist.id) {
+                    *playlist = full.clone();
+                }
+            }
+            CardItem::Album(album) if album.tracks.is_none() && album.id.is_some() => {
+                let albums = library.albums.read().unwrap();
+                if let Some(full) = albums.iter().find(|a| a.id == album.id) {
+                    *album = full.clone();
+                }
+            }
+            _ => {}
+        }
+        card
     }
 
     /// Shown in place of a missing cover.
@@ -457,6 +481,7 @@ impl CardGrid {
         let Some(card) = section.cards.get(self.card) else {
             return Outcome::Consumed;
         };
+        let card = &card.resolved(&ctx.library);
         match &card.item {
             CardItem::Track(_) => {
                 let tracks: Vec<Playable> = section
@@ -620,7 +645,9 @@ impl Page for CardGrid {
     fn command(&mut self, cmd: &Command, ctx: &Ctx) -> Outcome {
         let sections = self.sections();
         self.clamp(&sections);
-        let selected = self.selected(&sections).cloned();
+        let selected = self
+            .selected(&sections)
+            .map(|card| card.resolved(&ctx.library));
         match cmd {
             Command::Move(mode, amount) => self.move_selection(&sections, mode, amount),
             Command::Play => return self.activate(&sections, ctx),

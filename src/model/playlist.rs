@@ -28,6 +28,21 @@ pub struct Playlist {
 }
 
 impl Playlist {
+    /// A copy without the tracks, which are slow to clone (e.g. for showing it as a card).
+    pub fn without_tracks(&self) -> Self {
+        Self {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            owner_id: self.owner_id.clone(),
+            owner_name: self.owner_name.clone(),
+            snapshot_id: self.snapshot_id.clone(),
+            num_tracks: self.num_tracks,
+            tracks: None,
+            collaborative: self.collaborative,
+            cover_url: self.cover_url.clone(),
+        }
+    }
+
     pub fn load_tracks(&mut self, spotify: &Spotify) {
         if self.tracks.is_some() {
             return;
@@ -44,14 +59,6 @@ impl Playlist {
 
         let tracks = tracks_result.items.read().unwrap();
         tracks.clone()
-    }
-
-    pub fn has_track(&self, track_id: &str) -> bool {
-        self.tracks.as_ref().is_some_and(|tracks| {
-            tracks
-                .iter()
-                .any(|track| track.id() == Some(track_id.to_string()))
-        })
     }
 
     pub fn delete_track(&mut self, index: usize, spotify: Spotify, library: &Library) -> bool {
@@ -190,19 +197,9 @@ impl ListItem for Playlist {
     }
 
     fn is_playing(&self, queue: &Queue) -> bool {
-        if let Some(tracks) = self.tracks.as_ref() {
-            let playing: Vec<String> = queue
-                .queue
-                .read()
-                .unwrap()
-                .iter()
-                .filter_map(|t| t.id())
-                .collect();
-            let ids: Vec<String> = tracks.iter().filter_map(|t| t.id()).collect();
-            !ids.is_empty() && playing == ids
-        } else {
-            false
-        }
+        self.tracks
+            .as_ref()
+            .is_some_and(|tracks| queue.consists_of(tracks.iter().filter_map(Playable::id_ref)))
     }
 
     fn display_left(&self, library: &Library) -> String {
@@ -262,25 +259,8 @@ impl ListItem for Playlist {
         }
     }
 
-    fn toggle_saved(&mut self, library: &Library) {
-        // Don't allow users to unsave their own playlists with one keypress
-        if !library.is_followed_playlist(self) {
-            return;
-        }
-
-        if library.is_saved_playlist(self) {
-            library.delete_playlist(&self.id);
-        } else {
-            library.follow_playlist(self.clone());
-        }
-    }
-
     fn save(&mut self, library: &Library) {
         library.follow_playlist(self.clone());
-    }
-
-    fn unsave(&mut self, library: &Library) {
-        library.delete_playlist(&self.id);
     }
 
     fn share_url(&self) -> Option<String> {
@@ -288,15 +268,6 @@ impl ListItem for Playlist {
             "https://open.spotify.com/user/{}/playlist/{}",
             self.owner_id, self.id
         ))
-    }
-
-    fn is_saved(&self, library: &Library) -> Option<bool> {
-        // save status of personal playlists can't be toggled for safety
-        if !library.is_followed_playlist(self) {
-            return None;
-        }
-
-        Some(library.is_saved_playlist(self))
     }
 
     #[inline]
