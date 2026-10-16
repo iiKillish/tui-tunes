@@ -36,6 +36,35 @@ use crate::traits::ListItem;
 /// percent.
 pub const VOLUME_PERCENT: u16 = ((u16::MAX as f64) * 1.0 / 100.0) as u16;
 
+/// The `PULSE_PROP_*` environment variables to export when the audio backend
+/// selected by `desired_backend` (the `backend` configuration value, or the
+/// default backend if unset) is PulseAudio.
+///
+/// librespot's PulseAudio sink reads the application name and stream
+/// description from these variables, and libpulse reads the remaining
+/// properties (`media.role`) from the environment when it creates its context;
+/// neither offers a way to pass them explicitly. They are therefore exported
+/// once at the start of `main`, while the process is still single-threaded
+/// (see `config::preload_environment`), rather than when the backend is
+/// initialized: [Spotify::start_worker] also runs on reconnect, when the tokio
+/// runtime, librespot's player thread (which calls into libpulse and thereby
+/// `getenv`) and other threads are already running.
+pub fn pulseaudio_environment(
+    desired_backend: Option<&str>,
+) -> &'static [(&'static str, &'static str)] {
+    let backend_name =
+        desired_backend.or_else(|| audio_backend::BACKENDS.first().map(|backend| backend.0));
+    if backend_name == Some("pulseaudio") {
+        &[
+            ("PULSE_PROP_application.name", "ncspot"),
+            ("PULSE_PROP_stream.description", "ncurses Spotify client"),
+            ("PULSE_PROP_media.role", "music"),
+        ]
+    } else {
+        &[]
+    }
+}
+
 /// Events sent by the [Player].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub enum PlayerEvent {
@@ -227,18 +256,9 @@ impl Spotify {
                 .ok_or("no available audio backends found")?
         };
 
-        let backend_name = backend.0;
-
-        info!("Initializing audio backend {backend_name}");
-        if backend_name == "pulseaudio" {
-            // TODO: Audit that the environment access only happens in single-threaded code.
-            unsafe { env::set_var("PULSE_PROP_application.name", "ncspot") };
-            // TODO: Audit that the environment access only happens in single-threaded code.
-            unsafe { env::set_var("PULSE_PROP_stream.description", "ncurses Spotify client") };
-            // TODO: Audit that the environment access only happens in single-threaded code.
-            unsafe { env::set_var("PULSE_PROP_media.role", "music") };
-        }
-
+        // The PulseAudio stream properties were exported to the environment at
+        // startup, see `pulseaudio_environment`.
+        info!("Initializing audio backend {}", backend.0);
         Ok(backend.1)
     }
 

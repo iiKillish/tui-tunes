@@ -58,10 +58,12 @@ fn main() -> Result<(), String> {
         Some(("info", _subcommand_matches)) => cli::info(),
         Some((_, _)) => unreachable!(),
         None => {
-            // Export proxy environment variables from the configuration file
-            // before the tokio runtime and its worker threads are spawned in
-            // `Application::new` (set_var is not thread safe).
-            config::preload_proxy_environment(matches.get_one::<String>("config").cloned());
+            // Export the environment variables derived from the configuration
+            // file (proxy, PulseAudio stream properties). This must happen
+            // while the process is still single-threaded, i.e. before the
+            // tokio runtime and its worker threads are created in
+            // `Application::new`: `set_var` is not thread safe.
+            config::preload_environment(matches.get_one::<String>("config").cloned());
 
             // Create the application.
             let mut application =

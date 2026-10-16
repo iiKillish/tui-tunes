@@ -346,47 +346,70 @@ fn load_theme_file(
         .map_err(|e| format!("error in theme file {}: {e}", path.display()))
 }
 
-/// Read only the `proxy` setting from the user's configuration file, without
-/// any side effects (missing files are simply ignored). Called very early in
-/// `main`, before the configuration is loaded for real, so that proxy
-/// environment variables can be exported before any threads are spawned.
-fn read_proxy_setting(filename: Option<String>) -> Option<String> {
+/// Read the configuration file without any side effects (no error reporting,
+/// no user state). Used at startup, before the full [Config] is loaded.
+fn read_startup_values(filename: Option<String>) -> Option<ConfigValues> {
     let filename = filename.unwrap_or(CONFIGURATION_FILE_NAME.to_owned());
     let contents = std::fs::read_to_string(config_path(&filename)).ok()?;
-    let values: ConfigValues = toml::from_str(&contents).ok()?;
-    let proxy = values.proxy?.trim().to_owned();
-    if proxy.is_empty() { None } else { Some(proxy) }
+    toml::from_str(&contents).ok()
 }
 
-/// Export the configured `proxy` to the environment so that every HTTP client
-/// stack used by ncspot and its dependencies picks it up:
+/// Export the environment variables ncspot relies on, derived from the
+/// configuration file:
 ///
-/// * `ALL_PROXY` is read by the reqwest stacks (OAuth token exchange and cover
-///   art downloads); reqwest understands `socks5h://` natively.
-/// * `all_proxy` is read by ureq (rspotify Web API). ureq does not know the
-///   `socks5h` scheme, but its `socks5` implementation already hands the
-///   hostname to the proxy, so the schemes are equivalent there.
+/// * The configured `proxy`, so that every HTTP client stack used by ncspot
+///   and its dependencies picks it up:
+///   * `ALL_PROXY` is read by the reqwest stacks (OAuth token exchange and
+///     cover art downloads); reqwest understands `socks5h://` natively.
+///   * `all_proxy` is read by ureq (rspotify Web API). ureq does not know the
+///     `socks5h` scheme, but its `socks5` implementation already hands the
+///     hostname to the proxy, so the schemes are equivalent there.
 ///
-/// The librespot session reads its proxy straight from the configuration
-/// instead (see `Spotify::session_config`).
+///   The librespot session reads its proxy straight from the configuration
+///   instead (see `Spotify::session_config`).
+/// * The `PULSE_PROP_*` stream properties when the PulseAudio backend will be
+///   used (see `spotify::pulseaudio_environment`). librespot's PulseAudio sink
+///   and libpulse itself only take these from the environment, there is no
+///   API to pass them explicitly.
 ///
-/// # Safety
-///
-/// `std::env::set_var` is not thread safe; this must be called from the main
-/// thread before any other threads are spawned. It is only called from the
-/// top of `main`.
-pub fn preload_proxy_environment(filename: Option<String>) {
-    let Some(proxy) = read_proxy_setting(filename) else {
-        return;
-    };
-    let ureq_proxy = match proxy.split_once("://") {
-        Some(("socks5h", rest)) => format!("socks5://{rest}"),
-        _ => proxy.clone(),
-    };
-    log::info!("Setting proxy {proxy}");
-    unsafe {
-        std::env::set_var("ALL_PROXY", &proxy);
-        std::env::set_var("all_proxy", ureq_proxy);
+/// This must be called from the top of `main`, before any other thread is
+/// spawned; see the SAFETY comment below.
+pub fn preload_environment(filename: Option<String>) {
+    let values = read_startup_values(filename);
+    let mut vars: Vec<(&str, String)> = Vec::new();
+
+    let proxy = values
+        .as_ref()
+        .and_then(|v| v.proxy.as_deref())
+        .map(str::trim)
+        .filter(|proxy| !proxy.is_empty());
+    if let Some(proxy) = proxy {
+        log::info!("Setting proxy {proxy}");
+        let ureq_proxy = match proxy.split_once("://") {
+            Some(("socks5h", rest)) => format!("socks5://{rest}"),
+            _ => proxy.to_owned(),
+        };
+        vars.push(("ALL_PROXY", proxy.to_owned()));
+        vars.push(("all_proxy", ureq_proxy));
+    }
+
+    let backend = values.as_ref().and_then(|v| v.backend.as_deref());
+    vars.extend(
+        crate::spotify::pulseaudio_environment(backend)
+            .iter()
+            .map(|&(key, value)| (key, value.to_owned())),
+    );
+
+    for (key, value) in vars {
+        // SAFETY: `set_var` is only unsound if another thread reads or writes
+        // the environment concurrently (libc `getenv`/`setenv` are not
+        // synchronised with Rust's environment lock). This function is called
+        // exactly once, from `main`, before the tokio runtime, librespot,
+        // MPRIS, IPC, image loading or any other thread is created: up to this
+        // point `main` has only installed a panic hook, parsed arguments,
+        // configured the file logger (fern, which spawns no threads) and set
+        // the base path. The process is therefore still single-threaded.
+        unsafe { std::env::set_var(key, value) };
     }
 }
 
