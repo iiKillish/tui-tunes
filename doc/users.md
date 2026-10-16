@@ -20,6 +20,21 @@ Runtime dependencies:
 - `dbus`, `libssl`
 - `libpulse` (or `portaudio`, if built using the PortAudio backend)
 
+## First run
+ttunes needs a Spotify app of your own for Spotify's Web API. The first time it starts, it asks
+for the app's client ID:
+
+1. Create an app at https://developer.spotify.com/dashboard.
+2. Add the redirect URI `http://127.0.0.1:8989/login`.
+3. Choose the Web API.
+4. Paste the app's client ID into ttunes and press <kbd>Enter</kbd>.
+
+The ID is saved in the `client_id` file of the configuration directory (`~/.config/ttunes` on
+Linux), so you're only asked once. Then ttunes opens two Spotify logins in your browser: one for
+playback and one for your app (see [Authentication](#authentication)). A Spotify Premium account
+is required. To use a different app later, set `client_id` in the configuration or delete the
+saved file.
+
 ## Key Bindings
 The keybindings listed below are configured by default. Additionally, if you
 built `ttunes` with MPRIS support, you may be able to use media keys to control
@@ -267,14 +282,13 @@ Possible configuration values are:
 | `[theme]`                       | Custom theme                                                   | See [custom theme](#theming)                                                          |                     |
 | `[keybindings]`                 | Custom keybindings                                             | See [custom keybindings](#custom-keybindings)                                         |                     |
 | `ap_port`                       | Set ap-port for librespot (for restrictive firewalls)          | `80`, `443`, `4070`                                                                   |                     |
-| `client_id`                     | Client ID of your own Spotify app for Web API requests<sup>[3]</sup> | String                                                                          | ttunes' shared ID |
+| `client_id`                     | Client ID of your own Spotify app for Web API requests<sup>[3]</sup> | String                                                                          | The ID saved at first run |
 | `theme_file`                    | TOML file of `[theme]` colors (relative to the config directory); `[theme]` overrides it | String                                                    |                     |
 
 1. Run `ttunes -h` for a list of devices.
 2. If built with the `notify` feature.
-3. ttunes' shared client ID is often rate limited. Create an app at
-   https://developer.spotify.com/dashboard with the redirect URI `http://127.0.0.1:8989/login`
-   and set its client ID here; you'll be asked to authorize it once.
+3. Optional: overrides the ID saved by the [first run](#first-run) setup in the `client_id` file
+   of the configuration directory. The app needs the redirect URI `http://127.0.0.1:8989/login`.
 
 ### Custom Keybindings
 Keybindings can be configured in `[keybindings]` section in `config.toml`.
@@ -455,6 +469,10 @@ headers and next to list items) with the Kitty graphics protocol, in terminals t
 that can be opened in any browser. After logging in on the displayed page, you can start to use
 `ttunes`. The OAuth2 flow is the only supported one, as username/password authentication has been
 removed by Spotify.
+
+A second login authorizes your own Spotify app (see [First run](#first-run)) for the Web API, which
+ttunes uses for the library, search and playlists. Its token is stored in
+`rspotify_token_<client ID>.json` in the cache directory.
 
 The credentials are stored in `librespot/credentials.json` in the user's cache directory. Run
 `ttunes info` to show the location of this directory.

@@ -11,6 +11,7 @@ use ttunes::program_arguments;
 mod application;
 mod authentication;
 mod cli;
+mod client_id;
 mod command;
 mod config;
 mod events;
@@ -63,18 +64,32 @@ fn main() -> Result<(), String> {
             // while the process is still single-threaded, i.e. before the
             // tokio runtime and its worker threads are created in
             // `Application::new`: `set_var` is not thread safe.
-            config::preload_environment(matches.get_one::<String>("config").cloned());
+            let config_file = matches.get_one::<String>("config").cloned();
+            config::preload_environment(config_file.clone());
+
+            // Web API requests need the user's own client ID: from the configuration, saved by
+            // an earlier start, or asked for now. This runs before `Application::new`, which
+            // fetches the Web API token.
+            let configured_client_id = config::configured_client_id(config_file.clone());
+            match client_id::client_id(configured_client_id.as_deref()) {
+                Ok(Some(id)) => authentication::set_web_api_client_id(id),
+                Ok(None) => return Ok(()),
+                Err(error) => {
+                    eprintln!("{error}");
+                    error!("{error}");
+                    exit(1);
+                }
+            }
 
             // Create the application.
-            let mut application =
-                match Application::new(matches.get_one::<String>("config").cloned()) {
-                    Ok(application) => application,
-                    Err(error) => {
-                        eprintln!("{error}");
-                        error!("{error}");
-                        exit(-1);
-                    }
-                };
+            let mut application = match Application::new(config_file) {
+                Ok(application) => application,
+                Err(error) => {
+                    eprintln!("{error}");
+                    error!("{error}");
+                    exit(-1);
+                }
+            };
 
             // Start the application event loop.
             application.run()

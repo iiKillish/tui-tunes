@@ -32,8 +32,8 @@ entries are ncspot's own history.
   between the main screens and <kbd>F1</kbd>-<kbd>F5</kbd> open them in tab order
 - `tab` command; <kbd>Alt</kbd>+<kbd>H</kbd>/<kbd>L</kbd> and
   <kbd>Shift</kbd>+arrows switch tabs inside a page
-- `client_id` configuration option so Web API requests use your own Spotify app
-  instead of the shared, rate-limited client ID
+- First-run setup that asks for the client ID of your own Spotify app and saves
+  it; the `client_id` configuration option overrides it
 - `volume_curve` configuration option (`cubic`, `log` or `linear`)
 - `theme_file` configuration option to load the `[theme]` colors from a
   separate file
@@ -55,6 +55,7 @@ entries are ncspot's own history.
 
 ### Removed
 
+- ncspot's shared client ID: Web API requests always use your own Spotify app
 - The `similar` command and its <kbd>M</kbd>/<kbd>Shift</kbd>+<kbd>M</kbd>
   keybindings, as Spotify no longer offers recommendations to third-party apps
 - `panel focus`; `panel` now takes `queue` or `lyrics`

@@ -97,13 +97,13 @@ pub struct ConfigValues {
     pub library_tabs: Option<Vec<LibraryTab>>,
     pub hide_display_names: Option<bool>,
     pub ap_port: Option<u16>,
-    /// Proxy used for all of ttunes's network traffic: the Spotify access
+    /// Proxy used for all of ttunes' network traffic: the Spotify access
     /// point, the Spotify APIs, OAuth and cover art downloads. Supported
     /// schemes: `http://` (CONNECT proxy) and `socks5h://` (SOCKS5 proxy with
     /// remote DNS resolution). Both accept `user:password@host:port`.
     pub proxy: Option<String>,
-    /// Client ID of your own Spotify developer app, used for Web API requests instead of
-    /// ttunes's shared one (which is frequently rate limited). The app must have
+    /// Client ID of your own Spotify developer app, used for Web API requests. Overrides the ID
+    /// saved by the first-run setup (see [crate::client_id]). The app must have
     /// `http://127.0.0.1:8989/login` registered as a redirect URI.
     pub client_id: Option<String>,
     /// TOML file with theme colors (the keys of `[theme]`, at the top level), relative to the
@@ -342,6 +342,12 @@ fn read_startup_values(filename: Option<String>) -> Option<ConfigValues> {
     let filename = filename.unwrap_or(CONFIGURATION_FILE_NAME.to_owned());
     let contents = std::fs::read_to_string(config_path(&filename)).ok()?;
     toml::from_str(&contents).ok()
+}
+
+/// The `client_id` set in the configuration file, if any. Read at startup, before the full
+/// [Config] is loaded, to decide whether the first-run setup is needed.
+pub fn configured_client_id(filename: Option<String>) -> Option<String> {
+    read_startup_values(filename)?.client_id
 }
 
 /// Export the environment variables ttunes relies on, derived from the

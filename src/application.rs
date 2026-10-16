@@ -82,7 +82,6 @@ impl Application {
             .unwrap();
 
         let configuration = Arc::new(Config::new(configuration_file_path));
-        authentication::set_web_api_client_id(configuration.values().client_id.clone());
         let credentials = authentication::get_credentials(&configuration)?;
         let palette = configuration.build_theme();
 
