@@ -62,7 +62,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt update
-          sudo apt install libpulse-dev libdbus-1-dev libncursesw5-dev libxcb-shape0-dev libxcb-xfixes0-dev
+          sudo apt install -y pkg-config libssl-dev libpulse-dev
       - name: Running cargo build
         run: cargo build --locked --target ${{ matrix.target }} ${{ matrix.features }}
       - name: Running cargo test
@@ -105,6 +105,6 @@ jobs:
       - name: Install Linux dependencies
         run: |
           sudo apt update
-          sudo apt install portaudio19-dev libasound2-dev libpulse-dev libdbus-1-dev libncursesw5-dev libxcb-shape0-dev libxcb-xfixes0-dev
+          sudo apt install -y pkg-config libssl-dev libpulse-dev libasound2-dev portaudio19-dev
       - name: cargo clippy
         run: cargo clippy --locked --no-deps --workspace --all-targets --all-features --verbose -- -D warnings
