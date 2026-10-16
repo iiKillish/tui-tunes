@@ -57,7 +57,10 @@ pub fn pulseaudio_environment(
     if backend_name == Some("pulseaudio") {
         &[
             ("PULSE_PROP_application.name", "ttunes"),
-            ("PULSE_PROP_stream.description", "ncurses Spotify client"),
+            (
+                "PULSE_PROP_stream.description",
+                "Spotify player for the terminal",
+            ),
             ("PULSE_PROP_media.role", "music"),
         ]
     } else {

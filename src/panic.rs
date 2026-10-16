@@ -6,7 +6,7 @@ use crate::config;
 /// Register a custom panic handler to write backtraces to a file called `backtrace.log` inside the
 /// user's cache directory.
 pub fn register_backtrace_panic_handler() {
-    // During most of the program, Cursive is responsible for drawing to the
+    // During most of the program, the TUI is responsible for drawing to the
     // tty. Since stdout probably doesn't work as expected during a panic, the
     // backtrace is written to a file at $USER_CACHE_DIR/ttunes/backtrace.log.
     std::panic::set_hook(Box::new(|panic_info| {

@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Album covers are on by default: `cargo install --locked ttunes` includes
   them, no `--features cover` needed
+- The PulseAudio stream is described as "Spotify player for the terminal"
+  instead of ncspot's "ncurses Spotify client"
 
 ## [0.1.0]
 

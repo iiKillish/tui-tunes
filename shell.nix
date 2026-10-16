@@ -8,7 +8,6 @@ pkgs.mkShell {
     openssl
     pipewire
     alsa-lib
-    ncurses
   ];
 
   shellHook = ''
