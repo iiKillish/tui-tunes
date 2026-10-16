@@ -2,25 +2,26 @@
 
 ## Prerequisites
 - A working [Rust installation](https://www.rust-lang.org/tools/install)
-- Python 3 (needed for building `rust-xcb` dependency)
+- A C compiler
 
-On Linux, you also need:
+On Linux, you also need `pkgconf` (sometimes called `pkg-config`) and the development headers for
+OpenSSL and PulseAudio (ALSA instead when building with the `alsa_backend` feature):
 
-- `pkgconf` (sometimes called `pkg-config`)
-- Development headers for the aforementioned runtime dependencies:
-  - Debian and derivatives:
-    ```sh
-    sudo apt install libdbus-1-dev libncursesw5-dev libpulse-dev libssl-dev libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
-    ```
-  - Fedora:
-    ```sh
-    sudo dnf install dbus-devel libxcb-devel ncurses-devel openssl-devel pulseaudio-libs-devel
-    ```
-  - Arch and derivatives:
-    ```sh
-    # headers are included in the base packages
-    sudo pacman -S dbus libpulse libxcb ncurses openssl
-    ```
+- Debian and derivatives:
+  ```sh
+  sudo apt install build-essential pkg-config libssl-dev libpulse-dev libasound2-dev
+  ```
+- Fedora:
+  ```sh
+  sudo dnf install gcc pkgconf openssl-devel pulseaudio-libs-devel alsa-lib-devel
+  ```
+- Arch and derivatives:
+  ```sh
+  # headers are included in the base packages
+  sudo pacman -S base-devel pkgconf openssl libpulse alsa-lib
+  ```
+
+At runtime, MPRIS and notifications need a D-Bus session bus.
 
 ## Debugging
 For simple debugging, you can pass a debug log filename:

@@ -1,6 +1,8 @@
-# UI design (ratatui rewrite)
+# Interface design
 
-Chosen from the layout mockups:
+The ratatui interface follows one layout, described here so changes keep it consistent. The
+letter-number codes (B, K3, T1 …) name the variant chosen for each part and appear in code
+comments.
 
 - Layout B: a now-playing **hero** at the top of the portrait screen (left column on wide
   windows): big centered cover, title + ♥, artist, album, then **K3 phone-style controls**: the
@@ -23,4 +25,4 @@ Chosen from the layout mockups:
 - **S2 selection**: the selected row gets a darker background (`statusbar_bg`) and a `▌` in the
   accent at its left edge (`Styles::selected` + `SELECTION_MARKER`/`Styles::marker`).
 - **R2 rows**: number, small cover (1 row), title, artist, length.
-- Covers via Kitty graphics (`tui::images`); Catppuccin colors from the theme (`theme.toml`).
+- Covers via Kitty graphics (`tui::images`) in terminals that support it (Kitty, Ghostty, WezTerm).

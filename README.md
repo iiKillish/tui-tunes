@@ -1,37 +1,59 @@
 # ttunes
 
-Spotify player for the terminal, based on [ncspot](https://github.com/hrkfdn/ncspot).
+A Spotify player for the terminal, written in Rust with
+[librespot](https://github.com/librespot-org/librespot) and [ratatui](https://ratatui.rs). It
+needs a Spotify Premium account.
 
+- A now-playing view with a big cover, the track, progress, controls and a volume slider, beside
+  or above the _Home_, _Search_, _Library_, _Up next_ and _Lyrics_ screens
+- Album, playlist and artist pages, and cover grids for the library and search results
+- Time-synced lyrics from [LRCLIB](https://lrclib.net)
+- Album covers drawn with the Kitty graphics protocol, supported in Kitty, Ghostty and WezTerm
+- Vim-style keys, mouse support, MPRIS and an IPC socket for remote control
 
-ncspot is an ncurses Spotify client written in Rust using librespot. It is heavily inspired by
-ncurses MPD clients, such as [ncmpc](https://musicpd.org/clients/ncmpc/). My motivation was to
-provide a simple and resource friendly alternative to the official client as well as to support
-platforms that currently don't have a Spotify client, such as the \*BSDs.
+## Install
 
-ncspot only works with a Spotify premium account as it offers features that are not available for
-free accounts.
+```sh
+cargo install --locked ttunes
+# with album covers:
+cargo install --locked ttunes --features cover
+```
 
-## Features
-- Support for tracks, albums, playlists, genres, searching...
-- Small [resource footprint](doc/resource_footprint.md)
-- Support for a lot of platforms
-- Vim keybindings out of the box
-- IPC socket for remote control
+Building needs a [Rust installation](https://www.rust-lang.org/tools/install), a C compiler,
+`pkgconf` and the OpenSSL and PulseAudio development headers (ALSA with the `alsa_backend`
+feature). MPRIS and notifications use D-Bus. On Debian and Ubuntu:
 
-## Installation
-ncspot is available on macOS (Homebrew), Windows (Scoop, WinGet), Linux (native package, Flathub and
-Snapcraft) and the BSD's. Detailed installation instructions for each platform can be found
-[here](/doc/users.md).
+```sh
+sudo apt install build-essential pkg-config libssl-dev libpulse-dev
+```
 
-## Configuration
-A configuration file can be provided. The default location is `~/.config/ncspot`. Detailed
-configuration information can be found [here](/doc/users.md#configuration).
+Other distributions and building from a checkout are covered in
+[the developer docs](doc/developers.md).
 
-## Building
-Building ncspot requires a working [Rust installation](https://www.rust-lang.org/tools/install) and
-a Python 3 installation. To compile ncspot, run `cargo build`. For detailed instructions on building
-ncspot, there is more information [here](/doc/developers.md).
+## First run
 
-## Packaging
-Information about provided files, how to generate some of them and current package status accross
-platforms can be found [here](/doc/package_maintainers.md).
+ttunes needs a Spotify app of your own for Spotify's Web API. The first time it starts, it asks
+for the app's client ID:
+
+1. Create an app at https://developer.spotify.com/dashboard.
+2. Add the redirect URI `http://127.0.0.1:8989/login`.
+3. Choose the Web API.
+4. Paste the app's client ID into ttunes and press <kbd>Enter</kbd>.
+
+The ID is saved in `~/.config/ttunes/client_id`, so you're only asked once. Then ttunes opens two
+Spotify logins in your browser, one for playback and one for your app.
+
+## Keys and configuration
+
+<kbd>?</kbd> shows the keys. <kbd>Tab</kbd> and <kbd>F1</kbd>–<kbd>F5</kbd> switch screens,
+<kbd>Enter</kbd> plays, <kbd>Shift</kbd>+<kbd>P</kbd> pauses, <kbd>:</kbd> opens the command line
+and <kbd>q</kbd> quits.
+
+Everything works without a configuration file. The optional `~/.config/ttunes/config.toml` changes
+keys, colours and behaviour; the full key list and every option are in
+[the user docs](doc/users.md).
+
+## Credits
+
+Based on [ncspot](https://github.com/hrkfdn/ncspot) by Henrik Friedrichsen and contributors
+(BSD 2-Clause). See [LICENSE](LICENSE) and [CHANGELOG.md](CHANGELOG.md).
