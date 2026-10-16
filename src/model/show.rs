@@ -126,29 +126,12 @@ impl ListItem for Show {
         }
     }
 
-    fn toggle_saved(&mut self, library: &Library) {
-        if library.is_saved_show(self) {
-            self.unsave(library);
-        } else {
-            self.save(library);
-        }
-    }
-
     fn save(&mut self, library: &Library) {
         library.save_show(self);
     }
 
-    fn unsave(&mut self, library: &Library) {
-        library.unsave_show(self);
-    }
-
     fn share_url(&self) -> Option<String> {
         Some(format!("https://open.spotify.com/show/{}", self.id))
-    }
-
-    #[inline]
-    fn is_saved(&self, library: &Library) -> Option<bool> {
-        Some(library.is_saved_show(self))
     }
 
     #[inline]

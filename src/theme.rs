@@ -14,7 +14,6 @@ pub struct Palette {
     /// Titles and the accent color (current tab, selected filter, focused things).
     pub title: Color,
     pub playing: Color,
-    pub playing_selected: Color,
     pub playing_bg: Color,
     pub highlight: Color,
     pub highlight_bg: Color,
@@ -24,12 +23,10 @@ pub struct Palette {
     pub error_bg: Color,
     pub statusbar_progress: Color,
     pub statusbar_progress_bg: Color,
-    pub statusbar: Color,
     /// The darker background of the player and other panels.
     pub statusbar_bg: Color,
     pub cmdline: Color,
     pub cmdline_bg: Color,
-    pub search_match: Color,
 }
 
 /// Parse a color: `#rrggbb`, `#rgb`, a name like `red` or `light blue`, or `default`.
@@ -94,7 +91,6 @@ pub fn load(theme_cfg: &Option<ConfigTheme>) -> Palette {
         secondary: color!(secondary, Color::Blue),
         title: color!(title, Color::Red),
         playing: color!(playing, Color::Blue),
-        playing_selected: color!(playing_selected, Color::LightBlue),
         playing_bg: color!(playing_bg, Color::Reset),
         highlight: color!(highlight, Color::Gray),
         highlight_bg: color!(highlight_bg, Color::Red),
@@ -103,11 +99,9 @@ pub fn load(theme_cfg: &Option<ConfigTheme>) -> Palette {
         error_bg: color!(error_bg, Color::Red),
         statusbar_progress: color!(statusbar_progress, Color::Blue),
         statusbar_progress_bg: color!(statusbar_progress_bg, Color::DarkGray),
-        statusbar: color!(statusbar, Color::Yellow),
         statusbar_bg: color!(statusbar_bg, Color::Reset),
         cmdline: color!(cmdline, Color::Reset),
         cmdline_bg: color!(cmdline_bg, Color::Reset),
-        search_match: color!(search_match, Color::LightRed),
     }
 }
 

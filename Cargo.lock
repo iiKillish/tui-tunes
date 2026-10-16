@@ -1881,15 +1881,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ioctl-rs"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "607b0d5e3c8affe6744655ccd713c5d3763c09407e191cea94705f541fd45151"
-dependencies = [
- "libc",
-]
-
-[[package]]
 name = "ipnet"
 version = "2.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2444,19 +2435,16 @@ dependencies = [
  "fern",
  "futures",
  "image",
- "ioctl-rs",
  "libc",
  "librespot-core",
  "librespot-oauth",
  "librespot-playback",
- "librespot-protocol",
  "log",
  "notify-rust",
  "parse_duration",
  "platform-dirs",
  "rand 0.10.3",
  "ratatui",
- "regex",
  "reqwest 0.13.5",
  "rspotify",
  "serde",

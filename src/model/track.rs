@@ -175,8 +175,7 @@ impl ListItem for Track {
     }
 
     fn is_playing(&self, queue: &Queue) -> bool {
-        let current = queue.get_current();
-        current.map(|t| t.id() == self.id).unwrap_or(false)
+        queue.is_current_id(self.id.as_deref())
     }
 
     fn display_left(&self, library: &Library) -> String {
@@ -249,20 +248,8 @@ impl ListItem for Track {
         queue.append(Playable::Track(self.clone()));
     }
 
-    fn toggle_saved(&mut self, library: &Library) {
-        if library.is_saved_track(&Playable::Track(self.clone())) {
-            library.unsave_tracks(&[self]);
-        } else {
-            library.save_tracks(&[self]);
-        }
-    }
-
     fn save(&mut self, library: &Library) {
         library.save_tracks(&[self]);
-    }
-
-    fn unsave(&mut self, library: &Library) {
-        library.unsave_tracks(&[self]);
     }
 
     fn share_url(&self) -> Option<String> {
@@ -292,11 +279,6 @@ impl ListItem for Track {
 
     fn track(&self) -> Option<Track> {
         Some(self.clone())
-    }
-
-    #[inline]
-    fn is_saved(&self, library: &Library) -> Option<bool> {
-        Some(library.is_saved_track(&Playable::Track(self.clone())))
     }
 
     #[inline]

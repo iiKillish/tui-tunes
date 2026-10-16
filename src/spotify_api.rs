@@ -7,7 +7,7 @@ use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use log::{debug, error, info, warn};
 use rspotify::http::HttpError;
 use rspotify::model::{
-    AlbumId, AlbumType, ArtistId, CursorBasedPage, EpisodeId, FullAlbum, FullArtist, FullEpisode,
+    AlbumId, ArtistId, CursorBasedPage, EpisodeId, FullAlbum, FullArtist, FullEpisode,
     FullPlaylist, FullShow, FullTrack, ItemPositions, LibraryId, Market, Page, PlayableId,
     PlaylistId, PlaylistResult, PrivateUser, SavedAlbum, SavedTrack, SearchResult, SearchType,
     Show, ShowId, SimplifiedTrack, TimeRange, TrackId, Type, UserId,
@@ -483,44 +483,6 @@ impl WebApi {
         .ok_or(())
     }
 
-    /// Fetch all the albums of the given `artist_id`. `album_type` determines which type of albums
-    /// to fetch.
-    pub fn artist_albums(
-        &self,
-        artist_id: &str,
-        album_type: Option<AlbumType>,
-    ) -> ApiResult<Album> {
-        const MAX_SIZE: u32 = 50;
-        let spotify = self.clone();
-        let artist_id = artist_id.to_string();
-        let fetch_page = move |offset: u32| {
-            debug!("fetching artist {artist_id} albums, offset: {offset}");
-            spotify.api_with_retry(|api| {
-                match api.artist_albums_manual(
-                    ArtistId::from_id(&artist_id).unwrap(),
-                    album_type.as_ref().copied(),
-                    Some(Market::FromToken),
-                    Some(MAX_SIZE),
-                    Some(offset),
-                ) {
-                    Ok(page) => {
-                        let mut albums: Vec<Album> =
-                            page.items.iter().map(|sa| sa.into()).collect();
-                        albums.sort_by(|a, b| b.year.cmp(&a.year));
-                        Ok(ApiPage {
-                            offset: page.offset,
-                            total: page.total,
-                            items: albums,
-                        })
-                    }
-                    Err(e) => Err(e),
-                }
-            })
-        };
-
-        ApiResult::new(MAX_SIZE, Arc::new(fetch_page))
-    }
-
     /// Get all the episodes of the show with the given `show_id`.
     pub fn show_episodes(&self, show_id: &str) -> ApiResult<Episode> {
         const MAX_SIZE: u32 = 50;
@@ -558,18 +520,6 @@ impl WebApi {
     pub fn save_shows(&self, ids: &[&str]) -> Result<(), ()> {
         self.api_with_retry(|api| {
             api.library_add(
-                ids.iter()
-                    .map(|id| LibraryId::Show(ShowId::from_id(*id).unwrap()))
-                    .collect::<Vec<LibraryId>>(),
-            )
-        })
-        .ok_or(())
-    }
-
-    /// Remove the shows with `ids` from the user's library.
-    pub fn unsave_shows(&self, ids: &[&str]) -> Result<(), ()> {
-        self.api_with_retry(|api| {
-            api.library_remove(
                 ids.iter()
                     .map(|id| LibraryId::Show(ShowId::from_id(*id).unwrap()))
                     .collect::<Vec<LibraryId>>(),

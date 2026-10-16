@@ -624,17 +624,22 @@ impl Library {
 
     /// Check whether `track` is saved in the user's library.
     pub fn is_saved_track(&self, track: &Playable) -> bool {
+        self.is_saved_track_id(track.id_ref())
+    }
+
+    /// Whether the track with `id` is saved; see [Self::is_saved_track].
+    pub fn is_saved_track_id(&self, id: Option<&str>) -> bool {
         if !*self.is_done.read().unwrap() {
             return false;
         }
-        if let Some(id) = track.id()
-            && let Some(&saved) = self.pending_saves.read().unwrap().get(&id)
+        if let Some(id) = id
+            && let Some(&saved) = self.pending_saves.read().unwrap().get(id)
         {
             return saved;
         }
 
         let tracks = self.tracks.read().unwrap();
-        tracks.iter().any(|t| t.id == track.id())
+        tracks.iter().any(|t| t.id.as_deref() == id)
     }
 
     /// Save `track` if it isn't saved, else remove it, without waiting for Spotify: the new state
@@ -646,7 +651,7 @@ impl Library {
         if !*self.is_done.read().unwrap() {
             return;
         }
-        let save = !self.is_saved_track(&Playable::Track(track.clone()));
+        let save = !self.is_saved_track_id(Some(&id));
         self.pending_saves.write().unwrap().insert(id.clone(), save);
         self.trigger_redraw();
 
@@ -954,18 +959,6 @@ impl Library {
                     store.insert(0, show.clone());
                 }
             }
-        }
-    }
-
-    /// Remove the `show` from the user's library.
-    pub fn unsave_show(&self, show: &Show) {
-        if !*self.is_done.read().unwrap() {
-            return;
-        }
-
-        if self.spotify.api.unsave_shows(&[show.id.as_str()]).is_ok() {
-            let mut store = self.shows.write().unwrap();
-            *store = store.iter().filter(|s| s.id != show.id).cloned().collect();
         }
     }
 

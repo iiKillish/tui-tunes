@@ -51,17 +51,14 @@ zbus = {version = "5.16.0", default-features = false, features = ["tokio"], opti
 fern = "0.7"
 futures = "0.3"
 image = {version = "0.25", default-features = false, features = ["jpeg", "png"], optional = true}
-ioctl-rs = {version = "0.2", optional = true}
 libc = "0.2.186"
 librespot-core = "0.8.0"
 librespot-oauth = "0.8.0"
 librespot-playback = {version = "0.8.0", default-features = false, features = ["native-tls"]}
-librespot-protocol = "0.8.0"
 log = "0.4.32"
 parse_duration = "2.1.1"
 platform-dirs = "0.3.0"
 rand = "0.10"
-regex = "1"
 reqwest = {version = "0.13", features = ["blocking", "json", "socks"]}
 serde = "1.0"
 serde_cbor = "0.11.2"
@@ -97,7 +94,7 @@ optional = true
 
 [features]
 alsa_backend = ["librespot-playback/alsa-backend"]
-cover = ["image", "ioctl-rs"] # Show album covers (Kitty graphics protocol)
+cover = ["image"] # Show album covers (Kitty graphics protocol)
 default = ["share_clipboard", "pulseaudio_backend", "mpris", "notify"]
 mpris = ["zbus"] # Allow ncspot to be controlled via MPRIS API
 notify = ["notify-rust"] # Show what's playing via a notification

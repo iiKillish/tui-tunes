@@ -39,7 +39,7 @@ pub fn new(ctx: &Ctx) -> Tabbed {
                     let liked = library.tracks.read().unwrap().len();
                     Some(
                         std::iter::once(Card::liked_songs(liked))
-                            .chain(playlists.iter().cloned().map(Card::playlist))
+                            .chain(playlists.iter().map(|p| Card::playlist(p.without_tracks())))
                             .collect(),
                     )
                 })),
@@ -48,8 +48,12 @@ pub fn new(ctx: &Ctx) -> Tabbed {
                 "Albums",
                 Box::new(grid("Albums", library, |library| {
                     let albums = library.albums.read().unwrap();
-                    (!albums.is_empty() || !is_loading(library))
-                        .then(|| albums.iter().cloned().map(Card::album).collect())
+                    (!albums.is_empty() || !is_loading(library)).then(|| {
+                        albums
+                            .iter()
+                            .map(|a| Card::album(a.without_tracks()))
+                            .collect()
+                    })
                 })),
             ),
             LibraryTab::Artists => tabbed.add_tab(
@@ -94,7 +98,8 @@ fn is_loading(library: &Library) -> bool {
 }
 
 /// A grid of the cards `cards` makes from the library (`None` while loading), kept up to date as
-/// the library changes.
+/// the library changes. The cards are made on every draw, so they leave out the tracks of albums
+/// and playlists (slow to clone); see [Card::resolved].
 fn grid(
     title: &str,
     library: &Arc<Library>,

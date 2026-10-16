@@ -151,6 +151,31 @@ impl Queue {
             .map(|index| self.queue.read().unwrap()[index].clone())
     }
 
+    /// Whether the current item's ID is `id` (`None` for items without one, like local files).
+    pub fn is_current_id(&self, id: Option<&str>) -> bool {
+        let Some(index) = self.get_current_index() else {
+            return false;
+        };
+        self.queue
+            .read()
+            .unwrap()
+            .get(index)
+            .is_some_and(|current| current.id_ref() == id)
+    }
+
+    /// Whether the queue is exactly the items with `ids` (ignoring ones without an ID), and
+    /// there's at least one: i.e. an album or playlist with these tracks is what's playing.
+    pub fn consists_of<'a>(&self, ids: impl Iterator<Item = &'a str> + Clone) -> bool {
+        ids.clone().next().is_some()
+            && self
+                .queue
+                .read()
+                .unwrap()
+                .iter()
+                .filter_map(Playable::id_ref)
+                .eq(ids)
+    }
+
     /// The index of the currently playing item from `self.queue`.
     pub fn get_current_index(&self) -> Option<usize> {
         *self.current_track.read().unwrap()
