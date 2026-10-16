@@ -46,7 +46,6 @@ const INSERT_CMD: &str = "insert";
 const NEW_PLAYLIST_CMD: &str = "newplaylist";
 const SORT_CMD: &str = "sort";
 const LOGOUT_CMD: &str = "logout";
-const SHOW_RECOMMENDATIONS_CMD: &str = "similar";
 const REDRAW_CMD: &str = "redraw";
 const EXECUTE_CMD: &str = "exec";
 const RECONNECT_CMD: &str = "reconnect";
@@ -96,7 +95,6 @@ pub const ALL_COMMANDS: &[&str] = &[
     NEW_PLAYLIST_CMD,
     SORT_CMD,
     LOGOUT_CMD,
-    SHOW_RECOMMENDATIONS_CMD,
     REDRAW_CMD,
     EXECUTE_CMD,
     RECONNECT_CMD,
@@ -106,15 +104,13 @@ pub const ALL_COMMANDS: &[&str] = &[
     SCREEN_CMD,
 ];
 
-/// What the `panel` command does with the side panel (queue and lyrics).
+/// What the `panel` command shows: the Up next or Lyrics screen.
 #[derive(Display, Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq)]
 #[strum(serialize_all = "lowercase")]
 pub enum PanelAction {
-    /// Move keyboard focus to the panel, or back to the main view.
-    Focus,
     /// Show the queue.
     Queue,
-    /// Show the lyrics, or the queue if they're already showing.
+    /// Show the lyrics, or go back to the previous screen if they're already showing.
     Lyrics,
 }
 
@@ -265,7 +261,6 @@ pub enum Command {
     NewPlaylist(String),
     Sort(SortKey, SortDirection),
     Logout,
-    ShowRecommendations(TargetMode),
     Redraw,
     Execute(String),
     Reconnect,
@@ -316,7 +311,6 @@ impl fmt::Display for Command {
             Self::Insert(source) => vec![source.to_string()],
             Self::NewPlaylist(name) => vec![name.to_owned()],
             Self::Sort(key, direction) => vec![key.to_string(), direction.to_string()],
-            Self::ShowRecommendations(mode) => vec![mode.to_string()],
             Self::Execute(cmd) => vec![cmd.to_owned()],
             Self::Panel(action) => vec![action.to_string()],
             Self::Tab(next) | Self::Screen(next) => {
@@ -395,7 +389,6 @@ impl Command {
             Self::NewPlaylist(_) => NEW_PLAYLIST_CMD,
             Self::Sort(_, _) => SORT_CMD,
             Self::Logout => LOGOUT_CMD,
-            Self::ShowRecommendations(_) => SHOW_RECOMMENDATIONS_CMD,
             Self::Redraw => REDRAW_CMD,
             Self::Execute(_) => EXECUTE_CMD,
             Self::Reconnect => RECONNECT_CMD,
@@ -932,22 +925,6 @@ pub fn parse(input: &str) -> Result<Vec<Command>, CommandParseError> {
                     Command::Sort(key, direction)
                 }
                 LOGOUT_CMD => Command::Logout,
-                SHOW_RECOMMENDATIONS_CMD => {
-                    let &target_mode_raw = args.first().ok_or(E::InsufficientArgs {
-                        cmd: command.into(),
-                        hint: Some("selected|current".into()),
-                    })?;
-                    let target_mode = match target_mode_raw {
-                        "selected" => Ok(TargetMode::Selected),
-                        "current" => Ok(TargetMode::Current),
-                        _ => Err(E::BadEnumArg {
-                            arg: target_mode_raw.into(),
-                            accept: vec!["selected".into(), "current".into()],
-                            optional: false,
-                        }),
-                    }?;
-                    Command::ShowRecommendations(target_mode)
-                }
                 REDRAW_CMD => Command::Redraw,
                 EXECUTE_CMD => Command::Execute(args.join(" ")),
                 RECONNECT_CMD => Command::Reconnect,
@@ -975,14 +952,19 @@ pub fn parse(input: &str) -> Result<Vec<Command>, CommandParseError> {
                     }
                 }),
                 PANEL_CMD => Command::Panel(match args.first().copied() {
-                    None | Some("focus") => PanelAction::Focus,
                     Some("queue") => PanelAction::Queue,
                     Some("lyrics") => PanelAction::Lyrics,
                     Some(arg) => {
                         return Err(E::BadEnumArg {
                             arg: arg.into(),
-                            accept: vec!["focus".into(), "queue".into(), "lyrics".into()],
-                            optional: true,
+                            accept: vec!["queue".into(), "lyrics".into()],
+                            optional: false,
+                        });
+                    }
+                    None => {
+                        return Err(E::InsufficientArgs {
+                            cmd: command.into(),
+                            hint: Some("queue|lyrics".into()),
                         });
                     }
                 }),

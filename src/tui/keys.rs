@@ -222,15 +222,6 @@ fn default_keybindings() -> HashMap<String, Vec<Command>> {
     kb.insert("Shift+a".into(), vec![Command::Goto(GotoMode::Artist)]);
 
     kb.insert(
-        "m".into(),
-        vec![Command::ShowRecommendations(TargetMode::Selected)],
-    );
-    kb.insert(
-        "Shift+m".into(),
-        vec![Command::ShowRecommendations(TargetMode::Current)],
-    );
-
-    kb.insert(
         "Up".into(),
         vec![Command::Move(MoveMode::Up, Default::default())],
     );

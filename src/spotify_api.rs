@@ -9,8 +9,8 @@ use rspotify::http::HttpError;
 use rspotify::model::{
     AlbumId, AlbumType, ArtistId, CursorBasedPage, EpisodeId, FullAlbum, FullArtist, FullEpisode,
     FullPlaylist, FullShow, FullTrack, ItemPositions, LibraryId, Market, Page, PlayableId,
-    PlaylistId, PlaylistResult, PrivateUser, Recommendations, SavedAlbum, SavedTrack, SearchResult,
-    SearchType, Show, ShowId, SimplifiedTrack, TimeRange, TrackId, Type, UserId,
+    PlaylistId, PlaylistResult, PrivateUser, SavedAlbum, SavedTrack, SearchResult, SearchType,
+    Show, ShowId, SimplifiedTrack, TimeRange, TrackId, Type, UserId,
 };
 use rspotify::{AuthCodeSpotify, ClientError, ClientResult, Config, prelude::*};
 use tokio::sync::mpsc;
@@ -369,39 +369,6 @@ impl WebApi {
         let eid = EpisodeId::from_id(episode_id).map_err(|_| ())?;
         self.api_with_retry(|api| api.get_an_episode(eid.clone(), Some(Market::FromToken)))
             .ok_or(())
-    }
-
-    /// Get recommendations based on the seeds provided with `seed_artists`, `seed_genres` and
-    /// `seed_tracks`.
-    pub fn recommendations(
-        &self,
-        seed_artists: Option<Vec<&str>>,
-        seed_genres: Option<Vec<&str>>,
-        seed_tracks: Option<Vec<&str>>,
-    ) -> Result<Recommendations, ()> {
-        self.api_with_retry(|api| {
-            let seed_artistids = seed_artists.as_ref().map(|artistids| {
-                artistids
-                    .iter()
-                    .map(|id| ArtistId::from_id(*id).unwrap())
-                    .collect::<Vec<ArtistId>>()
-            });
-            let seed_trackids = seed_tracks.as_ref().map(|trackids| {
-                trackids
-                    .iter()
-                    .map(|id| TrackId::from_id(*id).unwrap())
-                    .collect::<Vec<TrackId>>()
-            });
-            api.recommendations(
-                std::iter::empty(),
-                seed_artistids,
-                seed_genres.clone(),
-                seed_trackids,
-                Some(Market::FromToken),
-                Some(100),
-            )
-        })
-        .ok_or(())
     }
 
     /// Search for items of `searchtype` using the provided `query`. Limit the results to `limit`

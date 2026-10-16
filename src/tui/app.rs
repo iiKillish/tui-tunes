@@ -276,7 +276,6 @@ impl App {
             Command::Panel(PanelAction::Queue) => {
                 self.set_screen("queue");
             }
-            Command::Panel(PanelAction::Focus) => {}
             // Pages without tabs of their own have nothing to switch.
             Command::Tab(_) => {}
             Command::Screen(next) => {
@@ -289,15 +288,11 @@ impl App {
                 let id = self.screens[index].id;
                 self.set_screen(id);
             }
-            Command::Search(term) => {
+            Command::Search(_) => {
                 self.set_screen("search");
                 self.screen().stack.clear();
                 let outcome = self.screen().root.command(cmd, &ctx);
-                if outcome.is_ignored() && !term.is_empty() {
-                    self.set_message(Err("Search isn't available yet".into()));
-                } else {
-                    self.apply(outcome, false);
-                }
+                self.apply(outcome, false);
             }
             Command::Help => {
                 let overlay = actions::help(self);

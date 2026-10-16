@@ -455,11 +455,6 @@ impl<I: ListItem + Clone> ItemList<I> {
                 }
             }
             Command::Jump(mode) => self.jump(mode, ctx),
-            Command::ShowRecommendations(_) => {
-                return Outcome::Error(
-                    "Spotify no longer offers recommendations to apps like this one".into(),
-                );
-            }
             _ => return Outcome::Ignored,
         }
         Outcome::Consumed
