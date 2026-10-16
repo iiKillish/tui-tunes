@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- A new interface written with [ratatui](https://ratatui.rs): a now-playing hero
+  (big cover, track, progress, phone-style controls and a volume slider with a
+  draggable knob) beside or above the _Home_, _Search_, _Library_, _Up next_
+  and _Lyrics_ screens
+- Home screen with a "Pick up where you left off" card, filter pills and a list
+  of recent and top items
+- Cover grids for the library and search results, with an _All_ tab in search
+- Album, playlist and artist pages with a header tinted by the cover's color and
+  Play / Shuffle / Like buttons
+- Mouse support throughout the interface
+- Covers and control icons drawn with the Kitty graphics protocol (Kitty,
+  Ghostty, WezTerm) when built with the `cover` feature
+- Time-synced lyrics from [LRCLIB](https://lrclib.net) on the _Lyrics_ screen
+- Like the current song with the heart button, <kbd>Shift</kbd>+<kbd>H</kbd> or
+  the `like` command
+- `screen` command; <kbd>Tab</kbd>/<kbd>Shift</kbd>+<kbd>Tab</kbd> switch
+  between the main screens and <kbd>F1</kbd>-<kbd>F5</kbd> open them in tab order
+- `tab` command; <kbd>Alt</kbd>+<kbd>H</kbd>/<kbd>L</kbd> and
+  <kbd>Shift</kbd>+arrows switch tabs inside a page
+- `client_id` configuration option so Web API requests use your own Spotify app
+  instead of the shared, rate-limited client ID
+- `volume_curve` configuration option (`cubic`, `log` or `linear`)
+- `theme_file` configuration option to load the `[theme]` colors from a
+  separate file
+- Show a countdown in the player when Spotify rate limits a request
+- Remember where queued songs came from ("Next from") across restarts
+
+### Changed
+
+- The ratatui interface replaces cursive; the `crossterm_backend`,
+  `ncurses_backend`, `pancurses_backend` and `termion_backend` features are gone
+- The volume slider uses a cubic curve by default, like system mixers
+- Shuffle reorders the queue itself, so _Up next_ shows the real play order
+- Search requests 10 results at a time, Spotify's new limit
+- MPRIS announces capability changes, and `CanControl` is constant, so desktop
+  media controls (e.g. KDE's) treat ncspot as controllable
+
+### Fixed
+
+- Don't block the interface on long rate-limit waits
+
 ## [1.5.0]
 
 ### Added
