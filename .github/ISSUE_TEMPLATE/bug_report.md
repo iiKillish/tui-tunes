@@ -33,11 +33,11 @@ If applicable, add screenshots to help explain your problem.
 Please attach a debug log and backtrace if ttunes has crashed.
 
 Instructions on how to capture debug logs can be found in the [developers
-manual](https://github.com/iiKillish/ttunes/blob/main/doc/developers.md#debugging).
+manual](https://github.com/iiKillish/tui-tunes/blob/main/doc/developers.md#debugging).
 
 For backtraces, make sure you run a debug build of ttunes, e.g. by running the
 command mentioned in the [compilation
-instructions](https://github.com/iiKillish/ttunes/blob/main/doc/developers.md#compiling).  You can find the
+instructions](https://github.com/iiKillish/tui-tunes/blob/main/doc/developers.md#compiling).  You can find the
 latest backtrace at `~/.cache/ttunes/backtrace.log`.
 
 **Additional context**

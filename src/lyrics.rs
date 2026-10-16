@@ -17,7 +17,7 @@ const API: &str = "https://lrclib.net/api";
 const USER_AGENT: &str = concat!(
     "ttunes/",
     env!("CARGO_PKG_VERSION"),
-    " (https://github.com/iiKillish/ttunes)"
+    " (https://github.com/iiKillish/tui-tunes)"
 );
 /// How long to wait before trying again after a failed request.
 const RETRY_AFTER: Duration = Duration::from_secs(60);

@@ -50,8 +50,8 @@ cargo install ttunes
 Or clone and build locally:
 
 ```sh
-git clone https://github.com/iiKillish/ttunes
-cd ttunes
+git clone https://github.com/iiKillish/tui-tunes
+cd tui-tunes
 cargo build --release
 ```
 

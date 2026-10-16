@@ -31,7 +31,7 @@ members = [
 authors = ["iiKillish"]
 edition = "2024"
 license = "BSD-2-Clause"
-repository = "https://github.com/iiKillish/ttunes"
+repository = "https://github.com/iiKillish/tui-tunes"
 
 [workspace.lints.clippy]
 enum_glob_use = "warn"
