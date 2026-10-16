@@ -96,17 +96,16 @@ pub fn begin_frame() {
 /// Show `source` filling `area` (cropped to fit) in the frame being drawn. Does nothing when the
 /// terminal can't show images; check [supported] to draw something else instead.
 pub fn request_image(source: Source, area: Rect, y_shift: u16) {
-    if !supported() || area.is_empty() {
-        return;
-    }
     #[cfg(feature = "cover")]
-    with_layer(|layer| {
-        layer.frame.push(Request {
-            source,
-            area,
-            y_shift,
+    if supported() && !area.is_empty() {
+        with_layer(|layer| {
+            layer.frame.push(Request {
+                source,
+                area,
+                y_shift,
+            });
         });
-    });
+    }
 }
 
 /// Show the cover at `url` filling `area` in the frame being drawn.
@@ -250,6 +249,10 @@ fn load(source: &Source, size: Size) -> Option<image::RgbaImage> {
 /// Whether the terminal speaks the Kitty graphics protocol (Kitty, Ghostty, WezTerm, Konsole),
 /// judged from the environment so nothing has to be read back from the terminal.
 pub fn supported() -> bool {
+    #[cfg(test)]
+    if let Some(forced) = FORCE_SUPPORTED.with(std::cell::Cell::get) {
+        return forced;
+    }
     static SUPPORTED: OnceLock<bool> = OnceLock::new();
     *SUPPORTED.get_or_init(|| {
         if !cfg!(feature = "cover") {
@@ -268,6 +271,17 @@ pub fn supported() -> bool {
         debug!("Kitty graphics: {supported}");
         supported
     })
+}
+
+#[cfg(test)]
+thread_local! {
+    static FORCE_SUPPORTED: std::cell::Cell<Option<bool>> = const { std::cell::Cell::new(None) };
+}
+
+/// Make [supported] answer `supported` on this thread, to test both layouts.
+#[cfg(test)]
+pub fn force_supported(supported: bool) {
+    FORCE_SUPPORTED.with(|f| f.set(Some(supported)));
 }
 
 /// Size of a terminal cell in pixels (or at least its aspect ratio).

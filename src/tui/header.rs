@@ -14,6 +14,8 @@ use crate::tui::style::{Styles, bold, fill, mix, put, rgb};
 pub const HEADER_ROWS: u16 = 9;
 /// Rows of the cover.
 const COVER_ROWS: u16 = 7;
+/// Narrowest text beside the cover.
+const MIN_TEXT_WIDTH: u16 = 24;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum HeaderAction {
@@ -68,11 +70,14 @@ pub fn draw(
     let fg = |color| Style::new().fg(color);
 
     let mut text_x = area.x + 2;
+    let cover_width = images::square_width(COVER_ROWS);
     if let Some(url) = &header.cover_url
         && images::supported()
         && area.height > COVER_ROWS
+        // Narrow windows leave the cover out rather than squeeze the text.
+        && area.width >= 2 + cover_width + 3 + MIN_TEXT_WIDTH + 2
     {
-        let width = images::square_width(COVER_ROWS);
+        let width = cover_width;
         images::cover(url, Rect::new(area.x + 2, area.y + 1, width, COVER_ROWS));
         text_x = area.x + 2 + width + 3;
     }

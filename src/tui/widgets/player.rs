@@ -34,6 +34,8 @@ pub const HERO_MIN_ROWS: u16 = 14;
 /// Rows of the bar.
 pub const BAR_ROWS: u16 = 5;
 const VOLUME_BAR_WIDTH: u16 = 12;
+/// Narrowest track text beside the bar's controls; narrower bars put the title above them.
+const MIN_BAR_TEXT_WIDTH: u16 = 16;
 /// Smallest cover worth drawing above the controls; below this the hero puts it beside them.
 const MIN_COVER_ROWS_ABOVE: u16 = 8;
 
@@ -309,6 +311,9 @@ impl Player {
             );
             self.hits.like = Some(Rect::new(like_x, area.y, 2, 1));
         }
+        if area.height < 2 {
+            return;
+        }
         let artists = crate::tui::style::truncate(&artists, w);
         let album = crate::tui::style::truncate(&album, w);
         put(
@@ -319,6 +324,9 @@ impl Player {
             w,
             background.fg(ctx.palette.secondary),
         );
+        if area.height < 3 {
+            return;
+        }
         put(
             buf,
             line_x(width(&album)),
@@ -428,58 +436,14 @@ impl Player {
         Self::draw_bar(frame, bar, fraction, ctx, background);
         self.hits.progress = Some(bar);
         if track.is_some() {
-            let buf = frame.buffer_mut();
-            let secondary = background.fg(ctx.palette.secondary);
-            put(
-                buf,
-                left,
-                progress_row + 1,
-                &duration(elapsed),
-                10,
-                secondary,
-            );
-            let remaining = format!("-{}", duration(total - elapsed));
-            put(
-                buf,
-                bar.right().saturating_sub(width(&remaining) as u16),
-                progress_row + 1,
-                &remaining,
-                10,
-                secondary,
-            );
+            Self::draw_times(frame, bar, elapsed, total, ctx, background);
         }
 
-        let (bw, bh) = Self::button_size();
         let controls_row = progress_row + 2;
-        self.draw_control(
-            frame,
-            Rect::new(left, controls_row, bw, bh),
-            Control::Shuffle,
-            ctx,
-        );
-        self.draw_control(
-            frame,
-            Rect::new(bar.right().saturating_sub(bw), controls_row, bw, bh),
-            Control::Repeat,
-            ctx,
-        );
-        let gap = bw;
-        let middle = 3 * bw + 2 * gap;
-        let mx = left + content_width.saturating_sub(middle) / 2;
-        for (i, control) in [Control::Previous, Control::PlayPause, Control::Next]
-            .into_iter()
-            .enumerate()
-        {
-            self.draw_control(
-                frame,
-                Rect::new(mx + i as u16 * (bw + gap), controls_row, bw, bh),
-                control,
-                ctx,
-            );
-        }
+        let bh = self.draw_hero_controls(frame, bar, controls_row, ctx);
 
         let volume_row = controls_row + bh + 1;
-        if volume_row < area.bottom() {
+        if volume_row < area.bottom() && area.width >= VOLUME_BAR_WIDTH + 3 {
             let vx = left + content_width.saturating_sub(VOLUME_BAR_WIDTH + 3) / 2;
             put(
                 frame.buffer_mut(),
@@ -506,6 +470,66 @@ impl Player {
             ctx,
             background,
         );
+    }
+
+    /// The elapsed and remaining times under the ends of the progress `bar`, if they fit.
+    fn draw_times(
+        frame: &mut Frame,
+        bar: Rect,
+        elapsed: u32,
+        total: u32,
+        ctx: &Ctx,
+        background: Style,
+    ) {
+        let elapsed_text = duration(elapsed);
+        let remaining = format!("-{}", duration(total - elapsed));
+        if width(&elapsed_text) + width(&remaining) + 1 > usize::from(bar.width) {
+            return;
+        }
+        let buf = frame.buffer_mut();
+        let secondary = background.fg(ctx.palette.secondary);
+        let row = bar.y + 1;
+        put(buf, bar.x, row, &elapsed_text, 10, secondary);
+        put(
+            buf,
+            bar.right() - width(&remaining) as u16,
+            row,
+            &remaining,
+            10,
+            secondary,
+        );
+    }
+
+    /// The hero's controls in `row`, under the progress `bar`: shuffle at its left end, repeat
+    /// at its right end, the rest centered between them, closer together when the bar is short.
+    /// Returns their height.
+    fn draw_hero_controls(&mut self, frame: &mut Frame, bar: Rect, row: u16, ctx: &Ctx) -> u16 {
+        let (bw, bh) = Self::button_size();
+        let ends = bar.width >= 5 * bw;
+        if ends {
+            self.draw_control(frame, Rect::new(bar.x, row, bw, bh), Control::Shuffle, ctx);
+            self.draw_control(
+                frame,
+                Rect::new(bar.right() - bw, row, bw, bh),
+                Control::Repeat,
+                ctx,
+            );
+        }
+        let gap = bw.min(bar.width.saturating_sub(5 * bw) / 4);
+        let middle = 3 * bw + 2 * gap;
+        let mx = bar.x + bar.width.saturating_sub(middle) / 2;
+        for (i, control) in [Control::Previous, Control::PlayPause, Control::Next]
+            .into_iter()
+            .enumerate()
+        {
+            self.draw_control(
+                frame,
+                Rect::new(mx + i as u16 * (bw + gap), row, bw, bh),
+                control,
+                ctx,
+            );
+        }
+        bh
     }
 
     fn draw_hero(
@@ -591,60 +615,15 @@ impl Player {
         Self::draw_bar(frame, bar, fraction, ctx, background);
         self.hits.progress = Some(bar);
         if track.is_some() {
-            let buf = frame.buffer_mut();
-            let secondary = background.fg(ctx.palette.secondary);
-            put(
-                buf,
-                left,
-                progress_row + 1,
-                &duration(elapsed),
-                10,
-                secondary,
-            );
-            let remaining = format!("-{}", duration(total - elapsed));
-            put(
-                buf,
-                bar.right().saturating_sub(width(&remaining) as u16),
-                progress_row + 1,
-                &remaining,
-                10,
-                secondary,
-            );
+            Self::draw_times(frame, bar, elapsed, total, ctx, background);
         }
 
-        // Shuffle at the bar's left end, repeat at its right end, the rest centered.
-        let (bw, bh) = Self::button_size();
         let controls_row = progress_row + 2;
-        self.draw_control(
-            frame,
-            Rect::new(left, controls_row, bw, bh),
-            Control::Shuffle,
-            ctx,
-        );
-        self.draw_control(
-            frame,
-            Rect::new(bar.right().saturating_sub(bw), controls_row, bw, bh),
-            Control::Repeat,
-            ctx,
-        );
-        let gap = bw;
-        let middle = 3 * bw + 2 * gap;
-        let mx = area.x + (area.width.saturating_sub(middle)) / 2;
-        for (i, control) in [Control::Previous, Control::PlayPause, Control::Next]
-            .into_iter()
-            .enumerate()
-        {
-            self.draw_control(
-                frame,
-                Rect::new(mx + i as u16 * (bw + gap), controls_row, bw, bh),
-                control,
-                ctx,
-            );
-        }
+        let bh = self.draw_hero_controls(frame, bar, controls_row, ctx);
 
         // Volume, centered under the controls.
         let volume_row = controls_row + bh + 1;
-        if volume_row < area.bottom() {
+        if volume_row < area.bottom() && area.width >= VOLUME_BAR_WIDTH + 3 {
             let vx = area.x + area.width.saturating_sub(VOLUME_BAR_WIDTH + 3) / 2;
             put(
                 frame.buffer_mut(),
@@ -692,38 +671,58 @@ impl Player {
         let mid = area.y + area.height / 2;
 
         let mut text_x = area.x + 2;
-        if show_cover && images::supported() && area.height >= 3 {
+        if show_cover
+            && images::supported()
+            && area.height >= 3
+            && let Some(url) = track.as_ref().and_then(Playable::cover_url)
+        {
             let w = images::square_width(area.height);
-            if let Some(url) = track.as_ref().and_then(Playable::cover_url) {
-                images::cover(&url, Rect::new(area.x + 1, area.y, w, area.height));
-            }
+            images::cover(&url, Rect::new(area.x + 1, area.y, w, area.height));
             text_x = area.x + w + 3;
         }
 
-        let center_width = (area.width * 2 / 5).clamp(30, 80);
+        let center_width = (area.width * 2 / 5).clamp(30, 80).min(area.width);
         let center_x = area.x + area.width.saturating_sub(center_width) / 2;
         let text_width = center_x.saturating_sub(text_x + 2);
-        self.draw_text(
-            frame,
-            Rect::new(text_x, mid.saturating_sub(1), text_width, 3),
-            false,
-            ctx,
-            background,
-        );
+        // Too narrow for the track beside the controls: the title goes on a row of its own
+        // above them, when there are rows for it.
+        let stacked = text_width < MIN_BAR_TEXT_WIDTH;
+        let (controls_row, progress_row) = if stacked && area.height >= 3 {
+            // The artists too, when there's a row for them.
+            let rows = if area.height >= 4 { 2 } else { 1 };
+            let text_area = Rect::new(
+                text_x,
+                mid - rows,
+                area.right().saturating_sub(text_x + 2),
+                rows,
+            );
+            self.draw_text(frame, text_area, false, ctx, background);
+            (mid, mid + 1)
+        } else {
+            if !stacked {
+                let top = mid.saturating_sub(1).max(area.y);
+                let text_area = Rect::new(text_x, top, text_width, (area.bottom() - top).min(3));
+                self.draw_text(frame, text_area, false, ctx, background);
+            }
+            (
+                mid.saturating_sub(1).max(area.y),
+                (mid + 1).min(area.bottom() - 1),
+            )
+        };
 
         // Controls over the progress bar, K3 order: shuffle, previous, play, next, repeat.
-        let (bw, bh) = if image_controls() && area.height >= 4 {
+        let (bw, bh) = if image_controls() && area.height >= 4 && !stacked {
             Self::button_size()
         } else {
             (3, 1)
         };
-        let gap = 2;
+        let gap = if 5 * bw + 4 * 2 <= area.width { 2 } else { 0 };
         let controls_width = 5 * bw + 4 * gap;
         let cx = area.x + area.width.saturating_sub(controls_width) / 2;
         let row = if bh > 1 {
-            mid.saturating_sub(2)
+            mid.saturating_sub(2).max(area.y)
         } else {
-            mid.saturating_sub(1)
+            controls_row
         };
         for (i, control) in [
             Control::Shuffle,
@@ -735,15 +734,17 @@ impl Player {
         .into_iter()
         .enumerate()
         {
-            self.draw_control(
-                frame,
-                Rect::new(cx + i as u16 * (bw + gap), row, bw, bh),
-                control,
-                ctx,
-            );
+            let x = cx + i as u16 * (bw + gap);
+            if x + bw > area.right() {
+                break;
+            }
+            self.draw_control(frame, Rect::new(x, row, bw, bh), control, ctx);
         }
 
-        let progress_row = (mid + 1).min(area.bottom().saturating_sub(1));
+        // A single row only has room for the controls.
+        if progress_row == row {
+            return;
+        }
         let bar = Rect::new(
             center_x + 6,
             progress_row,
@@ -805,7 +806,7 @@ impl Player {
         }
         Self::draw_status(
             frame,
-            Rect::new(area.x, mid.saturating_sub(1), area.width, 1),
+            Rect::new(area.x, mid.saturating_sub(1).max(area.y), area.width, 1),
             count,
             ctx,
             background,

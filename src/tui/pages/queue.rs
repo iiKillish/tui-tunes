@@ -29,6 +29,8 @@ const MAX_UPCOMING: usize = 200;
 const ITEM_ROWS: usize = 3;
 /// Columns the headings and items are indented by.
 const INDENT: u16 = 2;
+/// Narrowest page that shows covers before its items.
+const MIN_WIDTH_FOR_THUMBNAILS: u16 = 32;
 
 pub struct QueuePage {
     /// Selected item: 0 is the current track (if there is one), then the upcoming ones.
@@ -216,7 +218,7 @@ impl QueuePage {
         };
 
         let mut x = area.x + INDENT;
-        let thumb = thumbnail_width();
+        let thumb = thumbnail_width(area.width);
         if thumb > 0 {
             if rows == 2
                 && let Some(url) = look.item.cover_url()
@@ -242,9 +244,10 @@ impl QueuePage {
     }
 }
 
-/// Width of an item's two-row cover, or 0 when the terminal can't show images.
-fn thumbnail_width() -> u16 {
-    if images::supported() {
+/// Width of an item's two-row cover, or 0 when the terminal can't show images or the page is
+/// too narrow to spare the room.
+fn thumbnail_width(page_width: u16) -> u16 {
+    if images::supported() && page_width >= MIN_WIDTH_FOR_THUMBNAILS {
         images::square_width(2)
     } else {
         0

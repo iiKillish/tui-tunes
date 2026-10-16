@@ -193,6 +193,21 @@ impl App {
         self.message = Some((message, Instant::now()));
     }
 
+    /// Open `page` on top of the current screen, as if an item had been opened.
+    #[cfg(test)]
+    pub fn open_page(&mut self, page: Box<dyn crate::tui::page::Page>) {
+        self.apply(Outcome::Open(page), false);
+    }
+
+    /// Replace the root page of the screen `id`.
+    #[cfg(test)]
+    pub fn set_root(&mut self, id: &str, page: Box<dyn crate::tui::page::Page>) {
+        if let Some(screen) = self.screens.iter_mut().find(|s| s.id == id) {
+            screen.root = page;
+            screen.stack.clear();
+        }
+    }
+
     /// Act on what a page or overlay returned. `from_overlay` closes the overlay where the
     /// outcome means it's done.
     fn apply(&mut self, outcome: Outcome, from_overlay: bool) {

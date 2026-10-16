@@ -41,11 +41,12 @@ impl Overlay for Prompt {
         let w = (width(&self.title) as u16 + 8)
             .max(40)
             .min(screen.width.saturating_sub(4));
+        let h = screen.height.min(5);
         let area = Rect::new(
             screen.x + screen.width.saturating_sub(w) / 2,
-            screen.y + screen.height / 3,
+            screen.y + (screen.height / 3).min(screen.height - h),
             w,
-            5,
+            h,
         );
         self.area = area;
         frame.render_widget(Clear, area);

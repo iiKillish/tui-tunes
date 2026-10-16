@@ -51,6 +51,10 @@ const MARGIN: u16 = 2;
 /// Label of the featured card.
 const FEATURED_LABEL: &str = "Pick up where you left off";
 const PLAY_BUTTON: &str = " ▶ Play ";
+/// Narrowest list that shows covers before its items.
+const MIN_WIDTH_FOR_THUMBNAILS: u16 = 32;
+/// Narrowest text beside the featured card's cover.
+const FEATURED_MIN_TEXT_WIDTH: u16 = 24;
 
 /// Something shown on Home.
 #[derive(Clone)]
@@ -345,6 +349,31 @@ pub fn new(ctx: &Ctx) -> HomePage {
     }
 }
 
+/// Home already loaded with these items, for tests: albums, playlists and artists to jump back
+/// into (the first album featured), the artists as top artists too, and recent songs.
+#[cfg(test)]
+pub fn new_for_test(
+    ctx: &Ctx,
+    albums: Vec<Album>,
+    playlists: Vec<Playlist>,
+    artists: Vec<Artist>,
+    recent: Vec<Track>,
+) -> HomePage {
+    let jump_back_in = (albums.into_iter().map(HomeItem::Album))
+        .chain(playlists.into_iter().map(HomeItem::Playlist))
+        .chain(artists.iter().cloned().map(HomeItem::Artist))
+        .collect();
+    let mut page = new(ctx);
+    page.loaded_at = Some(Instant::now());
+    *page.sections.write().unwrap() = Some(Sections {
+        jump_back_in,
+        top_artists: artists,
+        recent,
+        top_tracks: Vec::new(),
+    });
+    page
+}
+
 impl HomePage {
     /// Load in the background if not loaded yet, or loaded a while ago.
     fn refresh_if_needed(&mut self, ctx: &Ctx) {
@@ -508,8 +537,9 @@ impl HomePage {
         }
 
         let mut x = area.x + MARGIN;
-        if images::supported() {
-            let cover = images::square_width(area.height);
+        let cover = images::square_width(area.height);
+        // Narrow windows leave the cover out rather than squeeze the text.
+        if images::supported() && area.width >= MARGIN + cover + 2 + FEATURED_MIN_TEXT_WIDTH {
             if let Some(url) = item.image_url() {
                 images::cover(&url, Rect::new(x, area.y, cover, area.height));
             }
@@ -590,7 +620,7 @@ impl HomePage {
         }
         self.first = min(self.first, rows.len().saturating_sub(visible));
 
-        let thumb = if images::supported() {
+        let thumb = if images::supported() && area.width >= MIN_WIDTH_FOR_THUMBNAILS {
             images::square_width(2)
         } else {
             0
