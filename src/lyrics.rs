@@ -84,6 +84,10 @@ impl LyricsStore {
             .write()
             .unwrap()
             .insert(key.clone(), (Lyrics::Loading, Instant::now()));
+        // Tests stay offline: a real lookup would race the screen being drawn.
+        if cfg!(test) {
+            return Lyrics::Loading;
+        }
         let cache = self.cache.clone();
         let track = track.clone();
         thread::spawn(move || {
