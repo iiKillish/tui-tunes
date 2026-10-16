@@ -51,6 +51,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The `similar` command and its <kbd>M</kbd>/<kbd>Shift</kbd>+<kbd>M</kbd>
   keybindings, as Spotify no longer offers recommendations to third-party apps
 - `panel focus`; `panel` now takes `queue` or `lyrics`
+- Configuration options the new interface doesn't use: `flip_status_indicators`,
+  `cover_max_scale`, `statusbar_format`, `now_playing_height`,
+  `queue_panel_width` and the `playing_selected`, `statusbar` and
+  `search_match` theme colors (old configs still load)
 
 ### Fixed
 
