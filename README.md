@@ -16,8 +16,6 @@ needs a Spotify Premium account.
 
 ```sh
 cargo install --locked ttunes
-# with album covers:
-cargo install --locked ttunes --features cover
 ```
 
 Building needs a [Rust installation](https://www.rust-lang.org/tools/install), a C compiler,

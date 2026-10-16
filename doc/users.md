@@ -9,7 +9,8 @@
 cargo install --locked ttunes
 ```
 
-Album covers need the `cover` feature: `cargo install --locked ttunes --features cover`.
+Album covers (the `cover` feature) are included. To build without them, use
+`cargo install --locked ttunes --no-default-features --features pulseaudio_backend,mpris,notify,share_clipboard`.
 
 Building needs a [Rust installation](https://www.rust-lang.org/tools/install), `pkgconf`, and the
 development headers for PulseAudio (or ALSA, if built with the ALSA backend), OpenSSL and dbus.
@@ -187,7 +188,7 @@ Note: \<FOO\> - mandatory arg; [BAR] - optional arg
 | `shuffle` [`on`\|`off`]                                          | Enable or disable shuffle. Omit argument to toggle.                                                                                                                                                                                                             |
 | `previous`                                                       | Play the previous track.                                                                                                                                                                                                                                        |
 | `next`                                                           | Play the next track.                                                                                                                                                                                                                                            |
-| `focus` \<SCREEN\>                                               | Switch to a different view.<br/>\* Valid values for SCREEN: `home`, `queue`, `search`, `library`, `cover` (if built with the `cover` feature)                                                                                                                           |
+| `focus` \<SCREEN\>                                               | Switch to a different view.<br/>\* Valid values for SCREEN: `home`, `search`, `library`, `queue`, `lyrics`                                                                                                                           |
 | `search` \<SEARCH\>                                              | Search for a song/artist/album/etc.                                                                                                                                                                                                                             |
 | `clear`                                                          | Clear the queue.                                                                                                                                                                                                                                                |
 | `share` \<ITEM\>                                                 | Copy a shareable URL of the item to the system clipboard. Requires the `share_clipboard` feature.<br/>\* Valid values for ITEM: `selected`, `current`                                                                                                           |
@@ -480,7 +481,7 @@ body = "%artists"
 ```
 
 ### Cover Drawing
-When compiled with the `cover` feature, `ttunes` draws album art (in the player, on page
+With the `cover` feature (on by default), `ttunes` draws album art (in the player, on page
 headers and next to list items) with the Kitty graphics protocol, in terminals that support it
 (Kitty, Ghostty, WezTerm, Konsole). In other terminals no covers are shown.
 
