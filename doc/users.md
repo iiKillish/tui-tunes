@@ -284,43 +284,34 @@ Possible configuration values are:
 | Name                            | Description                                                    | Possible values                                                                       | Default             |
 |---------------------------------|----------------------------------------------------------------|---------------------------------------------------------------------------------------|---------------------|
 | `command_key`                   | Key to open command line                                       | Single character                                                                      | `:`                 |
-| `initial_screen`                | Screen to show after startup                                   | `"home"`, `"library"`, `"search"`, `"queue"`, `"cover"`<sup>[1]</sup>                 | `"library"`         |
+| `initial_screen`                | Screen to show after startup                                   | `"home"`, `"search"`, `"library"`, `"queue"`, `"lyrics"`                            | `"home"`            |
 | `use_nerdfont`                  | Turn nerdfont glyphs on/off                                    | `true`, `false`                                                                       | `false`             |
-| `flip_status_indicators`        | Reverse play/pause icon meaning<sup>[2]</sup>                  | `true`, `false`                                                                       | `false`             |
-| `backend`                       | Audio backend to use                                           | String<sup>[3]</sup>                                                                  |                     |
+| `backend`                       | Audio backend to use                                           | String<sup>[1]</sup>                                                                  |                     |
 | `backend_device`                | Audio device to configure the backend                          | String                                                                                |                     |
 | `audio_cache`                   | Enable caching of audio files                                  | `true`, `false`                                                                       | `true`              |
 | `audio_cache_size`              | Maximum size of audio cache in MiB                             | Number                                                                                |                     |
 | `volnorm`                       | Enable volume normalization                                    | `true`, `false`                                                                       | `false`             |
 | `volnorm_pregain`               | Normalization pregain to apply in dB (if enabled)              | Number                                                                                | `0.0`               |
 | `default_keybindings`           | Enable default keybindings                                     | `true`, `false`                                                                       | `false`             |
-| `notify`<sup>[4]</sup>          | Enable desktop notifications                                   | `true`, `false`                                                                       | `false`             |
+| `notify`<sup>[2]</sup>          | Enable desktop notifications                                   | `true`, `false`                                                                       | `false`             |
 | `bitrate`                       | Audio bitrate to use for streaming                             | `96`, `160`, `320`                                                                    | `320`               |
 | `gapless`                       | Enable gapless playback                                        | `true`, `false`                                                                       | `true`              |
 | `shuffle`                       | Set default shuffle state                                      | `true`, `false`                                                                       | `false`             |
 | `repeat`                        | Set default repeat mode                                        | `"off"`, `"track"`, `"playlist"`                                                      | `"off"`             |
 | `playback_state`                | Set default playback state                                     | `"Stopped"`, `"Paused"`, `"Playing"`, `"Default"`                                     | `"Paused"`          |
 | `library_tabs`                  | Tabs to show in library screen                                 | Array of `"tracks"`, `"albums"`, `"artists"`, `"playlists"`, `"podcasts"`, `"browse"` | All tabs            |
-| `cover_max_scale`<sup>[1]</sup> | Set maximum scaling ratio for cover art                        | Number                                                                                | No limit            |
 | `hide_display_names`            | Hides spotify usernames in the library header and on playlists | `true`, `false`                                                                       | `false`             |
-| `statusbar_format`              | Formatting for tracks in the statusbar                         | See [track_formatting](#track-formatting)                                             | `%artists - %track` |
 | `[track_format]`                | Set active fields shown in Library/Queue views                 | See [track formatting](#track-formatting)                                             |                     |
-| `[notification_format]`         | Set the text displayed in notifications<sup>[4]</sup>          | See [notification formatting](#notification-formatting)                               |                     |
+| `[notification_format]`         | Set the text displayed in notifications<sup>[2]</sup>          | See [notification formatting](#notification-formatting)                               |                     |
 | `[theme]`                       | Custom theme                                                   | See [custom theme](#theming)                                                          |                     |
 | `[keybindings]`                 | Custom keybindings                                             | See [custom keybindings](#custom-keybindings)                                         |                     |
 | `ap_port`                       | Set ap-port for librespot (for restrictive firewalls)          | `80`, `443`, `4070`                                                                   |                     |
-| `client_id`                     | Client ID of your own Spotify app for Web API requests<sup>[5]</sup> | String                                                                          | ncspot's shared ID |
-| `now_playing_height`            | Rows of the player bar that replaces the status bar (0: use the status bar) | Number                                                               | `5`                 |
-| `queue_panel_width`             | Columns of the side panel (queue and lyrics) on the right (0 hides it) | Number                                                                                | `40`                |
+| `client_id`                     | Client ID of your own Spotify app for Web API requests<sup>[3]</sup> | String                                                                          | ncspot's shared ID |
 | `theme_file`                    | TOML file of `[theme]` colors (relative to the config directory); `[theme]` overrides it | String                                                    |                     |
 
-1. If built with the `cover` feature.
-2. By default the statusbar will show a play icon when a track is playing and
-   a pause icon when playback is stopped. If this setting is enabled, the behavior
-   is reversed.
-3. Run `ncspot -h` for a list of devices.
-4. If built with the `notify` feature.
-5. ncspot's shared client ID is often rate limited. Create an app at
+1. Run `ncspot -h` for a list of devices.
+2. If built with the `notify` feature.
+3. ncspot's shared client ID is often rate limited. Create an app at
    https://developer.spotify.com/dashboard with the redirect URI `http://127.0.0.1:8989/login`
    and set its client ID here; you'll be asked to authorize it once.
 
@@ -407,26 +398,21 @@ primary = "light white"
 secondary = "light black"
 title = "green"
 playing = "green"
-playing_selected = "light green"
 playing_bg = "black"
 highlight = "light white"
 highlight_bg = "#484848"
 error = "light white"
 error_bg = "red"
-statusbar = "black"
 statusbar_progress = "green"
 statusbar_bg = "green"
 cmdline = "light white"
 cmdline_bg = "black"
-search_match = "light red"
 ```
 
 More examples can be found in [this pull request](https://github.com/hrkfdn/ncspot/pull/40).
 
 ### Track Formatting
-It's possible to customize how tracks are shown in Queue/Library views and the
-statusbar, whereas `statusbar_format` will hold the statusbar formatting and
-`[track_format]` the formatting for tracks in list views.
+It's possible to customize how tracks are shown in list views with `[track_format]`.
 If you don't define `center` for example, the default value will be used.
 Available options for tracks: `%artists`, `%artist`, `%title`, `%album`, `%saved`,
 `%duration`.
@@ -435,8 +421,6 @@ Available options for tracks: `%artists`, `%artist`, `%title`, `%album`, `%saved
 Default configuration:
 
 ```toml
-statusbar_format = "%artists - %title"
-
 [track_format]
 left = "%artists - %title"
 center = "%album"
@@ -503,19 +487,9 @@ body = "%artists"
 ```
 
 ### Cover Drawing
-When compiled with the `cover` feature, `ncspot` can draw the album art of the
-current track in a dedicated view (`:focus cover` or <kbd>F8</kbd> by default)
-using terminal image protocols supported by your terminal, such as Kitty,
-iTerm2, or Sixel. If no supported graphics protocol is detected, `ncspot`
-falls back to colored terminal blocks.
-
-By default, cover art scales to fit the available terminal view. To limit
-scaling beyond the image's native resolution, use the config key
-`cover_max_scale`:
-
-```toml
-cover_max_scale = 2
-```
+When compiled with the `cover` feature, `ncspot` draws album art (in the player, on page
+headers and next to list items) with the Kitty graphics protocol, in terminals that support it
+(Kitty, Ghostty, WezTerm, Konsole). In other terminals no covers are shown.
 
 ## Authentication
 `ncspot` uses OAuth2 for authentication. When launched for the first time, a link will be generated

@@ -27,9 +27,7 @@ pub trait ListItem: Sync + Send + 'static {
     fn play(&mut self, queue: &Queue);
     fn play_next(&mut self, queue: &Queue);
     fn queue(&mut self, queue: &Queue);
-    fn toggle_saved(&mut self, library: &Library);
     fn save(&mut self, library: &Library);
-    fn unsave(&mut self, library: &Library);
     /// What opening the item shows: a page for albums, playlists, artists, shows and categories.
     /// `None` for tracks and episodes (they get a context menu instead).
     fn target(&self) -> Option<OpenTarget> {
@@ -52,12 +50,6 @@ pub trait ListItem: Sync + Send + 'static {
 
     /// Cover to show next to the item in lists, if it has one.
     fn thumbnail_url(&self) -> Option<String> {
-        None
-    }
-
-    #[allow(unused_variables)]
-    #[inline]
-    fn is_saved(&self, library: &Library) -> Option<bool> {
         None
     }
 

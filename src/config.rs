@@ -80,7 +80,6 @@ pub struct ConfigValues {
     pub keybindings: Option<HashMap<String, String>>,
     pub theme: Option<ConfigTheme>,
     pub use_nerdfont: Option<bool>,
-    pub flip_status_indicators: Option<bool>,
     pub audio_cache: Option<bool>,
     pub audio_cache_size: Option<u32>,
     pub backend: Option<String>,
@@ -92,11 +91,9 @@ pub struct ConfigValues {
     pub gapless: Option<bool>,
     pub shuffle: Option<bool>,
     pub repeat: Option<queue::RepeatSetting>,
-    pub cover_max_scale: Option<f32>,
     pub playback_state: Option<PlaybackState>,
     pub track_format: Option<TrackFormat>,
     pub notification_format: Option<NotificationFormat>,
-    pub statusbar_format: Option<String>,
     pub library_tabs: Option<Vec<LibraryTab>>,
     pub hide_display_names: Option<bool>,
     pub ap_port: Option<u16>,
@@ -109,10 +106,6 @@ pub struct ConfigValues {
     /// ncspot's shared one (which is frequently rate limited). The app must have
     /// `http://127.0.0.1:8989/login` registered as a redirect URI.
     pub client_id: Option<String>,
-    /// Height in rows of the now-playing card above the status bar; 0 hides it.
-    pub now_playing_height: Option<usize>,
-    /// Width in columns of the queue panel on the right; 0 hides it.
-    pub queue_panel_width: Option<usize>,
     /// TOML file with theme colors (the keys of `[theme]`, at the top level), relative to the
     /// configuration directory unless absolute. Colors in `[theme]` override it.
     pub theme_file: Option<String>,
@@ -129,7 +122,6 @@ pub struct ConfigTheme {
     pub secondary: Option<String>,
     pub title: Option<String>,
     pub playing: Option<String>,
-    pub playing_selected: Option<String>,
     pub playing_bg: Option<String>,
     pub highlight: Option<String>,
     pub highlight_bg: Option<String>,
@@ -138,11 +130,9 @@ pub struct ConfigTheme {
     pub error_bg: Option<String>,
     pub statusbar_progress: Option<String>,
     pub statusbar_progress_bg: Option<String>,
-    pub statusbar: Option<String>,
     pub statusbar_bg: Option<String>,
     pub cmdline: Option<String>,
     pub cmdline_bg: Option<String>,
-    pub search_match: Option<String>,
 }
 
 /// The ordering that is used when representing a playlist.
