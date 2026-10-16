@@ -54,6 +54,8 @@ pub struct Queue {
     current_track: RwLock<Option<usize>>,
     spotify: Spotify,
     cfg: Arc<Config>,
+    /// Formats notifications.
+    #[cfg_attr(not(feature = "notify"), allow(dead_code))]
     library: Arc<Library>,
 }
 
@@ -621,7 +623,7 @@ impl Queue {
 }
 
 /// Id of the last notification shown by ncspot
-#[cfg(all(unix, not(target_os = "macos")))]
+#[cfg(all(feature = "notify", unix, not(target_os = "macos")))]
 static LAST_NOTIFICATION_ID: std::sync::Mutex<Option<u32>> = std::sync::Mutex::new(None);
 
 /// Insert `source` at `index` in `sources`, padding it first if it's fallen out of step with the

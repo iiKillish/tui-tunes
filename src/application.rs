@@ -95,6 +95,7 @@ impl Application {
         let event_manager = EventManager::new();
         tui::set_event_manager(event_manager.clone());
 
+        #[cfg_attr(not(feature = "mpris"), allow(unused_mut))]
         let mut spotify =
             spotify::Spotify::new(event_manager.clone(), credentials, configuration.clone())?;
 

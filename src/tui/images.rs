@@ -95,18 +95,18 @@ pub fn begin_frame() {
 
 /// Show `source` filling `area` (cropped to fit) in the frame being drawn. Does nothing when the
 /// terminal can't show images; check [supported] to draw something else instead.
+#[cfg_attr(not(feature = "cover"), allow(unused_variables))]
 pub fn request_image(source: Source, area: Rect, y_shift: u16) {
-    if !supported() || area.is_empty() {
-        return;
-    }
     #[cfg(feature = "cover")]
-    with_layer(|layer| {
-        layer.frame.push(Request {
-            source,
-            area,
-            y_shift,
+    if supported() && !area.is_empty() {
+        with_layer(|layer| {
+            layer.frame.push(Request {
+                source,
+                area,
+                y_shift,
+            });
         });
-    });
+    }
 }
 
 /// Show the cover at `url` filling `area` in the frame being drawn.
