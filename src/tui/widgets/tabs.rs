@@ -96,19 +96,34 @@ impl Page for Tabbed {
     }
 
     fn draw(&mut self, frame: &mut Frame, area: Rect, ctx: &Ctx, focused: bool) {
-        if area.height < 3 {
+        self.tab_rects.clear();
+        if area.is_empty() {
             return;
         }
-        let labels: Vec<String> = self.tabs.iter().map(|(l, _)| l.clone()).collect();
-        self.tab_rects = draw_tab_row(
-            frame,
-            Rect::new(area.x, area.y, area.width, 1),
-            &labels,
-            self.current,
-            ctx,
-        );
+        // The tab row and a blank row under it; in very short areas only the tab row, and in a
+        // single row only the page.
+        let tab_rows = match area.height {
+            1 => 0,
+            2 => 1,
+            _ => 2,
+        };
+        if tab_rows > 0 {
+            let labels: Vec<String> = self.tabs.iter().map(|(l, _)| l.clone()).collect();
+            self.tab_rects = draw_tab_row(
+                frame,
+                Rect::new(area.x, area.y, area.width, 1),
+                &labels,
+                self.current,
+                ctx,
+            );
+        }
         if let Some((_, page)) = self.tabs.get_mut(self.current) {
-            let inner = Rect::new(area.x, area.y + 2, area.width, area.height - 2);
+            let inner = Rect::new(
+                area.x,
+                area.y + tab_rows,
+                area.width,
+                area.height - tab_rows,
+            );
             page.draw(frame, inner, ctx, focused);
         }
     }

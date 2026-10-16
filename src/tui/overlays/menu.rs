@@ -84,8 +84,14 @@ impl Overlay for Menu {
             .chain(std::iter::once(width(&self.title)))
             .max()
             .unwrap_or(10);
-        let w = (content_width as u16 + 6).clamp(24, screen.width.saturating_sub(4).max(10));
-        let h = (self.entries.len() as u16 + 2).min(screen.height.saturating_sub(4).max(3));
+        // A margin around it where there's room; never larger than the screen.
+        let w = (content_width as u16 + 6)
+            .max(24)
+            .min(screen.width.saturating_sub(4).max(10))
+            .min(screen.width);
+        let h = (self.entries.len() as u16 + 2)
+            .min(screen.height.saturating_sub(4).max(3))
+            .min(screen.height);
         let area = Rect::new(
             screen.x + (screen.width.saturating_sub(w)) / 2,
             screen.y + (screen.height.saturating_sub(h)) / 3,

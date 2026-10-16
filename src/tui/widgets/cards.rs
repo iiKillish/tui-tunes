@@ -29,6 +29,8 @@ use crate::tui::style::{SELECTION_MARKER, Styles, bold, fill, put, scroll_to};
 
 /// Rows of a card's cover (when covers can be shown).
 pub const COVER_ROWS: u16 = 6;
+/// Smallest covers, in short windows.
+const MIN_COVER_ROWS: u16 = 3;
 /// Narrowest card.
 const MIN_CARD_WIDTH: u16 = 16;
 /// Columns between cards.
@@ -258,18 +260,23 @@ impl CardGrid {
         cover + 3
     }
 
-    /// Rows of the covers in an area `height` tall: [COVER_ROWS], smaller (down to 3) when that
-    /// would leave room for only one row of cards, or 0 without images.
+    /// Rows of the covers in an area `height` tall: [COVER_ROWS], smaller (down to
+    /// [MIN_COVER_ROWS]) when that would leave room for only one row of cards, or 0 without
+    /// images or when not even one row of cards with the smallest covers fits.
     fn fit_cover_rows(height: u16, layout: CardLayout) -> u16 {
         if !images::supported() {
             return 0;
         }
-        // Rows needed besides the covers for two rows of cards.
-        let other = match layout {
-            CardLayout::Rows => 2 * (1 + 3),
-            CardLayout::Grid => 2 * 3 + 2,
+        // Rows besides the covers: of one row of cards (title and subtitle, after a section
+        // title in rows mode), and of two rows of cards with the gaps between them.
+        let (one, two) = match layout {
+            CardLayout::Rows => (1 + 2, 2 * (1 + 3)),
+            CardLayout::Grid => (2, 2 * 3 + 2),
         };
-        (height.saturating_sub(other) / 2).clamp(3, COVER_ROWS)
+        if height < one + MIN_COVER_ROWS {
+            return 0;
+        }
+        (height.saturating_sub(two) / 2).clamp(MIN_COVER_ROWS, COVER_ROWS)
     }
 
     /// Draw `card` with its top-left corner at (`x`, `y`).
@@ -300,7 +307,7 @@ impl CardGrid {
                     put(
                         buf,
                         x + cover.width / 2,
-                        y + cover_rows / 2 - 1,
+                        y + (cover_rows - 1) / 2,
                         card.placeholder(),
                         1,
                         style,

@@ -23,6 +23,9 @@ use crate::tui::nav;
 use crate::tui::page::{Ctx, Outcome};
 use crate::tui::style::{SELECTION_MARKER, Styles, bold, fill, put, scroll_to, width};
 
+/// Narrowest list that shows covers before its items.
+const MIN_WIDTH_FOR_THUMBNAILS: u16 = 50;
+
 pub struct ItemList<I: ListItem + Clone> {
     content: Arc<RwLock<Vec<I>>>,
     pagination: Pagination<I>,
@@ -140,10 +143,12 @@ impl<I: ListItem + Clone> ItemList<I> {
         }
     }
 
-    /// Width of the covers before items, or 0 if there are none.
-    fn thumbnail_width(&self, content: &[I]) -> u16 {
+    /// Width of the covers before items, or 0 if there are none (or the list is too narrow to
+    /// spare the room).
+    fn thumbnail_width(&self, content: &[I], list_width: u16) -> u16 {
         if self.thumbnails
             && images::supported()
+            && list_width >= MIN_WIDTH_FOR_THUMBNAILS
             && content.iter().take(20).any(|i| i.thumbnail_url().is_some())
         {
             images::square_width(1)
@@ -168,7 +173,7 @@ impl<I: ListItem + Clone> ItemList<I> {
         } else {
             0
         };
-        let thumb = self.thumbnail_width(&content);
+        let thumb = self.thumbnail_width(&content, area.width);
         let current = ctx.queue.get_current_index();
         let buf = frame.buffer_mut();
 

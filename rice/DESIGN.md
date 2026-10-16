@@ -6,7 +6,10 @@ Chosen from the layout mockups:
   windows): big centered cover, title + ♥, artist, album, then **K3 phone-style controls**: the
   progress bar first (elapsed / remaining under or beside it), then shuffle at the left edge,
   previous / play-pause / next in the middle, repeat at the right edge; volume under them.
-  Falls back to a 5-row bottom bar on small windows.
+  Falls back to a 5-row bottom bar on small windows (fewer rows in tiny ones; when the bar is
+  too narrow for the track beside the controls, the title goes on a row above them).
+- Narrow windows leave covers out (page headers, the featured card, list thumbnails) rather
+  than squeeze the text; card grids too short for covers show text-only cards.
 - Under the hero: **T1 tabs**: plain words (Home, Search, Library, Up next, Lyrics), the current
   one bold in the accent and underlined; no fills.
 - **V1 Clean**: no background fills or borders on the main screens (menus/dialogs may use a

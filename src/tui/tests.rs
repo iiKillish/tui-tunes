@@ -1,6 +1,7 @@
 //! Smoke tests: the whole app against a disconnected Spotify and an in-memory terminal. They
 //! check that every screen draws, and that keys, commands and clicks don't panic.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use ratatui::Terminal;
@@ -8,15 +9,23 @@ use ratatui::backend::TestBackend;
 use ratatui::crossterm::event::{
     KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
+use ratatui::layout::Rect;
 
-use crate::command::{Command, MoveAmount, MoveMode};
+use crate::command::{Command, MoveAmount, MoveMode, TargetMode};
 use crate::config::Config;
 use crate::events::EventManager;
 use crate::library::Library;
+use crate::model::album::Album;
+use crate::model::artist::Artist;
+use crate::model::playable::Playable;
+use crate::model::playlist::Playlist;
+use crate::model::track::Track;
 use crate::queue::Queue;
 use crate::spotify::Spotify;
 use crate::tui::app::App;
+use crate::tui::images;
 use crate::tui::page::Ctx;
+use crate::tui::pages;
 
 fn app() -> App {
     let config = Config::new_for_test();
@@ -129,6 +138,438 @@ fn print_layout() {
         println!("===== {screen}");
         for line in text.lines().skip(24).take(14) {
             println!("{}", line.trim_end());
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Layout at many sizes, with and without images, over a library with some content.
+
+fn track(n: usize) -> Track {
+    serde_json::from_value(serde_json::json!({
+        "id": format!("test{n}"),
+        "uri": format!("spotify:track:test{n}"),
+        "title": format!("Song number {n} with a fairly long title"),
+        "track_number": n,
+        "disc_number": 1,
+        "duration": 180_000 + n * 1000,
+        "artists": ["Some Artist", "Another Artist"],
+        "artist_ids": ["artist1", "artist2"],
+        "album": "An Album Title",
+        "album_id": null,
+        "album_artists": ["Some Artist"],
+        // Never resolves (RFC 2606): covers take their space but never load.
+        "cover_url": "https://covers.invalid/track.jpg",
+        "url": "",
+        "added_at": null,
+        "list_index": n,
+        "is_local": false,
+        "is_playable": true,
+    }))
+    .unwrap()
+}
+
+fn tracks(count: usize) -> Vec<Track> {
+    (1..=count).map(track).collect()
+}
+
+fn album() -> Album {
+    serde_json::from_value(serde_json::json!({
+        "id": null,
+        "title": "An Album Title That Goes On For A While",
+        "artists": ["Some Artist"],
+        "artist_ids": ["artist1"],
+        "year": "1999",
+        "cover_url": "https://covers.invalid/album.jpg",
+        "url": null,
+        "tracks": tracks(12),
+        "added_at": null,
+    }))
+    .unwrap()
+}
+
+fn playlist() -> Playlist {
+    let tracks: Vec<Playable> = tracks(30).into_iter().map(Playable::Track).collect();
+    Playlist {
+        id: "playlist".into(),
+        name: "A Playlist".into(),
+        owner_id: "someone".into(),
+        owner_name: Some("Someone".into()),
+        snapshot_id: String::new(),
+        num_tracks: tracks.len(),
+        tracks: Some(tracks),
+        collaborative: false,
+        cover_url: Some("https://covers.invalid/playlist.jpg".into()),
+    }
+}
+
+fn artist() -> Artist {
+    Artist {
+        id: None,
+        name: "Some Artist".into(),
+        url: None,
+        tracks: None,
+        is_followed: false,
+    }
+}
+
+/// An app whose library and queue have content, playing the first song.
+fn full_app() -> App {
+    let app = app();
+    let ctx = app.ctx.clone();
+    ctx.library.tracks.write().unwrap().extend(tracks(40));
+    ctx.library.albums.write().unwrap().push(album());
+    ctx.library.playlists.write().unwrap().push(playlist());
+    ctx.library.artists.write().unwrap().push(artist());
+    *ctx.library.is_done.write().unwrap() = true;
+    for track in tracks(25) {
+        ctx.queue.append(Playable::Track(track));
+    }
+    ctx.queue.play(0, false, false);
+    let mut albums = vec![album()];
+    albums.extend((2..=4).map(|n| {
+        let mut album = album();
+        album.title = format!("Album {n}");
+        album.id = Some(format!("album{n}"));
+        album
+    }));
+    let home =
+        pages::home::new_for_test(&ctx, albums, vec![playlist()], vec![artist()], tracks(10));
+    let mut app = app;
+    app.set_root("home", Box::new(home));
+    app
+}
+
+const SCREENS: [&str; 5] = ["home", "search", "library", "queue", "lyrics"];
+const PAGES: [&str; 3] = ["album", "playlist", "artist"];
+/// The library's tabs after Tracks.
+const LIBRARY_GRIDS: [&str; 3] = ["albums", "artists", "playlists"];
+
+/// Draws each screen, and pages opened on Home, on a `width`×`height` terminal. Returns the
+/// text of each.
+fn draw_all(app: &mut App, width: u16, height: u16) -> Vec<(&'static str, String)> {
+    let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+    let mut shots = Vec::new();
+    let mut shot = |app: &mut App, name: &'static str| {
+        terminal
+            .draw(|frame| app.draw(frame))
+            .unwrap_or_else(|e| panic!("{name} at {width}x{height}: {e}"));
+        shots.push((name, screen_text(&terminal)));
+    };
+    for screen in SCREENS {
+        app.run(&Command::Focus(screen.into()));
+        shot(app, screen);
+    }
+    // The library's card grids.
+    app.run(&Command::Focus("library".into()));
+    for tab in LIBRARY_GRIDS {
+        app.run(&Command::Tab(true));
+        shot(app, tab);
+    }
+    for _ in LIBRARY_GRIDS {
+        app.run(&Command::Tab(false));
+    }
+    app.run(&Command::Focus("home".into()));
+    let ctx = app.ctx.clone();
+    app.open_page(Box::new(pages::album::AlbumPage::new(album(), &ctx)));
+    shot(app, "album");
+    app.open_page(Box::new(pages::playlist::PlaylistPage::new(
+        playlist(),
+        &ctx,
+    )));
+    shot(app, "playlist");
+    app.open_page(Box::new(pages::artist::ArtistPage::new(artist(), &ctx)));
+    shot(app, "artist");
+    for _ in PAGES {
+        app.run(&Command::Back);
+    }
+    shots
+}
+
+/// The screens of [full_app] at `width`×`height`, by name ([SCREENS], [LIBRARY_GRIDS], [PAGES]).
+fn shots(images_on: bool, width: u16, height: u16) -> HashMap<&'static str, String> {
+    images::force_supported(images_on);
+    draw_all(&mut full_app(), width, height)
+        .into_iter()
+        .collect()
+}
+
+/// Asserts that `text` contains each of `expected`, showing the screen if not.
+#[track_caller]
+fn assert_shows(name: &str, text: &str, expected: &[&str]) {
+    for e in expected {
+        assert!(text.contains(e), "{name}: {e:?} missing from\n{text}");
+    }
+}
+
+/// The rows of `text` from `from` on.
+fn rows_from(text: &str, from: usize) -> String {
+    text.lines().skip(from).collect::<Vec<_>>().join("\n")
+}
+
+/// The player's controls, unless they're images.
+fn controls(images_on: bool) -> &'static [&'static str] {
+    if images_on && cfg!(feature = "cover") {
+        &[]
+    } else {
+        &["⇄", "⏮", "▶", "⏭", "↻"]
+    }
+}
+
+/// Page content each screen shows at any reasonable size.
+fn page_content(name: &str) -> &'static [&'static str] {
+    match name {
+        "home" => &["All", "Album • Some Artist"],
+        "search" => &["What do you want to listen to?"],
+        "library" => &["Tracks", "Song number 1"],
+        "queue" => &["Now playing", "Song number 1"],
+        "lyrics" => &["Loading lyrics"],
+        "albums" => &["An Album Title", "Album • Some"],
+        "artists" => &["Some Artist", "Artist"],
+        "playlists" => &["Liked Songs", "A Playlist"],
+        "album" | "playlist" => &["Song number 2", "3:02"],
+        "artist" => &["‹ ", "Some Artist"],
+        _ => unreachable!(),
+    }
+}
+
+#[test]
+fn test_layout_big_windows() {
+    for images_on in [false, true] {
+        for (width, height) in [(200, 60), (75, 60), (120, 30)] {
+            for (name, text) in shots(images_on, width, height) {
+                let name = &format!("{name} {width}x{height} images: {images_on}");
+                // The hero: the track, the controls, the volume.
+                assert_shows(
+                    name,
+                    &text,
+                    &[
+                        "Song number 1 with a fairly",
+                        "Some Artist, Another Artist",
+                        "-3:01",
+                        "♪",
+                        "Home   Search   Library   Up next   Lyrics",
+                    ],
+                );
+                assert_shows(name, &text, controls(images_on));
+                assert_shows(name, &text, page_content(name.split(' ').next().unwrap()));
+            }
+            // Room for the featured card and the page headers.
+            let shots = shots(images_on, width, height);
+            assert_shows(
+                "home",
+                &shots["home"],
+                &["Pick up where you left off", "▶ Play"],
+            );
+            assert_shows(
+                "album",
+                &shots["album"],
+                &[
+                    "Album",
+                    "Some Artist • 1999 • 12 songs",
+                    "⇄ Shuffle",
+                    "♥ Liked",
+                ],
+            );
+            assert_shows(
+                "playlist",
+                &shots["playlist"],
+                &["Playlist", "Someone • 30 songs", "♡ Like"],
+            );
+            assert_shows("artist", &shots["artist"], &["Top tracks", "▶ Play"]);
+            assert_shows("queue", &shots["queue"], &["Next up", "Song number 2"]);
+        }
+    }
+}
+
+#[test]
+fn test_layout_small_windows() {
+    for images_on in [false, true] {
+        for (width, height) in [(80, 15), (80, 10), (40, 10), (60, 20)] {
+            for (name, text) in shots(images_on, width, height) {
+                let name_size = &format!("{name} {width}x{height} images: {images_on}");
+                // The bar: the title readable, the controls and the progress.
+                assert_shows(name_size, &text, &["Song number 1", "0:00", "-3:01"]);
+                assert_shows(name_size, &text, controls(images_on));
+                assert_shows(name_size, &text, &["Home   Search   Library"]);
+                if height >= 15 || !["queue", "home"].contains(&name) {
+                    assert_shows(name_size, &text, page_content(name));
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test_layout_tiny_windows() {
+    for images_on in [false, true] {
+        for (width, height) in [(20, 5), (30, 7), (80, 4), (80, 6)] {
+            for (name, text) in shots(images_on, width, height) {
+                let name = &format!("{name} {width}x{height} images: {images_on}");
+                // The tabs, and the bar's controls, inside its rows at the bottom.
+                assert_shows(name, &text, &["Home   Search"]);
+                let bar_rows = (height / 3) as usize;
+                let above_bar = text
+                    .lines()
+                    .take(height as usize - bar_rows)
+                    .collect::<String>();
+                let bar = rows_from(&text, height as usize - bar_rows);
+                assert_shows(name, &bar, controls(images_on));
+                // (▶ also marks the song playing in lists.)
+                for control in controls(images_on).iter().filter(|c| **c != "▶") {
+                    assert!(
+                        !above_bar.contains(control),
+                        "{name}: {control} above the bar\n{text}"
+                    );
+                }
+            }
+        }
+        // Tabbed pages with a page area 2 rows high still show their tabs.
+        let shots = shots(images_on, 80, 6);
+        assert_shows("library", &shots["library"], &["Tracks   Albums"]);
+    }
+}
+
+#[test]
+fn test_layout_narrow_windows() {
+    for images_on in [false, true] {
+        let shots = shots(images_on, 24, 40);
+        for (name, text) in &shots {
+            let name = &format!("{name} 24x40 images: {images_on}");
+            // The hero's controls don't run into each other.
+            assert_shows(name, text, controls(images_on));
+            for pair in ["⇄⏮", "⏭↻"] {
+                assert!(!text.contains(pair), "{name}: controls collide\n{text}");
+            }
+        }
+        // Covers are left out rather than squeeze the text.
+        assert_shows("home", &shots["home"], &["Pick up where", "An Album Title"]);
+        assert_shows("album", &shots["album"], &["An Album Title", "Some Artist"]);
+    }
+}
+
+#[test]
+fn test_card_grids_in_short_windows() {
+    // Too short for covers: the cards are text only, rather than not drawn at all.
+    for images_on in [false, true] {
+        let shots = shots(images_on, 80, 10);
+        for name in LIBRARY_GRIDS {
+            assert_shows(name, &shots[name], page_content(name));
+        }
+    }
+}
+
+#[test]
+fn test_layout_snapshot() {
+    images::force_supported(false);
+    let shots: HashMap<_, _> = draw_all(&mut full_app(), 40, 10).into_iter().collect();
+    let expected = [
+        "  Home   Search   Library   Up next   L…",
+        "                                        ",
+        "  ‹ Home   An Album Title That Goes O…  ",
+        "▌  ▶ Song number 1 with a fair…  ✓ 3:01 ",
+        "   2 Song number 2 with a fair…  ✓ 3:02 ",
+        "   3 Song number 3 with a fair…  ✓ 3:03 ",
+        "   4 Song number 4 with a fair…  ✓ 3:04 ",
+        "  Song number 1 with a fairly long…  ♥  ",
+        "         ⇄    ⏮    ▶    ⏭    ↻          ",
+        "      0:00 ━━━━━━━━━━━━━━━━━ -3:01      ",
+    ];
+    assert_eq!(
+        shots["album"].lines().collect::<Vec<_>>(),
+        expected,
+        "\n{}",
+        shots["album"]
+    );
+}
+
+#[test]
+fn test_no_panic_at_any_size() {
+    for images_on in [false, true] {
+        images::force_supported(images_on);
+        let mut app = full_app();
+        for width in (1..=120).step_by(7) {
+            for height in (1..=50).step_by(3) {
+                draw_all(&mut app, width, height);
+            }
+        }
+        for (width, height) in [(0, 0), (1, 1), (2, 2), (300, 2), (2, 120), (250, 80)] {
+            draw_all(&mut app, width, height);
+        }
+    }
+}
+
+#[test]
+fn test_overlays_at_any_size() {
+    let mut app = full_app();
+    app.run(&Command::Focus("library".into()));
+    for width in (0..=60).step_by(3) {
+        for height in (0..=24).step_by(2) {
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            for open in [
+                Command::Help,
+                Command::SaveQueue,
+                Command::Open(TargetMode::Selected),
+            ] {
+                app.run(&open);
+                terminal
+                    .draw(|frame| app.draw(frame))
+                    .unwrap_or_else(|e| panic!("{open:?} at {width}x{height}: {e}"));
+                let screen = Rect::new(0, 0, width, height);
+                let areas = app.overlay_areas();
+                assert_eq!(areas.len(), 1, "{open:?} at {width}x{height} didn't open");
+                assert!(
+                    areas[0].is_empty() || screen.union(areas[0]) == screen,
+                    "{open:?} at {width}x{height} is off screen: {:?}",
+                    areas[0]
+                );
+                key(&mut app, KeyCode::Esc);
+            }
+        }
+    }
+}
+
+#[test]
+fn test_clicks_in_small_windows_dont_panic() {
+    for images_on in [false, true] {
+        images::force_supported(images_on);
+        for (width, height) in [(20, 5), (40, 10), (80, 15)] {
+            let mut app = full_app();
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            for screen in SCREENS {
+                for row in 0..height {
+                    for column in (0..width).step_by(5) {
+                        app.run(&Command::Focus(screen.into()));
+                        terminal.draw(|frame| app.draw(frame)).unwrap();
+                        app.mouse(MouseEvent {
+                            kind: MouseEventKind::Down(MouseButton::Left),
+                            column,
+                            row,
+                            modifiers: KeyModifiers::NONE,
+                        });
+                        terminal.draw(|frame| app.draw(frame)).unwrap();
+                        key(&mut app, KeyCode::Esc);
+                        app.run(&Command::Back);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Prints every screen at a size:
+/// `SIZE=80x15 IMAGES=1 cargo test print_size -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn print_size() {
+    let size = std::env::var("SIZE").unwrap_or("80x24".into());
+    let (w, h) = size.split_once('x').unwrap();
+    images::force_supported(std::env::var("IMAGES").is_ok());
+    let mut app = full_app();
+    for (name, text) in draw_all(&mut app, w.parse().unwrap(), h.parse().unwrap()) {
+        println!("===== {name} {size}");
+        for line in text.lines() {
+            println!("|{line}|");
         }
     }
 }
