@@ -448,7 +448,6 @@ impl WebApi {
                             .flat_map(|(index, pt)| {
                                 pt.item.as_ref().map(|t| {
                                     let mut playable: Playable = t.into();
-                                    // TODO: set these
                                     playable.set_added_at(pt.added_at);
                                     playable.set_list_index(page.offset as usize + index);
                                     playable

@@ -11,7 +11,7 @@ use ratatui::crossterm::event::{
 };
 use ratatui::layout::Rect;
 
-use crate::command::{Command, MoveAmount, MoveMode, TargetMode};
+use crate::command::{Command, MoveAmount, MoveMode, ScreenId, TargetMode};
 use crate::config::Config;
 use crate::events::EventManager;
 use crate::library::Library;
@@ -65,8 +65,8 @@ fn test_every_screen_draws_portrait_and_wide() {
     for (width, height) in [(75, 60), (200, 50), (60, 20)] {
         let mut app = app();
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
-        for screen in ["home", "search", "library", "queue", "lyrics"] {
-            app.run(&Command::Focus(screen.into()));
+        for screen in SCREENS {
+            app.run(&Command::Focus(screen));
             terminal.draw(|frame| app.draw(frame)).unwrap();
         }
         let text = screen_text(&terminal);
@@ -86,8 +86,8 @@ fn test_keys_commands_and_clicks_dont_panic() {
     let mut app = app();
     let mut terminal = Terminal::new(TestBackend::new(75, 60)).unwrap();
     terminal.draw(|frame| app.draw(frame)).unwrap();
-    for screen in ["home", "search", "library", "queue", "lyrics"] {
-        app.run(&Command::Focus(screen.into()));
+    for screen in SCREENS {
+        app.run(&Command::Focus(screen));
         for cmd in [
             Command::Move(MoveMode::Down, MoveAmount::Integer(3)),
             Command::Move(MoveMode::Right, MoveAmount::Integer(1)),
@@ -130,8 +130,8 @@ fn test_keys_commands_and_clicks_dont_panic() {
 fn print_layout() {
     let mut app = app();
     let mut terminal = Terminal::new(TestBackend::new(75, 60)).unwrap();
-    for screen in ["home", "search", "library", "queue", "lyrics"] {
-        app.run(&Command::Focus(screen.into()));
+    for screen in SCREENS {
+        app.run(&Command::Focus(screen));
         terminal.draw(|frame| app.draw(frame)).unwrap();
         let text = screen_text(&terminal);
         // The page part only, under the player.
@@ -236,11 +236,17 @@ fn full_app() -> App {
     let home =
         pages::home::new_for_test(&ctx, albums, vec![playlist()], vec![artist()], tracks(10));
     let mut app = app;
-    app.set_root("home", Box::new(home));
+    app.set_root(ScreenId::Home, Box::new(home));
     app
 }
 
-const SCREENS: [&str; 5] = ["home", "search", "library", "queue", "lyrics"];
+const SCREENS: [ScreenId; 5] = [
+    ScreenId::Home,
+    ScreenId::Search,
+    ScreenId::Library,
+    ScreenId::Queue,
+    ScreenId::Lyrics,
+];
 const PAGES: [&str; 3] = ["album", "playlist", "artist"];
 /// The library's tabs after Tracks.
 const LIBRARY_GRIDS: [&str; 3] = ["albums", "artists", "playlists"];
@@ -257,11 +263,11 @@ fn draw_all(app: &mut App, width: u16, height: u16) -> Vec<(&'static str, String
         shots.push((name, screen_text(&terminal)));
     };
     for screen in SCREENS {
-        app.run(&Command::Focus(screen.into()));
-        shot(app, screen);
+        app.run(&Command::Focus(screen));
+        shot(app, screen.into());
     }
     // The library's card grids.
-    app.run(&Command::Focus("library".into()));
+    app.run(&Command::Focus(ScreenId::Library));
     for tab in LIBRARY_GRIDS {
         app.run(&Command::Tab(true));
         shot(app, tab);
@@ -269,7 +275,7 @@ fn draw_all(app: &mut App, width: u16, height: u16) -> Vec<(&'static str, String
     for _ in LIBRARY_GRIDS {
         app.run(&Command::Tab(false));
     }
-    app.run(&Command::Focus("home".into()));
+    app.run(&Command::Focus(ScreenId::Home));
     let ctx = app.ctx.clone();
     app.open_page(Box::new(pages::album::AlbumPage::new(album(), &ctx)));
     shot(app, "album");
@@ -502,7 +508,7 @@ fn test_no_panic_at_any_size() {
 #[test]
 fn test_overlays_at_any_size() {
     let mut app = full_app();
-    app.run(&Command::Focus("library".into()));
+    app.run(&Command::Focus(ScreenId::Library));
     for width in (0..=60).step_by(3) {
         for height in (0..=24).step_by(2) {
             let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
@@ -539,7 +545,7 @@ fn test_clicks_in_small_windows_dont_panic() {
             for screen in SCREENS {
                 for row in 0..height {
                     for column in (0..width).step_by(5) {
-                        app.run(&Command::Focus(screen.into()));
+                        app.run(&Command::Focus(screen));
                         terminal.draw(|frame| app.draw(frame)).unwrap();
                         app.mouse(MouseEvent {
                             kind: MouseEventKind::Down(MouseButton::Left),

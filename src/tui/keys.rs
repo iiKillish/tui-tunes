@@ -7,8 +7,8 @@ use log::{error, info};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::command::{
-    Command, GotoMode, JumpMode, MoveAmount, MoveMode, PanelAction, SeekDirection, ShiftMode,
-    TargetMode, parse,
+    Command, GotoMode, JumpMode, MoveAmount, MoveMode, PanelAction, ScreenId, SeekDirection,
+    ShiftMode, TargetMode, parse,
 };
 use crate::config::Config;
 
@@ -207,11 +207,11 @@ fn default_keybindings() -> HashMap<String, Vec<Command>> {
     }
 
     // F1-F5 in the order of the tabs.
-    kb.insert("F1".into(), vec![Command::Focus("home".into())]);
-    kb.insert("F2".into(), vec![Command::Focus("search".into())]);
-    kb.insert("F3".into(), vec![Command::Focus("library".into())]);
-    kb.insert("F4".into(), vec![Command::Focus("queue".into())]);
-    kb.insert("F5".into(), vec![Command::Focus("lyrics".into())]);
+    kb.insert("F1".into(), vec![Command::Focus(ScreenId::Home)]);
+    kb.insert("F2".into(), vec![Command::Focus(ScreenId::Search)]);
+    kb.insert("F3".into(), vec![Command::Focus(ScreenId::Library)]);
+    kb.insert("F4".into(), vec![Command::Focus(ScreenId::Queue)]);
+    kb.insert("F5".into(), vec![Command::Focus(ScreenId::Lyrics)]);
     kb.insert("?".into(), vec![Command::Help]);
     kb.insert("Esc".into(), vec![Command::Back]);
     kb.insert("Backspace".into(), vec![Command::Back]);

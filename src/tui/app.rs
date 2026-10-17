@@ -17,7 +17,7 @@ use ratatui::crossterm::event::{
 use ratatui::layout::{Position, Rect};
 use ratatui::style::Modifier;
 
-use crate::command::{self, Command, JumpMode, PanelAction};
+use crate::command::{self, Command, JumpMode, PanelAction, ScreenId};
 use crate::tui::actions;
 use crate::tui::header::{self, HEADER_ROWS, HeaderAction};
 use crate::tui::images;
@@ -36,7 +36,7 @@ const MIN_PAGE_ROWS: u16 = 10;
 const MIN_ROWS_BELOW_HEADER: u16 = 6;
 
 struct Screen {
-    id: &'static str,
+    id: ScreenId,
     label: &'static str,
     root: Box<dyn Page>,
     /// Pages opened on top of the root, last on top.
@@ -97,31 +97,31 @@ impl App {
         let (bindings, binding_list) = keys::bindings(&ctx.config);
         let screens = vec![
             Screen {
-                id: "home",
+                id: ScreenId::Home,
                 label: "Home",
                 root: Box::new(pages::home::new(&ctx)),
                 stack: Vec::new(),
             },
             Screen {
-                id: "search",
+                id: ScreenId::Search,
                 label: "Search",
                 root: Box::new(pages::search::new(&ctx)),
                 stack: Vec::new(),
             },
             Screen {
-                id: "library",
+                id: ScreenId::Library,
                 label: "Library",
                 root: Box::new(pages::library::new(&ctx)),
                 stack: Vec::new(),
             },
             Screen {
-                id: "queue",
+                id: ScreenId::Queue,
                 label: "Up next",
                 root: Box::new(pages::queue::new(&ctx)),
                 stack: Vec::new(),
             },
             Screen {
-                id: "lyrics",
+                id: ScreenId::Lyrics,
                 label: "Lyrics",
                 root: Box::new(pages::lyrics::new(&ctx)),
                 stack: Vec::new(),
@@ -131,8 +131,9 @@ impl App {
             .config
             .values()
             .initial_screen
-            .clone()
-            .unwrap_or_else(|| "home".into());
+            .as_deref()
+            .and_then(|id| id.parse().ok())
+            .unwrap_or(ScreenId::Home);
         let current = screens.iter().position(|s| s.id == initial).unwrap_or(0);
         let mut app = Self {
             ctx,
@@ -168,9 +169,9 @@ impl App {
         &mut self.screens[self.current]
     }
 
-    pub fn set_screen(&mut self, id: &str) -> bool {
+    pub fn set_screen(&mut self, id: ScreenId) {
         let Some(index) = self.screens.iter().position(|s| s.id == id) else {
-            return false;
+            return;
         };
         if index != self.current {
             self.previous = self.current;
@@ -178,7 +179,6 @@ impl App {
         }
         let ctx = self.ctx.clone();
         self.screen().top().on_show(&ctx);
-        true
     }
 
     fn back(&mut self) {
@@ -201,7 +201,7 @@ impl App {
 
     /// Replace the root page of the screen `id`.
     #[cfg(test)]
-    pub fn set_root(&mut self, id: &str, page: Box<dyn crate::tui::page::Page>) {
+    pub fn set_root(&mut self, id: ScreenId, page: Box<dyn crate::tui::page::Page>) {
         if let Some(screen) = self.screens.iter_mut().find(|s| s.id == id) {
             screen.root = page;
             screen.stack.clear();
@@ -271,25 +271,23 @@ impl App {
 
         match cmd {
             Command::Focus(id) => {
-                if id == "search" && self.screens[self.current].id == "search" {
+                if *id == ScreenId::Search && self.screens[self.current].id == ScreenId::Search {
                     // Focusing search again starts a new search.
                     self.screen().stack.clear();
                 }
-                if !self.set_screen(id) {
-                    self.set_message(Err(format!("No screen called \"{id}\"")));
-                }
+                self.set_screen(*id);
             }
             Command::Back => self.back(),
             Command::Panel(PanelAction::Lyrics) => {
-                if self.screens[self.current].id == "lyrics" {
+                if self.screens[self.current].id == ScreenId::Lyrics {
                     let previous = self.screens[self.previous].id;
                     self.set_screen(previous);
                 } else {
-                    self.set_screen("lyrics");
+                    self.set_screen(ScreenId::Lyrics);
                 }
             }
             Command::Panel(PanelAction::Queue) => {
-                self.set_screen("queue");
+                self.set_screen(ScreenId::Queue);
             }
             // Pages without tabs of their own have nothing to switch.
             Command::Tab(_) => {}
@@ -304,7 +302,7 @@ impl App {
                 self.set_screen(id);
             }
             Command::Search(_) => {
-                self.set_screen("search");
+                self.set_screen(ScreenId::Search);
                 self.screen().stack.clear();
                 let outcome = self.screen().root.command(cmd, &ctx);
                 self.apply(outcome, false);

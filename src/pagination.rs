@@ -90,8 +90,8 @@ pub type Paginator<I> = Box<dyn Fn(Arc<RwLock<Vec<I>>>) + Send + Sync>;
 ///
 /// `loaded_content`: The amount of currently loaded items
 /// `max_content`: The maximum amount of items
-/// `callback`: TODO: document
-/// `busy`: TODO: document
+/// `callback`: Loads the next page into the list it's given, on a thread of its own
+/// `busy`: Whether `callback` is running, so the next page isn't requested twice
 #[derive(Clone)]
 pub struct Pagination<I: ListItem> {
     loaded_content: Arc<RwLock<usize>>,
