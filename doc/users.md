@@ -42,6 +42,9 @@ built `ttunes` with MPRIS support, you may be able to use media keys to control
 playback depending on your desktop environment settings. Have a look at the
 [configuration section](#configuration) if you want to set custom bindings.
 
+<kbd>?</kbd> lists every key binding with its command. Type to filter the list, and press
+<kbd>Return</kbd> to run the selected one.
+
 ### Count Prefixes
 Like Vim, many keys can be prefixed with a number to repeat them that many
 times. For example, <kbd>1</kbd><kbd>0</kbd><kbd>j</kbd> moves the selection
@@ -83,7 +86,7 @@ its ● knob), and the Play / Shuffle / Like buttons on album, playlist and arti
 | <kbd>Return</kbd>             | Play track or playlist.                                        |
 | <kbd>Space</kbd>              | Queue track or playlist.                                       |
 | <kbd>.</kbd>                  | Play the selected item after the currently playing track.      |
-| <kbd>P</kbd>                  | Move to the currently playing track in the queue.              |
+| <kbd>P</kbd>                  | Move to the currently playing track in the list or queue.      |
 | <kbd>S</kbd>                  | Save the currently playing item to your library.               |
 | <kbd>D</kbd>                  | Remove the currently playing item from your library.           |
 | <kbd>Shift</kbd>+<kbd>P</kbd> | Toggle playback (i.e. Play/Pause).                             |
@@ -102,6 +105,7 @@ its ● knob), and the Play / Shuffle / Like buttons on album, playlist and arti
 | <kbd>R</kbd>                  | Toggle _Repeat_ mode.                                          |
 | <kbd>Z</kbd>                  | Toggle _Shuffle_ state.                                        |
 | <kbd>Shift</kbd>+<kbd>H</kbd> | Like the currently playing track, or unlike it (the heart).    |
+| <kbd>Shift</kbd>+<kbd>T</kbd> | Pause when the current track ends, or turn that off.           |
 
 ### Screens
 - **Home**: a "Pick up where you left off" card, then what you've played lately, your top songs
@@ -132,7 +136,7 @@ When pressing <kbd>O</kbd>:
   - "Artist(s)" (let's you show or (un)follow a track's artist(s))
   - "Show Album"
   - "Share" (if built with the `share_clipboard` feature)
-  - "Add to playlist"
+  - "Add to playlist" (type to filter your playlists)
 
 ### Sharing
 (if built with the `share_clipboard` feature)
@@ -202,6 +206,7 @@ Note: \<FOO\> - mandatory arg; [BAR] - optional arg
 | `save [current]`                                                 | Save selected item, if `current` is passed the currently playing item will be saved                                                                                                                                                                             |
 | `tab` [`next`\|`previous`]                                         | Switch to the next (default) or previous tab, e.g. from Playlists to Albums in the library.                                                                                                                                                                     |
 | `like`                                                           | Save the currently playing track to your library, or remove it if it's saved.                                                                                                                                                                                   |
+| `sleep` [\<TIME\>\|`track`\|`off`]                               | Set the sleep timer, which pauses playback. `track` pauses when the current track ends, and the next one waits paused; `off` turns the timer off. Omit the argument to toggle `track`.<br/>\* TIME is anything accepted by [parse_duration](https://docs.rs/parse_duration/latest/parse_duration/), e.g. `1h 30m`; a plain number is minutes. |
 | `panel` `queue`\|`lyrics`                                         | `queue` shows the _Up next_ screen, `lyrics` shows the _Lyrics_ screen (or goes back to the previous screen if it's showing).                                                                                                                                  |
 
 ## Remote control (IPC)

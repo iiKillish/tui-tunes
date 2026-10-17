@@ -8,7 +8,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use crate::command::{
     Command, GotoMode, JumpMode, MoveAmount, MoveMode, PanelAction, ScreenId, SeekDirection,
-    ShiftMode, TargetMode, parse,
+    ShiftMode, SleepMode, TargetMode, parse,
 };
 use crate::config::Config;
 
@@ -143,6 +143,7 @@ fn default_keybindings() -> HashMap<String, Vec<Command>> {
     kb.insert("q".into(), vec![Command::Quit]);
     kb.insert("Ctrl+l".into(), vec![Command::Redraw]);
     kb.insert("Shift+h".into(), vec![Command::Like]);
+    kb.insert("Shift+t".into(), vec![Command::Sleep(SleepMode::Toggle)]);
     kb.insert("Tab".into(), vec![Command::Screen(true)]);
     kb.insert("Shift+Tab".into(), vec![Command::Screen(false)]);
     kb.insert("Shift+l".into(), vec![Command::Panel(PanelAction::Lyrics)]);

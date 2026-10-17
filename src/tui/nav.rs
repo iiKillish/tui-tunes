@@ -77,5 +77,5 @@ pub fn add_to_playlist(tracks: Vec<Track>, ctx: &Ctx) -> Box<dyn Overlay> {
             })
         })
         .collect();
-    Box::new(Menu::new("Add to playlist", entries))
+    Box::new(Menu::new("Add to playlist", entries).filterable())
 }

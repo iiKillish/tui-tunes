@@ -579,3 +579,58 @@ fn print_size() {
         }
     }
 }
+
+#[test]
+fn test_typing_filters_a_filterable_menu() {
+    use crate::tui::overlays::menu::{Entry, Menu};
+    use crate::tui::page::{Outcome, Overlay};
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    let ctx = app().ctx.clone();
+    let picked = Rc::new(Cell::new(""));
+    let entries = ["Road trip", "Chill", "Rock classics"]
+        .into_iter()
+        .map(|name| {
+            let picked = picked.clone();
+            Entry::new(name, move |_| {
+                picked.set(name);
+                Outcome::Consumed
+            })
+        })
+        .collect();
+    let mut menu = Menu::new("Add to playlist", entries).filterable();
+    assert!(menu.captures_text());
+    let press = |menu: &mut Menu, code| menu.key(KeyEvent::new(code, KeyModifiers::NONE), &ctx);
+
+    for c in "RO".chars() {
+        assert!(matches!(
+            press(&mut menu, KeyCode::Char(c)),
+            Outcome::Consumed
+        ));
+    }
+    // "ro" matches "Road trip" and "Rock classics", ignoring case; Down picks the second.
+    menu.command(&Command::Move(MoveMode::Down, MoveAmount::Integer(1)), &ctx);
+    menu.command(&Command::Play, &ctx);
+    assert_eq!(picked.get(), "Rock classics");
+
+    // Arrows and Enter go on to the key bindings; Esc clears the filter before closing.
+    assert!(press(&mut menu, KeyCode::Down).is_ignored());
+    assert!(matches!(press(&mut menu, KeyCode::Esc), Outcome::Consumed));
+    assert!(press(&mut menu, KeyCode::Esc).is_ignored());
+
+    for (width, height) in [(0, 0), (10, 3), (30, 4), (60, 20)] {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        for c in ["", "x"] {
+            for ch in c.chars() {
+                press(&mut menu, KeyCode::Char(ch));
+            }
+            terminal
+                .draw(|frame| {
+                    menu.draw(frame, frame.area(), &ctx);
+                })
+                .unwrap_or_else(|e| panic!("menu at {width}x{height}: {e}"));
+        }
+        press(&mut menu, KeyCode::Backspace);
+    }
+}

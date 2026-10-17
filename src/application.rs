@@ -201,6 +201,9 @@ impl Application {
                     app.run(&Command::Quit);
                 }
             }
+            if self.queue.sleep_if_due() {
+                app.set_message(Ok("Sleep timer: paused".into()));
+            }
             terminal.draw(&mut app).map_err(|e| e.to_string())?;
 
             // Wait for something to happen; redraw at least a few times a second while playing
