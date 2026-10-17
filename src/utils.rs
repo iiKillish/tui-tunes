@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::Duration;
 
 /// Returns a human readable String of milliseconds in the HH:MM:SS format.
 pub fn ms_to_hms(duration: u32) -> String {
@@ -17,6 +18,43 @@ pub fn ms_to_hms(duration: u32) -> String {
     formated_time.push_str(&format!("{seconds:02}"));
 
     formated_time
+}
+
+/// Parse a duration like `1h 30m`, `1m30s`, `90s`, `1.5 min` or `500ms`: numbers, each followed
+/// by a unit (`ms`, `s`, `m` or `h`, or longer names like `sec`, `minutes`, `hours`).
+///
+/// Written for ttunes instead of the `parse_duration` crate, which is unmaintained and can be
+/// made to use unbounded CPU and memory by a large exponent (GHSA-qpgv-g792-wh6x). Exponents
+/// aren't accepted here, and a total too large for a [Duration] is an error.
+pub fn parse_duration(text: &str) -> Result<Duration, String> {
+    let mut seconds = 0f64;
+    let mut rest = text.trim();
+    if rest.is_empty() {
+        return Err("expected a duration such as 1m 30s".into());
+    }
+    while !rest.is_empty() {
+        let number_len = rest
+            .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+            .unwrap_or(rest.len());
+        let number: f64 = rest[..number_len]
+            .parse()
+            .map_err(|_| format!("expected a number at \"{rest}\""))?;
+        rest = rest[number_len..].trim_start();
+        let unit_len = rest
+            .find(|c: char| !c.is_alphabetic())
+            .unwrap_or(rest.len());
+        let unit = match rest[..unit_len].to_lowercase().as_str() {
+            "ms" | "msec" | "msecs" | "millisecond" | "milliseconds" => 0.001,
+            "s" | "sec" | "secs" | "second" | "seconds" => 1.0,
+            "m" | "min" | "mins" | "minute" | "minutes" => 60.0,
+            "h" | "hr" | "hrs" | "hour" | "hours" => 3600.0,
+            "" => return Err(format!("{number} needs a unit, such as s or m")),
+            other => return Err(format!("unknown unit \"{other}\"")),
+        };
+        seconds += number * unit;
+        rest = rest[unit_len..].trim_start();
+    }
+    Duration::try_from_secs_f64(seconds).map_err(|_| "the duration is too long".into())
 }
 
 pub fn cache_path_for_url(url: String) -> std::path::PathBuf {
@@ -90,4 +128,34 @@ pub fn user_runtime_directory() -> Option<PathBuf> {
 #[cfg(unix)]
 fn xdg_runtime_directory() -> Option<PathBuf> {
     std::env::var("XDG_RUNTIME_DIR").ok().map(Into::into)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_duration;
+    use std::time::Duration;
+
+    #[test]
+    fn durations_combine_numbers_and_units() {
+        let secs = |text| parse_duration(text).map(|d| d.as_secs_f64());
+        assert_eq!(secs("90s"), Ok(90.0));
+        assert_eq!(secs("1h 30m"), Ok(5400.0));
+        assert_eq!(secs("1m30s"), Ok(90.0));
+        assert_eq!(secs(" 1.5 Minutes "), Ok(90.0));
+        assert_eq!(secs("2 hours 1 sec"), Ok(7201.0));
+        assert_eq!(parse_duration("500ms"), Ok(Duration::from_millis(500)));
+    }
+
+    #[test]
+    fn durations_need_numbers_with_units() {
+        for text in ["", "90", "m", "1x", "1.2.3s", "-1s", "1e9s", "s1"] {
+            assert!(parse_duration(text).is_err(), "{text:?} parsed");
+        }
+    }
+
+    #[test]
+    fn huge_durations_are_an_error_not_a_hang() {
+        assert!(parse_duration(&format!("{}h", "9".repeat(400))).is_err());
+        assert!(parse_duration("1e1000000000s").is_err());
+    }
 }

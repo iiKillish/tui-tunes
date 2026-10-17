@@ -615,17 +615,19 @@ pub fn parse(input: &str) -> Result<Vec<Command>, CommandParseError> {
                     let unsigned_millis = match duration_raw.parse() {
                         // accept raw milliseconds
                         Ok(millis) => millis,
-                        Err(_) => parse_duration::parse(&duration_raw) // accept fancy duration
-                            .map_err(|err| E::ArgParseError {
-                                arg: duration_raw.clone(),
-                                err: err.to_string(),
-                            })
-                            .and_then(|dur| {
-                                dur.as_millis().try_into().map_err(|_| E::ArgParseError {
+                        Err(_) => {
+                            crate::utils::parse_duration(&duration_raw) // accept fancy duration
+                                .map_err(|err| E::ArgParseError {
                                     arg: duration_raw.clone(),
-                                    err: "Duration value too large".into(),
+                                    err,
                                 })
-                            })?,
+                                .and_then(|dur| {
+                                    dur.as_millis().try_into().map_err(|_| E::ArgParseError {
+                                        arg: duration_raw.clone(),
+                                        err: "Duration value too large".into(),
+                                    })
+                                })?
+                        }
                     };
                     let seek_direction = match first_char {
                         // handle i32::MAX < unsigned_millis < u32::MAX gracefully
