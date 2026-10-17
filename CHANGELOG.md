@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.1.2]
 
 ### Changed
 
@@ -18,6 +18,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the background and the current song keeps playing
 - Playback dying on `:reconnect` an hour after logging in through the
   browser, as the login's access token had expired
+
+### Security
+
+- Replaced the unmaintained `parse_duration` crate, which a duration with a
+  huge exponent could make use unbounded CPU and memory
+  ([GHSA-qpgv-g792-wh6x](https://github.com/advisories/GHSA-qpgv-g792-wh6x)).
+  `seek` durations now take numbers with the units `ms`, `s`, `m` and `h`
+- Updated rustls to 0.23.46
+  ([GHSA-2mjx-qc3c-rqvc](https://github.com/advisories/GHSA-2mjx-qc3c-rqvc))
 
 ## [0.1.1]
 
