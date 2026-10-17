@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Playback stopping when Spotify closes the connection: ttunes reconnects in
+  the background and the current song keeps playing
 - Playback dying on `:reconnect` an hour after logging in through the
   browser, as the login's access token had expired
 
