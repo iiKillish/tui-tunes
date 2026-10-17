@@ -175,39 +175,73 @@ You can open a Vim-style command prompt using <kbd>:</kbd>,
 trigger command completion by pressing <kbd>Tab</kbd>
 and close it at any time with <kbd>Escape</kbd>.
 
-The following is an abridged list of the more useful commands. For the full list, see [source code](/src/command.rs).
+Every command is listed below, grouped by what it does.
 
 Note: \<FOO\> - mandatory arg; [BAR] - optional arg
 
-| Command                                                          | Action                                                                                                                                                                                                                                                          |
-|------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `help`                                                           | Show current key bindings.                                                                                                                                                                                                                                      |
-| `quit`<br/>Aliases: `q`, `x`                                     | Quit `ttunes`.                                                                                                                                                                                                                                                  |
-| `logout`                                                         | Remove any cached credentials from disk and quit `ttunes`.                                                                                                                                                                                                      |
-| `playpause`<br/>Aliases: `pause`, `toggleplay`, `toggleplayback` | Toggle playback.                                                                                                                                                                                                                                                |
-| `stop`                                                           | Stop playback.                                                                                                                                                                                                                                                  |
-| `seek` [`+`\|`-`]\<TIME\>                                        | Seek to the specified position, or seek relative to current position by prepending `+`/`-`.<br/>\* TIME is a number of milliseconds, or a duration such as `1m 30s`, `90s` or `1.5 min` (units: `ms`, `s`, `m`, `h`). |
-| `move` \<DIRECTION\> \<STEP_SIZE\>                               | Scroll the current view `up`/`down`/`left`/`right` with integer step sizes, or `pageup`/`pagedown`/`pageleft`/`pageright` with float step sizes.                                                                                                                |
-| `repeat` [REPEAT_MODE]<br/>Alias: `loop`                         | Set repeat mode. Omit argument to step through the available modes.<br/>\* Valid values for REPEAT_MODE: `list` (aliases: `playlist`, `queue`), `track` (aliases: `once`, `single`), `none` (alias: `off`)                                                      |
-| `shuffle` [`on`\|`off`]                                          | Enable or disable shuffle. Omit argument to toggle.                                                                                                                                                                                                             |
-| `previous`                                                       | Play the previous track.                                                                                                                                                                                                                                        |
-| `next`                                                           | Play the next track.                                                                                                                                                                                                                                            |
-| `focus` \<SCREEN\>                                               | Switch to a different view.<br/>\* Valid values for SCREEN: `home`, `search`, `library`, `queue`, `lyrics`                                                                                                                           |
-| `search` \<SEARCH\>                                              | Search for a song/artist/album/etc.                                                                                                                                                                                                                             |
-| `clear`                                                          | Clear the queue.                                                                                                                                                                                                                                                |
-| `share` \<ITEM\>                                                 | Copy a shareable URL of the item to the system clipboard. Requires the `share_clipboard` feature.<br/>\* Valid values for ITEM: `selected`, `current`                                                                                                           |
-| `newplaylist` \<NAME\>                                           | Create a new playlist.                                                                                                                                                                                                                                          |
-| `sort` \<SORT_KEY\> [SORT_DIRECTION]                             | Sort a playlist.<br/>\* Valid values for SORT_KEY: `title`, `album`, `artist`, `duration`, `added`<br/>\* Valid values for SORT_DIRECTION: `ascending` (default; aliases: `a`, `asc`), `descending` (aliases: `d`, `desc`)                                      |
-| `exec` \<CMD\>                                                   | Execute a command in the system shell.<br/>\* Command output is printed to the terminal, so redirection (`2> /dev/null`) may be necessary.                                                                                                                      |
-| `noop`                                                           | Do nothing. Useful for disabling default keybindings. See [custom keybindings](#custom-keybindings).                                                                                                                                                            |
-| `reload`                                                         | Reload the configuration from disk. See [Configuration](#configuration).                                                                                                                                                                                        |
-| `reconnect`                                                      | Reconnect to Spotify (useful when session has expired or connection was lost)                                                                                                                                                                                   |
-| `add [current]`                                                  | Add selected track to playlist, if `current` is passed the currently playing track will be added                                                                                                                                                                |
-| `save [current]`                                                 | Save selected item, if `current` is passed the currently playing item will be saved                                                                                                                                                                             |
-| `tab` [`next`\|`previous`]                                         | Switch to the next (default) or previous tab, e.g. from Playlists to Albums in the library.                                                                                                                                                                     |
-| `like`                                                           | Save the currently playing track to your library, or remove it if it's saved.                                                                                                                                                                                   |
-| `sleep` [\<TIME\>\|`track`\|`off`]                               | Set the sleep timer, which pauses playback. `track` pauses when the current track ends, and the next one waits paused; `off` turns the timer off. Omit the argument to toggle `track`.<br/>\* TIME is anything accepted by [parse_duration](https://docs.rs/parse_duration/latest/parse_duration/), e.g. `1h 30m`; a plain number is minutes. |
-| `panel` `queue`\|`lyrics`                                         | `queue` shows the _Up next_ screen, `lyrics` shows the _Lyrics_ screen (or goes back to the previous screen if it's showing).                                                                                                                                  |
+#### Playback
+
+| Command | Action |
+|---------|--------|
+| `playpause`<br/>Aliases: `pause`, `toggleplay`, `toggleplayback` | Toggle playback. |
+| `stop` | Stop playback. |
+| `previous` | Play the previous track. |
+| `next` | Play the next track. |
+| `play` | Play the selected item. |
+| `queue` | Add the selected item to the end of the queue. |
+| `playnext` | Play the selected item after the current track. |
+| `seek` [`+`\|`-`]\<TIME\> | Seek to the specified position, or seek relative to current position by prepending `+`/`-`.<br/>\* TIME is a number of milliseconds, or a duration such as `1m 30s`, `90s` or `1.5 min` (units: `ms`, `s`, `m`, `h`). |
+| `volup` [AMOUNT] | Raise the volume by AMOUNT percent (default 1). |
+| `voldown` [AMOUNT] | Lower the volume by AMOUNT percent (default 1). |
+| `repeat` [REPEAT_MODE]<br/>Alias: `loop` | Set repeat mode. Omit argument to step through the available modes.<br/>\* Valid values for REPEAT_MODE: `list` (aliases: `playlist`, `queue`), `track` (aliases: `once`, `single`), `none` (alias: `off`) |
+| `shuffle` [`on`\|`off`] | Enable or disable shuffle. Omit argument to toggle. |
+| `sleep` [\<TIME\>\|`track`\|`off`] | Set the sleep timer, which pauses playback. `track` pauses when the current track ends, and the next one waits paused; `off` turns the timer off. Omit the argument to toggle `track`.<br/>\* TIME is a number of minutes, or a duration such as `1h 30m`, `45m` or `90s` (units: `ms`, `s`, `m`, `h`). |
+| `clear` | Clear the queue. |
+
+#### Library and playlists
+
+| Command | Action |
+|---------|--------|
+| `like` | Save the currently playing track to your library, or remove it if it's saved. |
+| `save [current]` | Save selected item, if `current` is passed the currently playing item will be saved |
+| `add [current]` | Add selected track to playlist, if `current` is passed the currently playing track will be added |
+| `delete` | Remove the selected track from the playlist or the queue, or delete the selected playlist. |
+| `newplaylist` \<NAME\> | Create a new playlist. |
+| `sort` \<SORT_KEY\> [SORT_DIRECTION] | Sort a playlist.<br/>\* Valid values for SORT_KEY: `title`, `album`, `artist`, `duration`, `added`<br/>\* Valid values for SORT_DIRECTION: `ascending` (default; aliases: `a`, `asc`), `descending` (aliases: `d`, `desc`) |
+| `shift` `up`\|`down` [AMOUNT] | Move the selected track in the queue up or down by AMOUNT places (default 1). |
+| `update` | Refetch the library from Spotify: liked songs, albums, artists and playlists. |
+
+#### Navigation
+
+| Command | Action |
+|---------|--------|
+| `focus` \<SCREEN\> | Switch to a different view.<br/>\* Valid values for SCREEN: `home`, `search`, `library`, `queue`, `lyrics` |
+| `screen` [`next`\|`previous`] | Switch to the next (default) or previous main screen. |
+| `tab` [`next`\|`previous`] | Switch to the next (default) or previous tab, e.g. from Playlists to Albums in the library. |
+| `panel` `queue`\|`lyrics` | `queue` shows the _Up next_ screen, `lyrics` shows the _Lyrics_ screen (or goes back to the previous screen if it's showing). |
+| `move` \<DIRECTION\> \<STEP_SIZE\> | Scroll the current view `up`/`down`/`left`/`right` with integer step sizes, or `pageup`/`pagedown`/`pageleft`/`pageright` with float step sizes. |
+| `open` `selected`\|`current` | Open the selected item, or the context menu of the currently playing track. |
+| `goto` `album`\|`artist` | Open the album or artist of the selected item. |
+| `back` | Close the open page and go back to the one under it. |
+| `search` \<SEARCH\> | Search for a song/artist/album/etc. |
+| `jump` \<TEXT\> | Select the next item in the list that matches TEXT, like <kbd>/</kbd>. |
+| `jumpnext` | Select the next match of the last `jump`. |
+| `jumpprevious` | Select the previous match of the last `jump`. |
+| `insert` [URL] | Open a Spotify link: URL, or the link on the clipboard if built with the `share_clipboard` feature. |
+| `share` \<ITEM\> | Copy a shareable URL of the item to the system clipboard. Requires the `share_clipboard` feature.<br/>\* Valid values for ITEM: `selected`, `current` |
+
+#### Other
+
+| Command | Action |
+|---------|--------|
+| `help` | Show the key bindings; type to filter them, and press <kbd>Return</kbd> to run one. |
+| `quit`<br/>Aliases: `q`, `x` | Quit `ttunes`. |
+| `logout` | Remove any cached credentials from disk and quit `ttunes`. |
+| `reload` | Reload the configuration from disk. See [Configuration](#configuration). |
+| `reconnect` | Reconnect to Spotify (useful when session has expired or connection was lost) |
+| `redraw` | Redraw the whole screen. |
+| `exec` \<CMD\> | Execute a command in the system shell.<br/>\* Command output is printed to the terminal, so redirection (`2> /dev/null`) may be necessary. |
+| `noop` | Do nothing. Useful for disabling default keybindings. See [custom keybindings](#custom-keybindings). |
 
 ## Remote control (IPC)
 Apart from MPRIS, ttunes will also create a domain socket on UNIX platforms (Linux, macOS, *BSD).
