@@ -4,7 +4,8 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::OnceLock;
 
-use strum_macros::Display;
+use strum::VariantNames;
+use strum_macros::{Display, EnumString, IntoStaticStr};
 
 const QUIT_CMD: &str = "quit";
 const TOGGLE_PLAY_CMD: &str = "playpause";
@@ -111,6 +112,29 @@ pub enum PanelAction {
     /// Show the queue.
     Queue,
     /// Show the lyrics, or go back to the previous screen if they're already showing.
+    Lyrics,
+}
+
+/// A main screen, as the `focus` command and the `initial_screen` option name it.
+#[derive(
+    Display,
+    EnumString,
+    IntoStaticStr,
+    VariantNames,
+    Clone,
+    Copy,
+    Serialize,
+    Deserialize,
+    Debug,
+    PartialEq,
+    Eq,
+)]
+#[strum(serialize_all = "lowercase")]
+pub enum ScreenId {
+    Home,
+    Search,
+    Library,
+    Queue,
     Lyrics,
 }
 
@@ -239,7 +263,7 @@ pub enum Command {
     Add,
     AddCurrent,
     Delete,
-    Focus(String),
+    Focus(ScreenId),
     Seek(SeekDirection),
     VolumeUp(u16),
     VolumeDown(u16),
@@ -277,7 +301,7 @@ impl fmt::Display for Command {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut repr_tokens = vec![self.basename().to_owned()];
         let mut extras_args = match self {
-            Self::Focus(tab) => vec![tab.to_owned()],
+            Self::Focus(screen) => vec![screen.to_string()],
             Self::Seek(direction) => vec![direction.to_string()],
             Self::VolumeUp(amount) => vec![amount.to_string()],
             Self::VolumeDown(amount) => vec![amount.to_string()],
@@ -590,10 +614,13 @@ pub fn parse(input: &str) -> Result<Vec<Command>, CommandParseError> {
                 FOCUS => {
                     let &target = args.first().ok_or(E::InsufficientArgs {
                         cmd: command.into(),
-                        hint: Some("queue|search|library".into()),
+                        hint: Some(ScreenId::VARIANTS.join("|")),
                     })?;
-                    // TODO: this really should be strongly typed
-                    Command::Focus(target.into())
+                    Command::Focus(target.parse().map_err(|_| E::BadEnumArg {
+                        arg: target.into(),
+                        accept: ScreenId::VARIANTS.iter().map(|&s| s.into()).collect(),
+                        optional: false,
+                    })?)
                 }
                 SEEK => {
                     if args.is_empty() {
@@ -987,6 +1014,22 @@ mod tests {
     use super::*;
 
     #[test]
+    fn focus_takes_a_screen() {
+        assert!(matches!(
+            parse("focus lyrics").as_deref(),
+            Ok([Command::Focus(ScreenId::Lyrics)])
+        ));
+        assert!(matches!(
+            parse("focus nowhere").as_deref(),
+            Err(CommandParseError::BadEnumArg { .. })
+        ));
+        assert!(matches!(
+            parse("focus").as_deref(),
+            Err(CommandParseError::InsufficientArgs { .. })
+        ));
+    }
+
+    #[test]
     fn eligible_commands_accept_count() {
         let eligible = [
             Command::Move(MoveMode::Down, MoveAmount::default()),
@@ -1020,7 +1063,7 @@ mod tests {
             Command::Back,
             Command::Delete,
             Command::Quit,
-            Command::Focus("queue".into()),
+            Command::Focus(ScreenId::Queue),
             Command::Shift(ShiftMode::Up, None),
         ];
         for cmd in ineligible {
