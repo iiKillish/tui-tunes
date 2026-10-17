@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Startup no longer downloads every liked song and saved album again when
+  they haven't changed; `:update` still refetches everything
+
 ### Fixed
 
 - Playback stopping when Spotify closes the connection: ttunes reconnects in

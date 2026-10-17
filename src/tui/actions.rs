@@ -116,7 +116,7 @@ pub fn run(cmd: &Command, ctx: &Ctx) -> Outcome {
                 Outcome::Consumed
             })));
         }
-        Command::UpdateLibrary => ctx.library.update_library(),
+        Command::UpdateLibrary => ctx.library.update_library(true),
         Command::TogglePlay => queue.toggleplayback(),
         Command::Shuffle(mode) => queue.set_shuffle(mode.unwrap_or_else(|| !queue.get_shuffle())),
         Command::Repeat(mode) => {
@@ -159,14 +159,14 @@ pub fn run(cmd: &Command, ctx: &Ctx) -> Outcome {
                 .create_playlist(name, None, None)
             {
                 Ok(_) => {
-                    ctx.library.update_library();
+                    ctx.library.update_library(false);
                     Outcome::Message(format!("Created {name}"))
                 }
                 Err(()) => Outcome::Error(format!("Couldn't create the playlist {name}")),
             })));
         }
         Command::NewPlaylist(name) => match spotify.api.create_playlist(name, None, None) {
-            Ok(_) => ctx.library.update_library(),
+            Ok(_) => ctx.library.update_library(false),
             Err(()) => return Outcome::Error(format!("Couldn't create the playlist {name}")),
         },
         Command::Logout => {
