@@ -14,7 +14,7 @@ use ratatui::layout::{Position, Rect};
 use ratatui::style::Style;
 
 use crate::model::playable::Playable;
-use crate::queue::RepeatSetting;
+use crate::queue::{RepeatSetting, SleepTimer};
 use crate::spotify::{PlayerEvent, VOLUME_PERCENT};
 #[cfg(feature = "cover")]
 use crate::tui::icons::Icon;
@@ -335,11 +335,21 @@ impl Player {
         );
     }
 
-    /// The count prefix being typed, library loading and rate limits, top right.
+    /// The count prefix being typed, the sleep timer, library loading and rate limits, top right.
     fn draw_status(frame: &mut Frame, area: Rect, count: usize, ctx: &Ctx, background: Style) {
         let mut status = Vec::new();
         if count > 0 {
             status.push(count.to_string());
+        }
+        match ctx.queue.sleep_timer() {
+            Some(SleepTimer::EndOfTrack) => status.push("sleep after this track".to_string()),
+            Some(SleepTimer::At(at)) => {
+                let left = at.saturating_duration_since(std::time::Instant::now());
+                // Round up, so it shows 0:00 only as it pauses.
+                let ms = (left.as_millis() as u32).div_ceil(1000) * 1000;
+                status.push(format!("sleep {}", duration(ms)));
+            }
+            None => {}
         }
         if !*ctx.library.is_done.read().unwrap() {
             status.push("updating library…".to_string());

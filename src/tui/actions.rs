@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use log::{debug, error, info};
 
-use crate::command::{Command, InsertSource, SeekDirection, TargetMode};
+use crate::command::{Command, InsertSource, SeekDirection, SleepMode, TargetMode};
 use crate::model::album::Album;
 use crate::model::artist::Artist;
 use crate::model::episode::Episode;
@@ -12,7 +12,7 @@ use crate::model::playable::Playable;
 use crate::model::playlist::Playlist;
 use crate::model::show::Show;
 use crate::model::track::Track;
-use crate::queue::RepeatSetting;
+use crate::queue::{RepeatSetting, SleepTimer};
 use crate::spotify::{UriType, VOLUME_PERCENT};
 use crate::spotify_url::SpotifyUrl;
 use crate::traits::ListItem;
@@ -57,7 +57,7 @@ pub fn help(app: &App) -> Box<dyn Overlay> {
             })
         })
         .collect();
-    Box::new(Menu::new("Keys", entries))
+    Box::new(Menu::new("Keys", entries).filterable())
 }
 
 /// An item from a Spotify link or URI: open its page, or its menu for tracks and episodes.
@@ -185,6 +185,25 @@ pub fn run(cmd: &Command, ctx: &Ctx) -> Outcome {
             info!("Exit code: {result}");
         }
         Command::Reconnect => spotify.shutdown(),
+        Command::Sleep(mode) => {
+            let timer = match mode {
+                SleepMode::Toggle if queue.sleep_timer() == Some(SleepTimer::EndOfTrack) => None,
+                SleepMode::Toggle | SleepMode::EndOfTrack => Some(SleepTimer::EndOfTrack),
+                SleepMode::After(seconds) => Some(SleepTimer::At(
+                    std::time::Instant::now() + Duration::from_secs(*seconds),
+                )),
+                SleepMode::Off => None,
+            };
+            queue.set_sleep_timer(timer);
+            return Outcome::Message(match (timer, mode) {
+                (Some(SleepTimer::EndOfTrack), _) => "Pausing when this track ends".into(),
+                (Some(SleepTimer::At(_)), SleepMode::After(seconds)) => format!(
+                    "Pausing in {}",
+                    crate::tui::style::duration((*seconds).saturating_mul(1000) as u32)
+                ),
+                _ => "Sleep timer off".into(),
+            });
+        }
         Command::Like => {
             if let Some(Playable::Track(track)) = queue.get_current() {
                 ctx.library.toggle_saved_track_in_background(&track);

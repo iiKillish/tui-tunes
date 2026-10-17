@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
+use std::time::Instant;
 
 use log::{debug, info};
 #[cfg(feature = "notify")]
@@ -25,6 +26,15 @@ pub enum RepeatSetting {
     RepeatPlaylist,
     #[serde(rename = "track")]
     RepeatTrack,
+}
+
+/// When the sleep timer pauses playback.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SleepTimer {
+    /// When the current track ends: the next one is loaded paused.
+    EndOfTrack,
+    /// At this time.
+    At(Instant),
 }
 
 /// Events that are specific to the [Queue].
@@ -52,6 +62,7 @@ pub struct Queue {
     /// individually or restored from a previous session.
     sources: RwLock<Vec<Option<Arc<str>>>>,
     current_track: RwLock<Option<usize>>,
+    sleep_timer: RwLock<Option<SleepTimer>>,
     spotify: Spotify,
     cfg: Arc<Config>,
     /// Formats notifications.
@@ -77,6 +88,7 @@ impl Queue {
             queue: Arc::new(RwLock::new(queue_state.queue)),
             spotify: spotify.clone(),
             current_track: RwLock::new(queue_state.current_track),
+            sleep_timer: RwLock::new(None),
             random_order: RwLock::new(queue_state.random_order),
             unshuffled: RwLock::new(None),
             sources: RwLock::new(sources),
@@ -357,7 +369,12 @@ impl Queue {
     /// `reshuffle`: Reshuffle the current order of the queue.
     /// `shuffle_index`: If this is true, `index` isn't actually used, but is
     /// chosen at random as a valid index in the queue.
-    pub fn play(&self, mut index: usize, reshuffle: bool, shuffle_index: bool) {
+    pub fn play(&self, index: usize, reshuffle: bool, shuffle_index: bool) {
+        self.load(index, reshuffle, shuffle_index, true);
+    }
+
+    /// [Queue::play], but the track only starts playing if `start_playing`.
+    fn load(&self, mut index: usize, reshuffle: bool, shuffle_index: bool, start_playing: bool) {
         let queue_length = self.queue.read().unwrap().len();
         // The length of the queue must be bigger than 0 or gen_range panics!
         if queue_length > 0 && shuffle_index && self.get_shuffle() {
@@ -366,13 +383,13 @@ impl Queue {
         }
 
         if let Some(track) = &self.queue.read().unwrap().get(index) {
-            self.spotify.load(track, true, 0);
+            self.spotify.load(track, start_playing, 0);
             let mut current = self.current_track.write().unwrap();
             current.replace(index);
             self.spotify.update_track();
 
             #[cfg(feature = "notify")]
-            if self.cfg.values().notify.unwrap_or(false) {
+            if start_playing && self.cfg.values().notify.unwrap_or(false) {
                 std::thread::spawn({
                     // use same parser as track_format, Playable::format
                     let format = self
@@ -436,15 +453,17 @@ impl Queue {
         let q = self.queue.read().unwrap();
         let current = *self.current_track.read().unwrap();
         let repeat = self.cfg.state().repeat;
+        // A track that ended with the sleep timer set to its end loads the next one paused.
+        let start_playing = manual || !self.take_sleep_timer(SleepTimer::EndOfTrack);
 
         if repeat == RepeatSetting::RepeatTrack && !manual {
             if let Some(index) = current
                 && q[index].is_playable()
             {
-                self.play(index, false, false);
+                self.load(index, false, false, start_playing);
             }
         } else if let Some(index) = self.next_index() {
-            self.play(index, false, false);
+            self.load(index, false, false, start_playing);
             if repeat == RepeatSetting::RepeatTrack && manual {
                 self.set_repeat(RepeatSetting::RepeatPlaylist);
             }
@@ -453,14 +472,47 @@ impl Queue {
             && q.iter().any(|track| track.is_playable())
         {
             let random_order = self.random_order.read().unwrap();
-            self.play(
+            self.load(
                 random_order.as_ref().map(|o| o[0]).unwrap_or(0),
                 false,
                 false,
+                start_playing,
             );
         } else {
             self.spotify.stop();
         }
+    }
+
+    pub fn sleep_timer(&self) -> Option<SleepTimer> {
+        *self.sleep_timer.read().unwrap()
+    }
+
+    /// Set the sleep timer, or turn it off with `None`.
+    pub fn set_sleep_timer(&self, timer: Option<SleepTimer>) {
+        *self.sleep_timer.write().unwrap() = timer;
+    }
+
+    /// Turn the sleep timer off if it's set to `timer`. Returns whether it was.
+    fn take_sleep_timer(&self, timer: SleepTimer) -> bool {
+        self.sleep_timer
+            .write()
+            .unwrap()
+            .take_if(|set| *set == timer)
+            .is_some()
+    }
+
+    /// Pause playback if the sleep timer's time has come. Returns whether it had.
+    pub fn sleep_if_due(&self) -> bool {
+        let Some(SleepTimer::At(at)) = self.sleep_timer() else {
+            return false;
+        };
+        if Instant::now() < at || !self.take_sleep_timer(SleepTimer::At(at)) {
+            return false;
+        }
+        if let PlayerEvent::Playing(_) = self.spotify.get_current_status() {
+            self.spotify.pause();
+        }
+        true
     }
 
     /// Play the previous item in the queue.
@@ -764,10 +816,46 @@ mod tests {
             unshuffled: RwLock::new(None),
             sources: RwLock::new(vec![None; len]),
             current_track: RwLock::new(current),
+            sleep_timer: RwLock::new(None),
             spotify,
             cfg,
             library,
         }
+    }
+
+    // --- sleep timer ---
+
+    #[test]
+    fn test_sleep_at_end_of_track_is_used_up_by_the_track_ending() {
+        let q = make_queue(vec![make_track(0), make_track(1), make_track(2)], Some(0));
+        q.set_sleep_timer(Some(SleepTimer::EndOfTrack));
+        q.next(true);
+        assert_eq!(q.sleep_timer(), Some(SleepTimer::EndOfTrack));
+        q.next(false);
+        assert_eq!(q.sleep_timer(), None);
+        assert_eq!(q.get_current_index(), Some(2));
+    }
+
+    #[test]
+    fn test_sleep_timer_pauses_only_when_due() {
+        let q = make_queue(vec![make_track(0)], Some(0));
+        let later = Instant::now() + std::time::Duration::from_secs(60);
+        q.set_sleep_timer(Some(SleepTimer::At(later)));
+        assert!(!q.sleep_if_due());
+        assert_eq!(q.sleep_timer(), Some(SleepTimer::At(later)));
+
+        q.set_sleep_timer(Some(SleepTimer::At(Instant::now())));
+        assert!(q.sleep_if_due());
+        assert_eq!(q.sleep_timer(), None);
+        assert!(!q.sleep_if_due());
+    }
+
+    #[test]
+    fn test_sleep_at_end_of_track_is_not_due_on_a_clock() {
+        let q = make_queue(vec![make_track(0)], Some(0));
+        q.set_sleep_timer(Some(SleepTimer::EndOfTrack));
+        assert!(!q.sleep_if_due());
+        assert_eq!(q.sleep_timer(), Some(SleepTimer::EndOfTrack));
     }
 
     // --- next_index / previous_index ---

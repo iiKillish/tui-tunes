@@ -54,6 +54,7 @@ const LIKE_CMD: &str = "like";
 const PANEL_CMD: &str = "panel";
 const TAB_CMD: &str = "tab";
 const SCREEN_CMD: &str = "screen";
+const SLEEP_CMD: &str = "sleep";
 
 pub const ALL_COMMANDS: &[&str] = &[
     QUIT_CMD,
@@ -103,6 +104,7 @@ pub const ALL_COMMANDS: &[&str] = &[
     PANEL_CMD,
     TAB_CMD,
     SCREEN_CMD,
+    SLEEP_CMD,
 ];
 
 /// What the `panel` command shows: the Up next or Lyrics screen.
@@ -227,6 +229,29 @@ impl fmt::Display for SeekDirection {
     }
 }
 
+/// What the `sleep` command sets the sleep timer to.
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub enum SleepMode {
+    /// Pause at the end of the current track, or turn that off if it's set.
+    Toggle,
+    /// Pause at the end of the current track.
+    EndOfTrack,
+    /// Pause after this many seconds.
+    After(u64),
+    Off,
+}
+
+impl fmt::Display for SleepMode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Toggle => Ok(()),
+            Self::EndOfTrack => write!(f, "track"),
+            Self::After(seconds) => write!(f, "{seconds}s"),
+            Self::Off => write!(f, "off"),
+        }
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug)]
 pub enum InsertSource {
     #[cfg(feature = "share_clipboard")]
@@ -295,6 +320,8 @@ pub enum Command {
     Tab(bool),
     /// Switch to the next (true) or previous (false) main screen.
     Screen(bool),
+    /// Set the sleep timer, which pauses playback.
+    Sleep(SleepMode),
 }
 
 impl fmt::Display for Command {
@@ -337,6 +364,8 @@ impl fmt::Display for Command {
             Self::Sort(key, direction) => vec![key.to_string(), direction.to_string()],
             Self::Execute(cmd) => vec![cmd.to_owned()],
             Self::Panel(action) => vec![action.to_string()],
+            Self::Sleep(SleepMode::Toggle) => vec![],
+            Self::Sleep(mode) => vec![mode.to_string()],
             Self::Tab(next) | Self::Screen(next) => {
                 vec![(if *next { "next" } else { "previous" }).into()]
             }
@@ -420,6 +449,7 @@ impl Command {
             Self::Panel(_) => PANEL_CMD,
             Self::Tab(_) => TAB_CMD,
             Self::Screen(_) => SCREEN_CMD,
+            Self::Sleep(_) => SLEEP_CMD,
         }
     }
 
@@ -958,6 +988,31 @@ pub fn parse(input: &str) -> Result<Vec<Command>, CommandParseError> {
                 EXECUTE_CMD => Command::Execute(args.join(" ")),
                 RECONNECT_CMD => Command::Reconnect,
                 LIKE_CMD => Command::Like,
+                SLEEP_CMD => Command::Sleep(match args.first().copied() {
+                    None => SleepMode::Toggle,
+                    Some("track") => SleepMode::EndOfTrack,
+                    Some("off") => SleepMode::Off,
+                    Some(_) => {
+                        let arg = args.join(" ");
+                        // A plain number is minutes.
+                        let seconds = match arg.parse::<u64>() {
+                            Ok(minutes) => Ok(minutes.saturating_mul(60)),
+                            Err(_) => crate::utils::parse_duration(&arg)
+                                .map(|duration| duration.as_secs())
+                                .map_err(|err| E::ArgParseError {
+                                    arg: arg.clone(),
+                                    err,
+                                }),
+                        }?;
+                        if seconds == 0 {
+                            return Err(E::ArgParseError {
+                                arg,
+                                err: "the sleep timer needs a duration of a second or more".into(),
+                            });
+                        }
+                        SleepMode::After(seconds)
+                    }
+                }),
                 SCREEN_CMD => Command::Screen(match args.first().copied() {
                     Some("next") | None => true,
                     Some("previous" | "prev") => false,
@@ -1027,6 +1082,30 @@ mod tests {
             parse("focus").as_deref(),
             Err(CommandParseError::InsufficientArgs { .. })
         ));
+    }
+
+    #[test]
+    fn sleep_takes_a_duration_track_or_off() {
+        let sleep = |input: &str| match parse(input).as_deref() {
+            Ok([Command::Sleep(mode)]) => Some(*mode),
+            _ => None,
+        };
+        assert_eq!(sleep("sleep"), Some(SleepMode::Toggle));
+        assert_eq!(sleep("sleep track"), Some(SleepMode::EndOfTrack));
+        assert_eq!(sleep("sleep off"), Some(SleepMode::Off));
+        assert_eq!(sleep("sleep 30"), Some(SleepMode::After(1800)));
+        assert_eq!(sleep("sleep 1h 30m"), Some(SleepMode::After(5400)));
+        assert_eq!(sleep("sleep 90s"), Some(SleepMode::After(90)));
+        assert_eq!(sleep("sleep 0"), None);
+        assert_eq!(sleep("sleep soon"), None);
+        for mode in [
+            SleepMode::Toggle,
+            SleepMode::EndOfTrack,
+            SleepMode::Off,
+            SleepMode::After(90),
+        ] {
+            assert_eq!(sleep(&Command::Sleep(mode).to_string()), Some(mode));
+        }
     }
 
     #[test]

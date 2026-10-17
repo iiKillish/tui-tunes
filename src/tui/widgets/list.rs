@@ -408,8 +408,12 @@ impl<I: ListItem + Clone> ItemList<I> {
             }
             Command::Move(MoveMode::Playing, _) => {
                 let content = self.content.read().unwrap();
-                if let Some(index) = content.iter().position(|i| i.is_playing(&ctx.queue)) {
-                    self.selected = index;
+                match content.iter().position(|i| i.is_playing(&ctx.queue)) {
+                    Some(index) => self.selected = index,
+                    None if ctx.queue.get_current().is_some() => {
+                        return Outcome::Message("The playing track isn't in this list".into());
+                    }
+                    None => return Outcome::Message("Nothing is playing".into()),
                 }
             }
             Command::Play => self.play(ctx),
