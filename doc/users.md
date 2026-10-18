@@ -88,7 +88,7 @@ One-shot, toggle and menu commands (e.g. <kbd>O</kbd>, <kbd>A</kbd>,
 
 ### Navigation
 The window has the player at the top (or on the left of wide windows), then a row of screens:
-_Home_, _Search_, _Library_, _Up next_ and _Lyrics_. Pages opened from a screen (an album, a
+_Home_, _Search_, _Library_, _Up next_, _Lyrics_ and _Stats_. Pages opened from a screen (an album, a
 playlist, an artist) stack on top of it; the `‹ name` link above them goes back.
 
 | Key                                                         | Command                                                                       |
@@ -96,7 +96,7 @@ playlist, an artist) stack on top of it; the `‹ name` link above them goes bac
 | <kbd>?</kbd>                                                | Show the keys.                                                                |
 | <kbd>Ctrl</kbd>+<kbd>Shift</kbd> (hold) / <kbd>;</kbd>      | Show the keys of what's on screen.                                            |
 | <kbd>,</kbd>                                                | Settings.                                                                     |
-| <kbd>F1</kbd>…<kbd>F5</kbd>                                 | Home, Search, Library, Up next, Lyrics.                                       |
+| <kbd>F1</kbd>…<kbd>F6</kbd>                                 | Home, Search, Library, Up next, Lyrics, Stats.                                |
 | <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd>            | Next / previous screen (`screen next`/`screen previous`).                     |
 | <kbd>Alt</kbd>+<kbd>L</kbd> / <kbd>Alt</kbd>+<kbd>H</kbd>   | Next / previous tab inside a page, e.g. Playlists → Albums (`tab next`/`tab previous`; also <kbd>Shift</kbd>+<kbd>→</kbd>/<kbd>←</kbd>). |
 | <kbd>Shift</kbd>+<kbd>L</kbd>                               | Lyrics, or back to where you were.                                            |
@@ -150,6 +150,11 @@ things you can click, and a text cursor over text fields.
   <kbd>D</kbd> removes, <kbd>Shift</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> moves songs.
 - **Lyrics**: time-synced lyrics from [LRCLIB](https://lrclib.net), following the song; click a line
   to jump to it.
+- **Stats**: your listening as ttunes notes it from now on (time listened today, in the last 7
+  days and in all, your streak of days, when in the day you listen, your top songs and artists of
+  the last 30 days), your top songs and artists as Spotify counts them over 4 weeks, 6 months and
+  all time (the songs play like any list), and your library in numbers. ttunes notes a song
+  listened to for 30 seconds or more in `listening.jsonl` in the cache directory.
 
 ### Settings
 <kbd>,</kbd> (or `:settings`) opens the settings over the page, like the key list: which tabs the Library shows (turn off
@@ -259,7 +264,7 @@ Note: \<FOO\> - mandatory arg; [BAR] - optional arg
 
 | Command | Action |
 |---------|--------|
-| `focus` \<SCREEN\> | Switch to a different view.<br/>\* Valid values for SCREEN: `home`, `search`, `library`, `queue`, `lyrics` |
+| `focus` \<SCREEN\> | Switch to a different view.<br/>\* Valid values for SCREEN: `home`, `search`, `library`, `queue`, `lyrics`, `stats` |
 | `screen` [`next`\|`previous`] | Switch to the next (default) or previous main screen. |
 | `tab` [`next`\|`previous`] | Switch to the next (default) or previous tab, e.g. from Playlists to Albums in the library. |
 | `panel` `queue`\|`lyrics` | `queue` shows the _Up next_ screen, `lyrics` shows the _Lyrics_ screen (or goes back to the previous screen if it's showing). |
@@ -346,7 +351,7 @@ Possible configuration values are:
 | Name                            | Description                                                    | Possible values                                                                       | Default             |
 |---------------------------------|----------------------------------------------------------------|---------------------------------------------------------------------------------------|---------------------|
 | `command_key`                   | Key to open command line                                       | Single character                                                                      | `:`                 |
-| `initial_screen`                | Screen to show after startup                                   | `"home"`, `"search"`, `"library"`, `"queue"`, `"lyrics"`                            | `"home"`            |
+| `initial_screen`                | Screen to show after startup                                   | `"home"`, `"search"`, `"library"`, `"queue"`, `"lyrics"`, `"stats"`                 | `"home"`            |
 | `use_nerdfont`                  | Turn nerdfont glyphs on/off                                    | `true`, `false`                                                                       | `false`             |
 | `backend`                       | Audio backend to use                                           | String<sup>[1]</sup>                                                                  |                     |
 | `backend_device`                | Audio device to configure the backend                          | String                                                                                |                     |

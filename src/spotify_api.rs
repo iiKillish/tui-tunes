@@ -875,19 +875,24 @@ impl WebApi {
             .ok_or(())
     }
 
-    /// The user's most played tracks of the last four weeks.
-    pub fn top_tracks(&self, limit: u32) -> Result<Vec<Track>, ()> {
+    /// The user's most played tracks over `range` (the last four weeks, six months, or all
+    /// time).
+    pub fn top_tracks(&self, range: TimeRange, limit: u32) -> Result<Vec<Track>, ()> {
         self.api_with_retry(|api| {
-            api.current_user_top_tracks_manual(Some(TimeRange::ShortTerm), Some(limit), None)
+            api.current_user_top_tracks_manual(Some(range), Some(limit), None)
         })
         .map(|page| page.items.iter().map(Track::from).collect())
         .ok_or(())
     }
 
-    /// The user's most played artists of the last four weeks, with a picture of each.
-    pub fn top_artists(&self, limit: u32) -> Result<Vec<(Artist, Option<String>)>, ()> {
+    /// The user's most played artists over `range`, with a picture of each.
+    pub fn top_artists(
+        &self,
+        range: TimeRange,
+        limit: u32,
+    ) -> Result<Vec<(Artist, Option<String>)>, ()> {
         self.api_with_retry(|api| {
-            api.current_user_top_artists_manual(Some(TimeRange::ShortTerm), Some(limit), None)
+            api.current_user_top_artists_manual(Some(range), Some(limit), None)
         })
         .map(|page| {
             page.items

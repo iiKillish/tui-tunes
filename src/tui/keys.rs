@@ -270,6 +270,7 @@ pub fn default_keybindings() -> HashMap<String, Vec<Command>> {
     kb.insert("F3".into(), vec![Command::Focus(ScreenId::Library)]);
     kb.insert("F4".into(), vec![Command::Focus(ScreenId::Queue)]);
     kb.insert("F5".into(), vec![Command::Focus(ScreenId::Lyrics)]);
+    kb.insert("F6".into(), vec![Command::Focus(ScreenId::Stats)]);
     kb.insert("?".into(), vec![Command::Help]);
     kb.insert(";".into(), vec![Command::Hints]);
     kb.insert(",".into(), vec![Command::Settings]);

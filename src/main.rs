@@ -29,6 +29,7 @@ mod spotify;
 mod spotify_api;
 mod spotify_url;
 mod spotify_worker;
+mod stats;
 mod terminal_colors;
 mod theme;
 mod traits;

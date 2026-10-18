@@ -407,8 +407,31 @@ impl Queue {
         self.load(index, reshuffle, shuffle_index, true);
     }
 
+    /// Note the current track in the listening history (see [crate::stats]) as far as it was
+    /// listened to, as it stops or another starts.
+    pub fn record_listened(&self) {
+        if let Some(Playable::Track(track)) = self.get_current() {
+            let listened = match self.spotify.get_current_status() {
+                PlayerEvent::Playing(_) | PlayerEvent::Paused(_) => {
+                    self.spotify.get_current_progress()
+                }
+                _ => return,
+            };
+            crate::stats::record(&track, listened);
+        }
+    }
+
+    /// Note the current track in the listening history as played to the end.
+    pub fn record_finished(&self) {
+        if let Some(Playable::Track(track)) = self.get_current() {
+            let length = std::time::Duration::from_millis(u64::from(track.duration));
+            crate::stats::record(&track, length);
+        }
+    }
+
     /// [Queue::play], but the track only starts playing if `start_playing`.
     fn load(&self, mut index: usize, reshuffle: bool, shuffle_index: bool, start_playing: bool) {
+        self.record_listened();
         let queue_length = self.queue.read().unwrap().len();
         // The length of the queue must be bigger than 0 or gen_range panics!
         if queue_length > 0 && shuffle_index && self.get_shuffle() {
@@ -473,6 +496,7 @@ impl Queue {
 
     /// Stop playback.
     pub fn stop(&self) {
+        self.record_listened();
         let mut current = self.current_track.write().unwrap();
         *current = None;
         self.spotify.stop();
