@@ -99,6 +99,13 @@ version = "4"
 features = ["z"]
 optional = true
 
+# Not used by ttunes' build script. It keeps librespot-core's build script, through vergen-gitcl
+# 1.0, on vergen 9.0: vergen 9.1 moved to vergen-lib 9 while vergen-gitcl 1.0 still uses
+# vergen-lib 0.1, so with vergen 9.1 the build script fails to compile. Matters for installs
+# without --locked, which pick the newest versions.
+[build-dependencies]
+vergen = {version = "=9.0.6", default-features = false}
+
 [features]
 alsa_backend = ["librespot-playback/alsa-backend"]
 cover = ["image"] # Show album covers (Kitty graphics protocol)
