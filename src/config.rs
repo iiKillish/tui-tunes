@@ -112,6 +112,8 @@ pub struct ConfigValues {
     /// How to draw covers and icons: "auto" (default, judged from the terminal), "kitty",
     /// "sixel", "iterm2" or "none".
     pub image_protocol: Option<String>,
+    /// Keep playing similar tracks when the queue runs out (default on; not with repeat).
+    pub autoplay: Option<bool>,
 }
 
 /// The ttunes theme.

@@ -63,6 +63,7 @@ image = {version = "0.25", default-features = false, features = ["jpeg", "png"],
 libc = "0.2.186"
 librespot-core = "0.8.0"
 librespot-oauth = "0.8.0"
+librespot-protocol = "0.8.0"
 librespot-playback = {version = "0.8.0", default-features = false, features = ["native-tls"]}
 log = "0.4.32"
 platform-dirs = "0.3.0"

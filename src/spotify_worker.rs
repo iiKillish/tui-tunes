@@ -3,12 +3,14 @@ use crate::events::{Event, EventManager};
 use crate::model::playable::Playable;
 use crate::queue::QueueEvent;
 use crate::spotify::{PlayerEvent, Spotify};
+use futures::channel::oneshot;
 use futures::future::BoxFuture;
 use librespot_core::SpotifyUri;
 use librespot_core::authentication::Credentials;
 use librespot_core::session::Session;
 use librespot_playback::mixer::Mixer;
 use librespot_playback::player::{Player, PlayerEvent as LibrespotPlayerEvent};
+use librespot_protocol::autoplay_context_request::AutoplayContextRequest;
 use log::{debug, error, info, warn};
 use std::sync::Arc;
 use std::time::Duration;
@@ -36,6 +38,8 @@ pub(crate) enum WorkerCommand {
     Seek(u32),
     SetVolume(u16),
     Preload(Playable),
+    /// Ask Spotify's autoplay for tracks to follow a context; the track URIs are sent back.
+    Autoplay(AutoplayContextRequest, oneshot::Sender<Vec<String>>),
     Shutdown,
 }
 
@@ -196,6 +200,25 @@ impl Worker {
                             preload = Some(uri);
                             preload_retried = false;
                         }
+                    }
+                    Some(WorkerCommand::Autoplay(request, reply)) => {
+                        let session = self.session.clone();
+                        tokio::spawn(async move {
+                            let uris = match session.spclient().get_autoplay_context(&request).await {
+                                Ok(context) => context
+                                    .pages
+                                    .into_iter()
+                                    .flat_map(|page| page.tracks)
+                                    .filter_map(|track| track.uri)
+                                    .filter(|uri| uri.starts_with("spotify:track:"))
+                                    .collect(),
+                                Err(e) => {
+                                    warn!("Autoplay failed: {e}");
+                                    Vec::new()
+                                }
+                            };
+                            let _ = reply.send(uris);
+                        });
                     }
                     Some(WorkerCommand::Shutdown) => {
                         info!("Librespot session shut down, terminating worker");

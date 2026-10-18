@@ -330,12 +330,17 @@ Possible configuration values are:
 | `[keybindings]`                 | Custom keybindings                                             | See [custom keybindings](#custom-keybindings)                                         |                     |
 | `ap_port`                       | Set ap-port for librespot (for restrictive firewalls)          | `80`, `443`, `4070`                                                                   |                     |
 | `client_id`                     | Client ID of your own Spotify app for Web API requests<sup>[3]</sup> | String                                                                          | The ID saved at first run |
+| `autoplay`                      | Keep playing similar songs when the queue runs out<sup>[4]</sup> | `true`, `false`                                                                     | `true`              |
 | `image_protocol`                | How to draw covers; see [cover drawing](#cover-drawing)        | `"auto"`, `"kitty"`, `"sixel"`, `"iterm2"`, `"none"`                                  | `"auto"`            |
 
 1. Run `ttunes -h` for a list of devices.
 2. If built with the `notify` feature.
 3. Optional: overrides the ID saved by the [first run](#first-run) setup in the `client_id` file
    of the configuration directory. The app needs the redirect URI `http://127.0.0.1:8989/login`.
+4. When the last song in the queue starts, ttunes asks Spotify's autoplay for songs like it (based
+   on its album and the songs played before it) and adds them to the end of the queue, shown as
+   "Next from: Autoplay". Songs you queue go ahead of them. Not with repeat on, and not for
+   podcasts.
 
 ### Custom Keybindings
 Keybindings can be configured in `[keybindings]` section in `config.toml`.

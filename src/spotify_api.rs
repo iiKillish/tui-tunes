@@ -397,6 +397,17 @@ impl WebApi {
             .ok_or(())
     }
 
+    /// Fetch the tracks with these `spotify:track:` URIs, leaving out ones that can't be found.
+    /// One request each: Spotify removed the endpoint for several at once.
+    pub fn tracks_by_uri(&self, uris: &[String]) -> Vec<FullTrack> {
+        uris.iter()
+            .filter_map(|uri| TrackId::from_uri(uri).ok())
+            .filter_map(|id| {
+                self.api_with_retry(|api| api.track(id.clone(), Some(Market::FromToken)))
+            })
+            .collect()
+    }
+
     /// Fetch the show with the given `show_id`.
     pub fn show(&self, show_id: &str) -> Result<FullShow, ()> {
         let sid = ShowId::from_id(show_id).map_err(|_| ())?;
