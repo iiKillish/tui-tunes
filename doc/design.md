@@ -13,7 +13,7 @@ comments.
 - Narrow windows leave covers out (page headers, the featured card, list thumbnails) rather
   than squeeze the text; card grids too short for covers show text-only cards.
 - Under the hero: **T1 tabs**: plain words (Home, Search, Library, Up next, Lyrics), the current
-  one bold in the accent and underlined; no fills.
+  one bold in the accent; no fills.
 - **V1 Clean**: no background fills or borders on the main screens (menus/dialogs may use a
   rounded border). Section titles bold in the accent.
 - **Home H3**: a featured "Pick up where you left off" card (cover, title, subtitle, ▶ Play), filter

@@ -1,11 +1,10 @@
 //! Tabs inside a page (the library's Playlists / Albums / Artists, an artist's Top tracks /
-//! Albums, search results), drawn as plain words with the current one bold, in the accent and
-//! underlined (design T1).
+//! Albums, search results), drawn as plain words with the current one bold and in the accent
+//! (design T1).
 
 use ratatui::Frame;
 use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
-use ratatui::style::Modifier;
 
 use crate::command::{Command, MoveMode};
 use crate::tui::header::{HeaderAction, PageHeader};
@@ -27,7 +26,7 @@ pub fn draw_tab_row(
     let mut rects = Vec::new();
     for (i, label) in labels.iter().enumerate() {
         let style = if i == current {
-            bold(styles.accent()).add_modifier(Modifier::UNDERLINED)
+            bold(styles.accent())
         } else {
             styles.secondary()
         };
