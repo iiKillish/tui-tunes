@@ -21,6 +21,7 @@ use crate::traits::ListItem;
 use crate::tui::images;
 use crate::tui::nav;
 use crate::tui::page::{Ctx, Outcome};
+use crate::tui::pointer;
 use crate::tui::style::{SELECTION_MARKER, Styles, bold, fill, put, scroll_to, width};
 
 /// Narrowest list that shows covers before its items.
@@ -196,6 +197,7 @@ impl<I: ListItem + Clone> ItemList<I> {
             let Some(item) = content.get(index) else {
                 break;
             };
+            pointer::clickable(line);
             let playing = item.is_playing(&ctx.queue) && current.is_some();
             let unplayable = item
                 .track()

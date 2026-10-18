@@ -9,6 +9,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Clear};
 
 use crate::command::Command;
 use crate::tui::page::{Ctx, Outcome, Overlay};
+use crate::tui::pointer;
 use crate::tui::style::{Styles, bold, put, truncate, width};
 
 /// What submitting does with the text.
@@ -60,6 +61,7 @@ impl Overlay for Prompt {
         let inner = block.inner(area);
         frame.render_widget(block, area);
         let field = Rect::new(inner.x + 1, inner.y + 1, inner.width.saturating_sub(2), 1);
+        pointer::text(field);
         let field_style = styles.panel().bg(ctx.palette.highlight_inactive_bg);
         crate::tui::style::fill(frame.buffer_mut(), field, field_style);
         // Show the end of long text, with the cursor after it.

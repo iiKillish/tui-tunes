@@ -10,6 +10,7 @@ use ratatui::style::Modifier;
 use crate::command::{Command, MoveMode};
 use crate::tui::header::{HeaderAction, PageHeader};
 use crate::tui::page::{Ctx, Outcome, Page};
+use crate::tui::pointer;
 use crate::tui::style::{Styles, bold, put, width};
 
 /// Draw tab labels at `area` (one row); returns where each was drawn, for clicks.
@@ -32,7 +33,9 @@ pub fn draw_tab_row(
         };
         let room = usize::from(area.right().saturating_sub(x));
         let written = put(buf, x, area.y, label, room, style);
-        rects.push(Rect::new(x, area.y, written as u16, 1));
+        let rect = Rect::new(x, area.y, written as u16, 1);
+        pointer::clickable(rect);
+        rects.push(rect);
         x += width(label) as u16 + 3;
     }
     rects

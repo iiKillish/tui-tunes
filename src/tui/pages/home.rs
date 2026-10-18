@@ -35,6 +35,7 @@ use crate::traits::{ListItem, OpenTarget};
 use crate::tui::images;
 use crate::tui::nav;
 use crate::tui::page::{Ctx, Outcome, Page};
+use crate::tui::pointer;
 use crate::tui::style::{SELECTION_MARKER, Styles, bold, fill, put, scroll_to};
 
 /// Items per kind loaded at most.
@@ -649,6 +650,7 @@ impl HomePage {
         {
             let y = area.y + (row - self.first) as u16 * ITEM_ROWS;
             let lines = Rect::new(area.x, y, area.width, 2).intersection(area);
+            pointer::clickable(lines);
             let selected = self.selected == Selection::Row(row);
             let style = if selected {
                 if focused {
@@ -773,6 +775,7 @@ impl Page for HomePage {
             && area.height >= card_rows + 1 + 2 + 2 * ITEM_ROWS
         {
             let card = Rect::new(area.x, y, area.width, card_rows);
+            pointer::clickable(card);
             self.regions.featured = Some(card);
             self.draw_featured(buf, card, featured, ctx, focused);
             y += card_rows + 1;
@@ -782,6 +785,9 @@ impl Page for HomePage {
 
         if y < area.bottom() {
             self.draw_pills(buf, Rect::new(area.x, y, area.width, 1), ctx);
+            for (pill, _) in &self.regions.pills {
+                pointer::clickable(*pill);
+            }
             y += 2;
         }
 

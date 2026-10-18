@@ -22,6 +22,7 @@ use crate::tui::images;
 #[cfg(feature = "cover")]
 use crate::tui::images::Source;
 use crate::tui::page::{Ctx, Outcome};
+use crate::tui::pointer;
 use crate::tui::style::{Styles, bold, duration, fill, put, width};
 
 /// Rows the hero needs besides the cover: title, artist, album, gap, progress, times, controls
@@ -388,6 +389,17 @@ impl Player {
             self.draw_hero(frame, area, ctx, count, show_cover);
         } else {
             self.draw_bar_layout(frame, area, ctx, count, show_cover);
+        }
+        for (control, _) in &self.hits.controls {
+            pointer::clickable(*control);
+        }
+        for hit in [self.hits.like, self.hits.progress].into_iter().flatten() {
+            pointer::clickable(hit);
+        }
+        // The bar after the volume icon; the icon itself isn't clickable.
+        if let Some(volume) = self.hits.volume {
+            let bar = Rect::new(volume.x + 3, volume.y, volume.width.saturating_sub(3), 1);
+            pointer::clickable(bar.intersection(volume));
         }
     }
 

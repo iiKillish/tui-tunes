@@ -14,6 +14,7 @@ use crate::command::{Command, MoveAmount, MoveMode};
 use crate::lyrics::{Lyrics, LyricsStore};
 use crate::model::playable::Playable;
 use crate::tui::page::{Ctx, Outcome};
+use crate::tui::pointer;
 use crate::tui::style::{Styles, bold, put, width, wrap};
 
 /// How long the lyrics stay where they were scrolled to before following the song again.
@@ -273,7 +274,11 @@ impl LyricsView {
             } else {
                 left
             };
-            put(buf, x, area.y + y as u16, &row.text, text_width, style);
+            let written = put(buf, x, area.y + y as u16, &row.text, text_width, style);
+            // Clicking a synced line seeks to it.
+            if row.time.is_some() {
+                pointer::clickable(Rect::new(x, area.y + y as u16, written as u16, 1));
+            }
             self.row_times[y] = row.time;
         }
     }

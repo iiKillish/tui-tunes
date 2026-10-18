@@ -24,6 +24,7 @@ use crate::tui::images;
 use crate::tui::keys::{self, Key, MAX_COUNT, accumulate_count};
 use crate::tui::page::{Ctx, Outcome, Overlay, Page};
 use crate::tui::pages;
+use crate::tui::pointer;
 use crate::tui::style::{Styles, bold, fill, put, truncate, width};
 use crate::tui::widgets::player::{BAR_ROWS, HERO_MIN_ROWS, Player};
 use crate::tui::widgets::tabs::draw_tab_row;
@@ -593,6 +594,7 @@ impl App {
 
         let (player_area, content, _hero) = self.split(main);
         self.regions = Regions::default();
+        pointer::clear();
         let on_lyrics_or_cover = false;
         self.player
             .draw(frame, player_area, &ctx, self.count, !on_lyrics_or_cover);
@@ -637,7 +639,9 @@ impl App {
                     usize::from(content.width / 2),
                     styles.secondary(),
                 );
-                self.regions.back = Some(Rect::new(x, y, written as u16, 1));
+                let back = Rect::new(x, y, written as u16, 1);
+                pointer::clickable(back);
+                self.regions.back = Some(back);
                 x += written as u16 + 3;
             }
             if !show_header && has_stack {
@@ -664,6 +668,9 @@ impl App {
         if show_header && let Some(header) = &header {
             let area = Rect::new(content.x, y, content.width, HEADER_ROWS);
             self.regions.header_buttons = header::draw(frame, area, header, &ctx.palette);
+            for (button, _) in &self.regions.header_buttons {
+                pointer::clickable(*button);
+            }
             y += HEADER_ROWS;
         }
 
@@ -732,9 +739,10 @@ impl App {
             }
         }
 
-        // Overlays, top last.
+        // Overlays, top last. An overlay takes the clicks, so what's under it isn't clickable.
         self.overlay_areas.clear();
         for overlay in &mut self.overlays {
+            pointer::clear();
             let area = overlay.draw(frame, full, &ctx);
             self.overlay_areas.push(area);
         }

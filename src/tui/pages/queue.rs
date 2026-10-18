@@ -19,6 +19,7 @@ use crate::model::playable::Playable;
 use crate::tui::images;
 use crate::tui::nav;
 use crate::tui::page::{Ctx, Outcome, Page};
+use crate::tui::pointer;
 use crate::tui::style::{
     SELECTION_MARKER, Styles, bold, duration, fill, put, songs_and_length, width,
 };
@@ -372,6 +373,9 @@ impl Page for QueuePage {
                 .take(2)
                 .for_each(|r| *r = Some(*index));
             y += ITEM_ROWS;
+        }
+        for (y, _) in rows.iter().enumerate().filter(|(_, item)| item.is_some()) {
+            pointer::clickable(Rect::new(area.x, area.y + y as u16, area.width, 1));
         }
         self.row_items = rows;
     }
