@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.4.4]
 
 ### Changed
 
@@ -17,8 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - When Spotify wouldn't give Home its recently played songs or top songs (it
   limits busy starts), Albums, Playlists and Songs said there was nothing there
-  until ttunes was restarted. They say Spotify couldn't be reached, and Home
-  tries again after 30 seconds
+  for ten minutes. They say Spotify couldn't be reached, and Home tries again
+  after 30 seconds
 
 ## [0.4.3]
 
