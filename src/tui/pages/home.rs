@@ -7,7 +7,7 @@
 //!   artists played from recently), your top artists, recently played songs and your top songs.
 //!
 //! Everything is loaded from Spotify in the background, and again when the screen is shown after
-//! [REFRESH_AFTER].
+//! [REFRESH_AFTER], or [RETRY_AFTER] when a request failed.
 
 use std::cmp::min;
 use std::collections::{HashMap, HashSet};
@@ -42,6 +42,10 @@ use crate::tui::style::{SELECTION_MARKER, Styles, bold, fill, put, scroll_to};
 const MAX_ITEMS: usize = 20;
 /// Home is reloaded when shown again after this long.
 const REFRESH_AFTER: Duration = Duration::from_secs(10 * 60);
+/// Home is loaded again this soon when a request failed (Spotify rate limits busy starts).
+const RETRY_AFTER: Duration = Duration::from_secs(30);
+/// Shown instead of an empty list when what it lists couldn't be loaded.
+const FAILED_MESSAGE: &str = "Couldn't load this from Spotify; trying again shortly";
 /// Rows of the featured card, with and without a cover.
 const FEATURED_ROWS: u16 = 7;
 const FEATURED_ROWS_TEXT: u16 = 5;
@@ -199,6 +203,8 @@ struct Sections {
     /// Recently played songs, most recent first, each once.
     recent: Vec<Track>,
     top_tracks: Vec<Track>,
+    /// Whether a request failed, so some of the above may be missing.
+    failed: bool,
 }
 
 impl Sections {
@@ -242,8 +248,10 @@ impl Sections {
 /// Load what Home shows from Spotify. Slow (several requests): run in the background.
 fn load(spotify: &Spotify, library: &Library) -> Sections {
     let api = &spotify.api;
+    let mut failed = false;
     let plays = api.recently_played().unwrap_or_else(|()| {
         error!("couldn't load recently played tracks");
+        failed = true;
         Vec::new()
     });
 
@@ -286,10 +294,18 @@ fn load(spotify: &Spotify, library: &Library) -> Sections {
         .collect();
     let top_tracks = api
         .top_tracks(rspotify::model::TimeRange::ShortTerm, MAX_ITEMS as u32)
-        .unwrap_or_default();
+        .unwrap_or_else(|()| {
+            error!("couldn't load top tracks");
+            failed = true;
+            Vec::new()
+        });
     let top_artists = api
         .top_artists(rspotify::model::TimeRange::ShortTerm, MAX_ITEMS as u32)
-        .unwrap_or_default()
+        .unwrap_or_else(|()| {
+            error!("couldn't load top artists");
+            failed = true;
+            Vec::new()
+        })
         .into_iter()
         .map(|(artist, _)| artist)
         .collect();
@@ -299,6 +315,7 @@ fn load(spotify: &Spotify, library: &Library) -> Sections {
         top_artists,
         recent,
         top_tracks,
+        failed,
     }
 }
 
@@ -385,6 +402,7 @@ pub fn new_for_test(
         top_artists: artists,
         recent,
         top_tracks: Vec::new(),
+        failed: false,
     });
     page
 }
@@ -392,10 +410,12 @@ pub fn new_for_test(
 impl HomePage {
     /// Load in the background if not loaded yet, or loaded a while ago.
     fn refresh_if_needed(&mut self, ctx: &Ctx) {
-        if self
-            .loaded_at
-            .is_some_and(|at| at.elapsed() < REFRESH_AFTER)
-        {
+        let after = if self.failed() {
+            RETRY_AFTER
+        } else {
+            REFRESH_AFTER
+        };
+        if self.loaded_at.is_some_and(|at| at.elapsed() < after) {
             return;
         }
         self.loaded_at = Some(Instant::now());
@@ -408,6 +428,24 @@ impl HomePage {
             *sections.write().unwrap() = Some(loaded);
             events.trigger();
         });
+    }
+
+    /// Whether the last load had a request fail.
+    fn failed(&self) -> bool {
+        self.sections
+            .read()
+            .unwrap()
+            .as_ref()
+            .is_some_and(|s| s.failed)
+    }
+
+    /// Shown when `filter` matches nothing.
+    fn empty_message(&self, filter: Filter) -> &'static str {
+        if self.failed() {
+            FAILED_MESSAGE
+        } else {
+            filter.empty_message()
+        }
     }
 
     /// Whether the featured card is shown (it is left out when there's no room).
@@ -623,7 +661,7 @@ impl HomePage {
                 buf,
                 area.x + MARGIN,
                 area.y,
-                self.filter.empty_message(),
+                self.empty_message(self.filter),
                 usize::from(area.width),
                 styles.secondary(),
             );
@@ -750,7 +788,7 @@ impl Page for HomePage {
                 buf,
                 area.x + MARGIN,
                 area.y + 1,
-                Filter::All.empty_message(),
+                self.empty_message(Filter::All),
                 usize::from(area.width),
                 styles.secondary(),
             );
@@ -972,7 +1010,18 @@ mod tests {
             top_artists: vec![artist("x"), artist("y")],
             recent: vec![track("t1"), track("t2")],
             top_tracks: vec![track("t2"), track("t3")],
+            failed: false,
         }
+    }
+
+    #[test]
+    fn failed_loads_say_so_instead_of_nothing_here() {
+        let page = new();
+        *page.sections.write().unwrap() = Some(Sections::default());
+        assert_eq!(page.empty_message(Filter::Songs), "No songs here yet");
+        page.sections.write().unwrap().as_mut().unwrap().failed = true;
+        assert_eq!(page.empty_message(Filter::Songs), FAILED_MESSAGE);
+        assert_eq!(page.empty_message(Filter::All), FAILED_MESSAGE);
     }
 
     fn titles(items: &[HomeItem]) -> Vec<String> {
