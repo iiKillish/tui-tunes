@@ -603,6 +603,25 @@ impl Library {
     }
 
     /// If there is a local version of the playlist, update it and rewrite the cache.
+    /// Rename the playlist with `id` on Spotify and here.
+    pub fn rename_playlist(&self, id: &str, name: &str) -> Result<(), ()> {
+        self.spotify.api.rename_playlist(id, name)?;
+        if let Some(playlist) = self
+            .playlists
+            .write()
+            .unwrap()
+            .iter_mut()
+            .find(|p| p.id == id)
+        {
+            playlist.name = name.to_string();
+        }
+        self.save_cache(
+            &config::cache_path(CACHE_PLAYLISTS),
+            &self.playlists.read().unwrap(),
+        );
+        Ok(())
+    }
+
     pub fn playlist_update(&self, updated: &Playlist) {
         {
             let mut playlists = self.playlists.write().unwrap();

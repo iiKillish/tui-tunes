@@ -697,6 +697,15 @@ impl Page for CardGrid {
                     None => Outcome::Consumed,
                 };
             }
+            Command::Rename(name) => {
+                return match &selected {
+                    Some(Card {
+                        item: CardItem::Playlist(playlist),
+                        ..
+                    }) => nav::rename_playlist(playlist, name, ctx),
+                    _ => Outcome::Ignored,
+                };
+            }
             Command::Goto(mode) => {
                 let Some(item) = selected.as_ref().and_then(Card::as_listitem) else {
                     return Outcome::Consumed;

@@ -222,10 +222,12 @@ impl WebApi {
         .ok_or(())
     }
 
+    /// Remove `playables` from the playlist with `playlist_id`, at their [Playable::list_index]
+    /// positions in the snapshot `snapshot_id` (or in the playlist as it is now).
     pub fn delete_tracks(
         &self,
         playlist_id: &str,
-        snapshot_id: &str,
+        snapshot_id: Option<&str>,
         playables: &[Playable],
     ) -> Result<PlaylistResult, ()> {
         self.api_with_retry(move |api| {
@@ -248,9 +250,47 @@ impl WebApi {
             api.playlist_remove_specific_occurrences_of_items(
                 PlaylistId::from_id(playlist_id).unwrap(),
                 item_pos,
-                Some(snapshot_id),
+                snapshot_id,
             )
         })
+        .ok_or(())
+    }
+
+    /// Move the track at position `from` to `to` in the playlist with `playlist_id`, as it was in
+    /// the snapshot `snapshot_id` (or as it is now).
+    pub fn move_track(
+        &self,
+        playlist_id: &str,
+        snapshot_id: Option<&str>,
+        from: usize,
+        to: usize,
+    ) -> Result<PlaylistResult, ()> {
+        // Spotify puts the track before the one at `insert_before`, counted before the move.
+        let insert_before = if to > from { to + 1 } else { to };
+        self.api_with_retry(|api| {
+            api.playlist_reorder_items(
+                PlaylistId::from_id(playlist_id).unwrap(),
+                Some(from as i32),
+                Some(insert_before as i32),
+                Some(1),
+                snapshot_id,
+            )
+        })
+        .ok_or(())
+    }
+
+    /// Rename the playlist with `id`.
+    pub fn rename_playlist(&self, id: &str, name: &str) -> Result<(), ()> {
+        self.api_with_retry(|api| {
+            api.playlist_change_detail(
+                PlaylistId::from_id(id).unwrap(),
+                Some(name),
+                None,
+                None,
+                None,
+            )
+        })
+        .map(|_| ())
         .ok_or(())
     }
 

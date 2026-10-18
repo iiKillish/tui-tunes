@@ -185,6 +185,10 @@ pub fn run(cmd: &Command, ctx: &Ctx) -> Outcome {
             info!("Exit code: {result}");
         }
         Command::Reconnect => spotify.shutdown(),
+        // Pages showing a playlist handle it.
+        Command::Rename(_) => {
+            return Outcome::Error("Open or select one of your playlists to rename it".into());
+        }
         Command::Sleep(mode) => {
             let timer = match mode {
                 SleepMode::Toggle if queue.sleep_timer() == Some(SleepTimer::EndOfTrack) => None,

@@ -153,6 +153,7 @@ When pressing <kbd>O</kbd>:
 |------------------------------|--------------------------------------|
 | <kbd>C</kbd>                 | Clear the entire queue.              |
 | <kbd>D</kbd>                 | Delete the currently selected track. |
+| <kbd>Shift</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> | Move the selected track up or down. |
 | <kbd>Ctrl</kbd>+<kbd>S</kbd> | Save the current queue.              |
 
 ### Library
@@ -165,6 +166,9 @@ start with an _All_ tab: the top result, then rows of songs, artists, albums and
 | Key          | Command                                 |
 |--------------|-----------------------------------------|
 | <kbd>D</kbd> | Delete the currently selected playlist. |
+
+On one of your playlists' pages, <kbd>D</kbd> removes the selected track and
+<kbd>Shift</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> moves it; `:rename` renames the playlist.
 
 ### Vim-Like Search Bar
 | Key          | Command                     |
@@ -209,8 +213,9 @@ Note: \<FOO\> - mandatory arg; [BAR] - optional arg
 | `add [current]` | Add selected track to playlist, if `current` is passed the currently playing track will be added |
 | `delete` | Remove the selected track from the playlist or the queue, or delete the selected playlist. |
 | `newplaylist` \<NAME\> | Create a new playlist. |
-| `sort` \<SORT_KEY\> [SORT_DIRECTION] | Sort a playlist.<br/>\* Valid values for SORT_KEY: `title`, `album`, `artist`, `duration`, `added`<br/>\* Valid values for SORT_DIRECTION: `ascending` (default; aliases: `a`, `asc`), `descending` (aliases: `d`, `desc`) |
-| `shift` `up`\|`down` [AMOUNT] | Move the selected track in the queue up or down by AMOUNT places (default 1). |
+| `rename` [NAME] | Rename the open playlist, or the one selected in the library. Omit NAME to type it in a dialog. Only your own and collaborative playlists can be renamed. |
+| `sort` \<SORT_KEY\> [SORT_DIRECTION] | Sort a playlist. `original` goes back to the playlist's own order.<br/>\* Valid values for SORT_KEY: `title`, `album`, `artist`, `duration`, `added`, `original`<br/>\* Valid values for SORT_DIRECTION: `ascending` (default; aliases: `a`, `asc`), `descending` (aliases: `d`, `desc`) |
+| `shift` `up`\|`down` [AMOUNT] | Move the selected track up or down by AMOUNT places (default 1), in the queue or in one of your playlists (on Spotify too). A playlist must be in its own order (`sort original`). |
 | `update` | Refetch the library from Spotify: liked songs, albums, artists and playlists. |
 
 #### Navigation

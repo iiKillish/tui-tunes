@@ -1,13 +1,41 @@
 //! Where things lead: the page an item opens, its context menu, the playlist picker. Kept in one
 //! place so lists, cards and menus all open things the same way.
 
+use crate::command::Command;
 use crate::model::artist::Artist;
 use crate::model::playable::Playable;
+use crate::model::playlist::Playlist;
 use crate::model::track::Track;
 use crate::traits::{ListItem, OpenTarget};
 use crate::tui::overlays::menu::{Entry, Menu};
+use crate::tui::overlays::prompt::Prompt;
 use crate::tui::page::{Ctx, Outcome, Overlay, Page};
 use crate::tui::pages;
+
+/// Whether the user may change `playlist`: their own, or a collaborative one.
+pub fn can_edit(playlist: &Playlist, ctx: &Ctx) -> bool {
+    playlist.collaborative || ctx.library.user_id.as_deref() == Some(playlist.owner_id.as_str())
+}
+
+/// Rename `playlist` to `name`. With no name, ask for one (starting from the current name);
+/// submitting runs `rename` with it, so whoever shows the playlist sees the new name.
+pub fn rename_playlist(playlist: &Playlist, name: &str, ctx: &Ctx) -> Outcome {
+    if !can_edit(playlist, ctx) {
+        return Outcome::Error("Only your own playlists can be renamed".into());
+    }
+    let name = name.trim();
+    if name.is_empty() {
+        let prompt = Prompt::new("Rename playlist", |name, _| {
+            Outcome::Run(vec![Command::Rename(name.to_string())])
+        })
+        .with_text(playlist.name.clone());
+        return Outcome::Overlay(Box::new(prompt));
+    }
+    match ctx.library.rename_playlist(&playlist.id, name) {
+        Ok(()) => Outcome::Message(format!("Renamed to {name}")),
+        Err(()) => Outcome::Error(format!("Couldn't rename {}", playlist.name)),
+    }
+}
 
 /// The page for an album, playlist, artist, show or category.
 pub fn open_target(target: OpenTarget, ctx: &Ctx) -> Box<dyn Page> {

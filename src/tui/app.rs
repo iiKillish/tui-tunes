@@ -572,6 +572,9 @@ impl App {
     }
 
     pub fn draw(&mut self, frame: &mut Frame) {
+        if let Some(error) = crate::tui::take_background_error() {
+            self.set_message(Err(error));
+        }
         images::begin_frame();
         let ctx = self.ctx.clone();
         let styles = Styles(&ctx.palette);
