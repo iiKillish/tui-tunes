@@ -233,8 +233,7 @@ fn full_app() -> App {
         album.id = Some(format!("album{n}"));
         album
     }));
-    let home =
-        pages::home::new_for_test(&ctx, albums, vec![playlist()], vec![artist()], tracks(10));
+    let home = pages::home::new_for_test(albums, vec![playlist()], vec![artist()], tracks(10));
     let mut app = app;
     app.set_root(ScreenId::Home, Box::new(home));
     app
