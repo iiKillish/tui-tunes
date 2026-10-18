@@ -62,14 +62,19 @@ Backends](#audio-backends).
 ttunes uses PulseAudio by default. Support for other backends can be enabled with the following
 commands.
 
-PortAudio for BSD's or macOS
+Rodio for macOS (CoreAudio), as the release builds use
+```sh
+cargo build --no-default-features --features rodio_backend,cover,share_clipboard,notify
+```
+
+PortAudio for BSDs
 ```sh
 cargo build --no-default-features --features portaudio_backend,cover
 ```
 
-Rodio for Windows
+Rodio for Windows (without `cover`, which only builds on Unix-like systems)
 ```sh
-cargo build --no-default-features --features rodio_backend,cover
+cargo build --no-default-features --features rodio_backend,share_clipboard,notify
 ```
 
 ## Other Features

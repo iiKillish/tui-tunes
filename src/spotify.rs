@@ -276,6 +276,11 @@ impl Spotify {
         // The PulseAudio stream properties were exported to the environment at
         // startup, see `pulseaudio_environment`.
         info!("Initializing audio backend {}", backend.0);
+        // Ours pauses at once; see crate::audio.
+        #[cfg(feature = "rodio_backend")]
+        if backend.0 == "rodio" {
+            return Ok(crate::audio::BUILDER);
+        }
         Ok(backend.1)
     }
 

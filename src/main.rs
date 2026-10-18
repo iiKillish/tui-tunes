@@ -9,6 +9,8 @@ use log::error;
 use ttunes::program_arguments;
 
 mod application;
+#[cfg(feature = "rodio_backend")]
+mod audio;
 mod authentication;
 mod cli;
 mod client_id;

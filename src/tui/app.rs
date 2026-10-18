@@ -425,7 +425,11 @@ impl App {
                 return;
             }
         }
-        match self.bindings.get(&key).cloned() {
+        let bound = self.bindings.get(&key).or_else(|| {
+            key.as_mac_option_alt()
+                .and_then(|alt| self.bindings.get(&alt))
+        });
+        match bound.cloned() {
             Some(commands) => self.run_binding(commands),
             None => self.count = 0,
         }
