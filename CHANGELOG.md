@@ -5,6 +5,66 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0]
+
+### Added
+
+- Install instructions for macOS, which needs the Rodio backend, and for the
+  ready-made release builds
+- A loading screen while ttunes connects to Spotify: "ttunes" typed out in big
+  letters, with what it's doing
+- Hold <kbd>Ctrl</kbd>+<kbd>Shift</kbd> (in Kitty, Ghostty, WezTerm or foot) or
+  press <kbd>;</kbd> to label what's on screen with its key, like Vimium
+- Settings, in a popup like the key list (<kbd>,</kbd> or `settings`): library tabs, the "Pick up
+  where you left off" card (also the `pick_up_where_you_left_off` option),
+  autoplay, and rebinding keys, saved to config.toml
+- A Stats screen (<kbd>F6</kbd>): time listened, streaks, when you listen and
+  your top songs and artists as ttunes notes them, Spotify's top artists and
+  songs over 4 weeks, 6 months and all time, and your library in numbers
+- Covers and control icons in terminals with sixel (foot, Windows Terminal
+  with WSL, mlterm, Contour, mintty) or iTerm2's inline images (iTerm2), besides the
+  Kitty graphics protocol. The `image_protocol` option picks one by hand, or
+  turns images off
+- Move tracks in your own and collaborative playlists with `shift` or
+  <kbd>Shift</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd>, as in the queue
+- `rename` renames the open playlist, or the one selected in the library
+- `sort original` puts a sorted playlist back in its own order
+- Playlists Spotify makes (Daily Mix, Discover Weekly, Release Radar, editorial
+  playlists) open and play again, from Home and from links (`insert`): the Web
+  API no longer gives them to apps, so they're loaded the way Spotify's own
+  apps load them
+- Autoplay: when the queue runs out, similar songs keep playing, as in
+  Spotify's apps. They're added when the last song starts, shown as "Next
+  from: Autoplay", and songs you queue go ahead of them. Turn it off with
+  `autoplay = false`; it's off while repeat is on
+
+### Changed
+
+- <kbd>Space</kbd> plays and pauses, as in Spotify's apps; <kbd>E</kbd> queues
+  the selected item (what <kbd>Space</kbd> did)
+- Queueing an album or playlist no longer freezes the interface while its songs
+  load
+- The key list (<kbd>?</kbd>) is grouped and says what each key does in words,
+  with keys doing the same on one row
+- On a Mac, Option with a key works as Alt does on Linux, in the same place
+- Home no longer greets you by name
+- Playlist pages open at once and show "Loading…" until their songs are there,
+  instead of freezing the interface
+- Moving and removing songs in a playlist shows at once; Spotify is updated in
+  the background, and a change it refuses is reported
+- The songs of playlists Spotify makes are kept on disk and only loaded again
+  once Spotify has changed the playlist
+
+- The macOS release builds include album covers, clipboard sharing and
+  notifications, like the Linux ones
+
+### Fixed
+
+- Pausing with the Rodio backend (macOS, Windows) lagged half a second or so:
+  it waited for the buffered audio to play out
+- Artist pages showing no songs, so Play played nothing: Spotify stopped giving
+  apps artists' top tracks, which are now loaded the way its own apps load them
+
 ## [0.3.1]
 
 ### Fixed
