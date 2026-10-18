@@ -107,7 +107,7 @@ impl App {
             Screen {
                 id: ScreenId::Home,
                 label: "Home",
-                root: Box::new(pages::home::new(&ctx)),
+                root: Box::new(pages::home::new()),
                 stack: Vec::new(),
             },
             Screen {

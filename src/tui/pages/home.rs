@@ -350,10 +350,9 @@ pub struct HomePage {
     /// First list item shown.
     first: usize,
     regions: Regions,
-    display_name: Option<String>,
 }
 
-pub fn new(ctx: &Ctx) -> HomePage {
+pub fn new() -> HomePage {
     HomePage {
         sections: Arc::new(RwLock::new(None)),
         loaded_at: None,
@@ -361,7 +360,6 @@ pub fn new(ctx: &Ctx) -> HomePage {
         selected: Selection::Featured,
         first: 0,
         regions: Regions::default(),
-        display_name: ctx.library.display_name.clone(),
     }
 }
 
@@ -369,7 +367,6 @@ pub fn new(ctx: &Ctx) -> HomePage {
 /// into (the first album featured), the artists as top artists too, and recent songs.
 #[cfg(test)]
 pub fn new_for_test(
-    ctx: &Ctx,
     albums: Vec<Album>,
     playlists: Vec<Playlist>,
     artists: Vec<Artist>,
@@ -379,7 +376,7 @@ pub fn new_for_test(
         .chain(playlists.into_iter().map(HomeItem::Playlist))
         .chain(artists.iter().cloned().map(HomeItem::Artist))
         .collect();
-    let mut page = new(ctx);
+    let mut page = new();
     page.loaded_at = Some(Instant::now());
     *page.sections.write().unwrap() = Some(Sections {
         jump_back_in,
@@ -719,13 +716,6 @@ impl HomePage {
 impl Page for HomePage {
     fn title(&self) -> String {
         "Home".into()
-    }
-
-    fn subtitle(&self) -> String {
-        match &self.display_name {
-            Some(name) => format!("Hi, {name}"),
-            None => String::new(),
-        }
     }
 
     fn on_show(&mut self, ctx: &Ctx) {
