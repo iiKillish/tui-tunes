@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- `cargo install ttunes` without `--locked` failing to build librespot-core:
+  vergen is pinned to 9.0, as vergen 9.1 no longer works with the vergen-gitcl
+  1.0 that librespot's build script uses
+
 ## [0.3.0]
 
 ### Added
