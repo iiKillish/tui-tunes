@@ -68,6 +68,25 @@ jobs:
       - name: Running cargo test
         run: cargo test --locked --target ${{ matrix.target }} ${{ matrix.features }}
 
+  # Build with the oldest Rust in rust-version: cargo install builds with the user's Rust, which
+  # rust-toolchain.toml doesn't choose.
+  msrv:
+    name: Building with the oldest supported Rust
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install rustup
+        run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      - name: Install Linux dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y pkg-config libssl-dev libpulse-dev
+      - name: cargo check with rust-version
+        run: |
+          version=$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
+          rustup toolchain install "$version" --profile minimal
+          cargo +"$version" check --locked --all-targets
+
   # Check Rust code formatting.
   fmt:
     name: Running `cargo fmt`
