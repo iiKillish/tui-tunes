@@ -59,6 +59,7 @@ impl Terminal {
         enable_raw_mode()?;
         execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
         pointer::enable();
+        images::start();
         // Restore the terminal if something panics, so the panic message can be read.
         let hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
@@ -114,6 +115,7 @@ impl Terminal {
 
 fn restore() -> io::Result<()> {
     pointer::reset();
+    images::stop();
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)
 }

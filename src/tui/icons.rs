@@ -1,4 +1,4 @@
-//! Playback control icons drawn as images, so terminals with the Kitty graphics protocol can show
+//! Playback control icons drawn as images, so terminals that can show images can show
 //! them bigger than a single text cell (terminals have no way to enlarge individual characters).
 
 use std::f32::consts::{FRAC_PI_2, PI};
