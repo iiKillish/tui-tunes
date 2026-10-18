@@ -21,6 +21,7 @@ use crate::model::playable::Playable;
 use crate::model::playlist::Playlist;
 use crate::model::track::Track;
 use crate::traits::{ListItem, OpenTarget};
+use crate::tui::hints;
 use crate::tui::images;
 use crate::tui::nav;
 use crate::tui::overlays::menu::Menu;
@@ -648,8 +649,16 @@ impl Page for CardGrid {
             CardLayout::Rows => self.draw_rows(frame, area, &sections, ctx, focused),
             CardLayout::Grid => self.draw_grid(frame, area, &sections, ctx, focused),
         }
-        for (card, _, _) in &self.card_areas {
-            pointer::clickable(*card);
+        for &(card, s, c) in &self.card_areas {
+            pointer::clickable(card);
+            // The selected card's keys on its title and subtitle, under the cover (a cover would
+            // be drawn over them).
+            if focused && (s, c) == (self.section, self.card) {
+                let text_rows = card.bottom().saturating_sub(2).max(card.y)..card.bottom();
+                for (row, command) in text_rows.zip([Command::Play, Command::Queue]) {
+                    hints::add(Rect::new(card.x, row, card.width, 1), command);
+                }
+            }
         }
     }
 

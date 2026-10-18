@@ -771,7 +771,9 @@ impl Page for HomePage {
         } else {
             FEATURED_ROWS_TEXT
         };
+        let pick_up = ctx.config.values().pick_up_where_you_left_off;
         if let Some(featured) = sections.featured()
+            && pick_up != Some(false)
             && area.height >= card_rows + 1 + 2 + 2 * ITEM_ROWS
         {
             let card = Rect::new(area.x, y, area.width, card_rows);

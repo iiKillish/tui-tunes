@@ -13,9 +13,11 @@ use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Position, Rect};
 use ratatui::style::Style;
 
+use crate::command::Command;
 use crate::model::playable::Playable;
 use crate::queue::{RepeatSetting, SleepTimer};
 use crate::spotify::{PlayerEvent, VOLUME_PERCENT};
+use crate::tui::hints;
 #[cfg(feature = "cover")]
 use crate::tui::icons::Icon;
 use crate::tui::images;
@@ -390,8 +392,24 @@ impl Player {
         } else {
             self.draw_bar_layout(frame, area, ctx, count, show_cover);
         }
-        for (control, _) in &self.hits.controls {
-            pointer::clickable(*control);
+        for (area, control) in &self.hits.controls {
+            pointer::clickable(*area);
+            hints::add_below(
+                *area,
+                match control {
+                    Control::Shuffle => Command::Shuffle(None),
+                    Control::Previous => Command::Previous,
+                    Control::PlayPause => Command::TogglePlay,
+                    Control::Next => Command::Next,
+                    Control::Repeat => Command::Repeat(None),
+                },
+            );
+        }
+        if let Some(like) = self.hits.like {
+            hints::add_below(like, Command::Like);
+        }
+        if let Some(volume) = self.hits.volume {
+            hints::add_row(volume, vec![Command::VolumeDown(5), Command::VolumeUp(5)]);
         }
         for hit in [self.hits.like, self.hits.progress].into_iter().flatten() {
             pointer::clickable(hit);

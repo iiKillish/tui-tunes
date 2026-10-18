@@ -8,6 +8,7 @@ use ratatui::layout::Rect;
 
 use crate::command::{Command, MoveMode};
 use crate::tui::header::{HeaderAction, PageHeader};
+use crate::tui::hints;
 use crate::tui::page::{Ctx, Outcome, Page};
 use crate::tui::pointer;
 use crate::tui::style::{Styles, bold, put, width};
@@ -118,6 +119,12 @@ impl Page for Tabbed {
                 self.current,
                 ctx,
             );
+            if focused && self.tabs.len() > 1 {
+                hints::add_row(
+                    Rect::new(area.x, area.y, area.width, 1),
+                    vec![Command::Tab(false), Command::Tab(true)],
+                );
+            }
         }
         if let Some((_, page)) = self.tabs.get_mut(self.current) {
             let inner = Rect::new(

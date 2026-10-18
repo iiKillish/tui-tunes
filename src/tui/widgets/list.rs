@@ -18,6 +18,7 @@ use crate::model::playable::Playable;
 use crate::model::track::Track;
 use crate::pagination::Pagination;
 use crate::traits::ListItem;
+use crate::tui::hints;
 use crate::tui::images;
 use crate::tui::nav;
 use crate::tui::page::{Ctx, Outcome};
@@ -218,6 +219,15 @@ impl<I: ListItem + Clone> ItemList<I> {
             fill(buf, line, style);
             if index == self.selected && focused {
                 put(buf, area.x, y, SELECTION_MARKER, 1, styles.marker());
+                hints::add_row(
+                    line,
+                    vec![
+                        Command::Play,
+                        Command::Queue,
+                        Command::PlayNext,
+                        Command::Open(TargetMode::Selected),
+                    ],
+                );
             }
 
             let mut x = area.x + 1;

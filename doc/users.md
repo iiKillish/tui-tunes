@@ -58,8 +58,15 @@ built `ttunes` with MPRIS support, you may be able to use media keys to control
 playback depending on your desktop environment settings. Have a look at the
 [configuration section](#configuration) if you want to set custom bindings.
 
-<kbd>?</kbd> lists every key binding with its command. Type to filter the list, and press
-<kbd>Return</kbd> to run the selected one.
+<kbd>?</kbd> lists every key, grouped (playback, getting around, queue and library, other) and
+saying what each does. Type to find a key or what it does, and press <kbd>Return</kbd> to run the
+selected one.
+
+To learn the keys, hold <kbd>Ctrl</kbd>+<kbd>Shift</kbd>: everything on screen that has a key
+gets a label with it, like Vimium's link hints (the tabs, the player's buttons, the selected row or
+card, a page's tabs). Letting go hides them. Holding <kbd>Ctrl</kbd>+<kbd>Shift</kbd> needs a
+terminal that reports it (Kitty, Ghostty, WezTerm, foot);
+<kbd>;</kbd> shows the labels in any terminal, until the next key.
 
 On a Mac, the <kbd>Option</kbd> key does what <kbd>Alt</kbd> does here, in the same place: the
 keys are the same as on Linux. ttunes turns the characters Option types (`˙` for Option+H) back
@@ -87,6 +94,8 @@ playlist, an artist) stack on top of it; the `‹ name` link above them goes bac
 | Key                                                         | Command                                                                       |
 |-------------------------------------------------------------|-------------------------------------------------------------------------------|
 | <kbd>?</kbd>                                                | Show the keys.                                                                |
+| <kbd>Ctrl</kbd>+<kbd>Shift</kbd> (hold) / <kbd>;</kbd>      | Show the keys of what's on screen.                                            |
+| <kbd>,</kbd>                                                | Settings.                                                                     |
 | <kbd>F1</kbd>…<kbd>F5</kbd>                                 | Home, Search, Library, Up next, Lyrics.                                       |
 | <kbd>Tab</kbd> / <kbd>Shift</kbd>+<kbd>Tab</kbd>            | Next / previous screen (`screen next`/`screen previous`).                     |
 | <kbd>Alt</kbd>+<kbd>L</kbd> / <kbd>Alt</kbd>+<kbd>H</kbd>   | Next / previous tab inside a page, e.g. Playlists → Albums (`tab next`/`tab previous`; also <kbd>Shift</kbd>+<kbd>→</kbd>/<kbd>←</kbd>). |
@@ -141,6 +150,13 @@ things you can click, and a text cursor over text fields.
   <kbd>D</kbd> removes, <kbd>Shift</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> moves songs.
 - **Lyrics**: time-synced lyrics from [LRCLIB](https://lrclib.net), following the song; click a line
   to jump to it.
+
+### Settings
+<kbd>,</kbd> (or `:settings`) opens the settings over the page, like the key list: which tabs the Library shows (turn off
+Podcasts or Browse, say), the "Pick up where you left off" card on Home, autoplay, and the keys.
+<kbd>Return</kbd> changes the selected setting; on a key, <kbd>Return</kbd> then the new key
+rebinds it (its old keys stop doing it), and <kbd>D</kbd> gives it its default keys back. Changes
+are saved to `config.toml`, keeping what's in it, and work at once.
 
 ### Context Menus
 | Key                           | Command                                                                                                   |
@@ -262,7 +278,9 @@ Note: \<FOO\> - mandatory arg; [BAR] - optional arg
 
 | Command | Action |
 |---------|--------|
-| `help` | Show the key bindings; type to filter them, and press <kbd>Return</kbd> to run one. |
+| `help` | Show the keys, grouped and in words; type to find one, and press <kbd>Return</kbd> to run it. |
+| `hints` | Show the keys of what's on screen next to it, until the next key (like holding <kbd>Ctrl</kbd>+<kbd>Shift</kbd>). |
+| `settings` | Open the settings: library tabs, the Home card, autoplay and keys. |
 | `quit`<br/>Aliases: `q`, `x` | Quit `ttunes`. |
 | `logout` | Remove any cached credentials from disk and quit `ttunes`. |
 | `reload` | Reload the configuration from disk. See [Configuration](#configuration). |
@@ -352,6 +370,7 @@ Possible configuration values are:
 | `ap_port`                       | Set ap-port for librespot (for restrictive firewalls)          | `80`, `443`, `4070`                                                                   |                     |
 | `client_id`                     | Client ID of your own Spotify app for Web API requests<sup>[3]</sup> | String                                                                          | The ID saved at first run |
 | `autoplay`                      | Keep playing similar songs when the queue runs out<sup>[4]</sup> | `true`, `false`                                                                     | `true`              |
+| `pick_up_where_you_left_off`    | Show the "Pick up where you left off" card on Home             | `true`, `false`                                                                       | `true`              |
 | `image_protocol`                | How to draw covers; see [cover drawing](#cover-drawing)        | `"auto"`, `"kitty"`, `"sixel"`, `"iterm2"`, `"none"`                                  | `"auto"`            |
 
 1. Run `ttunes -h` for a list of devices.

@@ -26,7 +26,9 @@ pub enum PlaybackState {
 }
 
 /// The focussed library tab when ttunes is started.
-#[derive(Clone, Serialize, Deserialize, Debug, Hash, strum_macros::EnumIter)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug, Hash, strum_macros::EnumIter,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum LibraryTab {
     Tracks,
@@ -114,6 +116,8 @@ pub struct ConfigValues {
     pub image_protocol: Option<String>,
     /// Keep playing similar tracks when the queue runs out (default on; not with repeat).
     pub autoplay: Option<bool>,
+    /// Show the "Pick up where you left off" card at the top of Home (default on).
+    pub pick_up_where_you_left_off: Option<bool>,
 }
 
 /// The ttunes theme.
@@ -190,6 +194,9 @@ static BASE_PATH: RwLock<Option<PathBuf>> = RwLock::new(None);
 pub struct Config {
     /// The configuration file path.
     filename: String,
+    /// The configuration file's text in tests, which have no file: see [Config::edit].
+    #[cfg(test)]
+    test_file: RwLock<String>,
     /// Configuration set by the user, read only.
     values: RwLock<ConfigValues>,
     /// Runtime state which can't be edited by the user, read/write.
@@ -202,6 +209,7 @@ impl Config {
     pub fn new_for_test() -> std::sync::Arc<Self> {
         std::sync::Arc::new(Self {
             filename: String::new(),
+            test_file: RwLock::new(String::new()),
             values: RwLock::new(ConfigValues::default()),
             state: RwLock::new(UserState::default()),
         })
@@ -244,6 +252,8 @@ impl Config {
 
         Self {
             filename,
+            #[cfg(test)]
+            test_file: RwLock::new(String::new()),
             values: RwLock::new(values),
             state: RwLock::new(userstate),
         }
@@ -288,6 +298,32 @@ impl Config {
     /// The theme's colors, from the configuration file and the terminal's own colors.
     pub fn build_theme(&self) -> crate::theme::Palette {
         crate::theme::load(&self.values().theme)
+    }
+
+    /// Change the configuration file with `change` (keeping its comments and layout) and load
+    /// it, as the settings page does.
+    pub fn edit(
+        &self,
+        change: impl FnOnce(&mut toml_edit::DocumentMut),
+    ) -> Result<(), Box<dyn Error>> {
+        #[cfg(test)]
+        {
+            let mut file = self.test_file.write().unwrap();
+            let mut doc: toml_edit::DocumentMut = file.parse()?;
+            change(&mut doc);
+            *file = doc.to_string();
+            *self.values.write().unwrap() = toml::from_str(&file)?;
+            Ok(())
+        }
+        #[cfg(not(test))]
+        {
+            let path = config_path(&self.filename);
+            let text = fs::read_to_string(&path).unwrap_or_default();
+            let mut doc: toml_edit::DocumentMut = text.parse()?;
+            change(&mut doc);
+            fs::write(&path, doc.to_string())?;
+            self.reload()
+        }
     }
 
     /// Attempt to reload the configuration from the configuration file.

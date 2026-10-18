@@ -686,9 +686,9 @@ fn test_pointer_is_a_hand_over_clickable_things() {
     app.run(&Command::Help);
     terminal.draw(|frame| app.draw(frame)).unwrap();
     assert_eq!(shape_at(tab), Shape::Default, "a tab under the key list");
-    let entry = find(&terminal, "focus library").expect("a key list entry");
+    let entry = find(&terminal, "Play / pause").expect("a key list entry");
     assert_eq!(shape_at(entry), Shape::Pointer, "a key list entry");
-    let filter = find(&terminal, "Type to filter").expect("the filter field");
+    let filter = find(&terminal, "Type to find a key").expect("the filter field");
     assert_eq!(shape_at(filter), Shape::Text, "the filter field");
 }
 
@@ -756,4 +756,159 @@ fn test_clicking_an_empty_menu_row_keeps_the_selection() {
     assert_eq!(picked.get(), "", "an empty row picked something");
     menu.command(&Command::Play, &ctx);
     assert_eq!(picked.get(), "Jazz", "the selection moved off Jazz");
+}
+
+#[test]
+fn test_key_hints_label_whats_on_screen() {
+    images::force_supported(false);
+    let mut app = app();
+    let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(!screen_text(&terminal).contains("Keys on screen"));
+
+    // `;` shows them: the tabs' F-keys, Space on play/pause, how to see all keys.
+    key(&mut app, KeyCode::Char(';'));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let text = screen_text(&terminal);
+    for label in [
+        " F1 ",
+        " F3 ",
+        " Space ",
+        "Keys on screen",
+        "? for all keys",
+    ] {
+        assert!(text.contains(label), "{label:?} missing:\n{text}");
+    }
+    // Black on yellow, and nothing hides the player's icons for them.
+    let space = find(&terminal, " Space ").unwrap();
+    let cell = &terminal.backend().buffer()[(space.x + 1, space.y)];
+    assert_eq!(cell.bg, ratatui::style::Color::Yellow);
+    assert!(app.overlay_areas().is_empty());
+
+    // The next key hides them.
+    key(&mut app, KeyCode::Down);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(!screen_text(&terminal).contains("Keys on screen"));
+
+    // Holding Ctrl and Shift shows them until either is let go.
+    use ratatui::crossterm::event::{KeyEventKind, ModifierKeyCode};
+    app.modifier_key(ModifierKeyCode::LeftControl, KeyEventKind::Press);
+    app.modifier_key(ModifierKeyCode::LeftShift, KeyEventKind::Press);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(screen_text(&terminal).contains("let go to hide"));
+    app.modifier_key(ModifierKeyCode::LeftShift, KeyEventKind::Release);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(!screen_text(&terminal).contains("Keys on screen"));
+}
+
+#[test]
+fn test_help_groups_keys_and_filters() {
+    let mut app = app();
+    let mut terminal = Terminal::new(TestBackend::new(90, 45)).unwrap();
+    app.run(&Command::Help);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let text = screen_text(&terminal);
+    for expected in ["Playback", "Play / pause", "Space", "Getting around"] {
+        assert!(text.contains(expected), "{expected:?} missing:\n{text}");
+    }
+    for c in "lyrics".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let text = screen_text(&terminal);
+    assert!(text.contains("Show the lyrics"), "{text}");
+
+    // The screens in their order.
+    let mut app = self::app();
+    app.run(&Command::Help);
+    for c in "go to".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let text = screen_text(&terminal);
+    let at = |s: &str| {
+        text.find(s)
+            .unwrap_or_else(|| panic!("{s:?} missing:\n{text}"))
+    };
+    assert!(at("Go to Home") < at("Go to Search"));
+    assert!(at("Go to Search") < at("Go to Library"));
+    assert!(!text.contains("Play / pause"), "{text}");
+}
+
+#[test]
+fn test_settings_change_tabs_home_and_keys() {
+    use crate::config::LibraryTab;
+
+    let mut app = app();
+    let mut terminal = Terminal::new(TestBackend::new(100, 60)).unwrap();
+    key(&mut app, KeyCode::Char(','));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let text = screen_text(&terminal);
+    for expected in [
+        "Settings",
+        "Library tabs",
+        "[✓] Podcasts",
+        "Pick up where you left off",
+    ] {
+        assert!(text.contains(expected), "{expected:?} missing:\n{text}");
+    }
+
+    // Podcasts is the fifth tab: turn it off.
+    for _ in 0..4 {
+        key(&mut app, KeyCode::Down);
+    }
+    key(&mut app, KeyCode::Enter);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let tabs = app.ctx.config.values().library_tabs.clone().unwrap();
+    assert!(!tabs.contains(&LibraryTab::Podcasts), "{tabs:?}");
+    assert!(screen_text(&terminal).contains("[ ] Podcasts"));
+
+    // Then the Home card, two rows on.
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Enter);
+    assert_eq!(
+        app.ctx.config.values().pick_up_where_you_left_off,
+        Some(false)
+    );
+
+    // Rebind the first key (in Playback): Enter, then the new key.
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Enter);
+    key(&mut app, KeyCode::Char('y'));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let bindings = app.ctx.config.values().keybindings.clone().unwrap();
+    assert!(bindings.contains_key("y"), "{bindings:?}");
+    assert!(screen_text(&terminal).contains("y now does this"));
+}
+
+#[test]
+fn test_key_list_scrolls_back_to_its_titles() {
+    let mut app = app();
+    let mut terminal = Terminal::new(TestBackend::new(90, 20)).unwrap();
+    app.run(&Command::Help);
+    for _ in 0..30 {
+        key(&mut app, KeyCode::Down);
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+    }
+    assert!(!screen_text(&terminal).contains("Playback"));
+    for _ in 0..30 {
+        key(&mut app, KeyCode::Up);
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+    }
+    assert!(screen_text(&terminal).contains("Playback"));
+
+    // The same in the settings, back to the first title.
+    app.run(&Command::Back);
+    key(&mut app, KeyCode::Char(','));
+    for _ in 0..30 {
+        key(&mut app, KeyCode::Down);
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+    }
+    for _ in 0..30 {
+        key(&mut app, KeyCode::Up);
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+    }
+    assert!(screen_text(&terminal).contains("Library tabs"));
 }

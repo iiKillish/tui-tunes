@@ -103,6 +103,45 @@ impl Key {
         };
         Some(Self::new(code, modifiers))
     }
+
+    /// The key's name in the configuration, which [Key::parse] reads back: "Shift+p", "Ctrl+s",
+    /// "Space". `None` for keys with more than one modifier, which bindings can't name.
+    pub fn name(&self) -> Option<String> {
+        let (shifted, code) = match self.code {
+            // An uppercase letter is Shift and the letter.
+            KeyCode::Char(c) if c.is_uppercase() => (true, c.to_lowercase().to_string()),
+            KeyCode::Char(' ') => (false, "Space".into()),
+            KeyCode::Char(c) => (false, c.to_string()),
+            KeyCode::Enter => (false, "Enter".into()),
+            KeyCode::Tab => (false, "Tab".into()),
+            KeyCode::Backspace => (false, "Backspace".into()),
+            KeyCode::Esc => (false, "Esc".into()),
+            KeyCode::Left => (false, "Left".into()),
+            KeyCode::Right => (false, "Right".into()),
+            KeyCode::Up => (false, "Up".into()),
+            KeyCode::Down => (false, "Down".into()),
+            KeyCode::Insert => (false, "Ins".into()),
+            KeyCode::Delete => (false, "Del".into()),
+            KeyCode::Home => (false, "Home".into()),
+            KeyCode::End => (false, "End".into()),
+            KeyCode::PageUp => (false, "PageUp".into()),
+            KeyCode::PageDown => (false, "PageDown".into()),
+            KeyCode::F(n) => (false, format!("F{n}")),
+            _ => return None,
+        };
+        let mut modifiers = self.modifiers;
+        if shifted {
+            modifiers.insert(KeyModifiers::SHIFT);
+        }
+        let prefix = match modifiers {
+            m if m.is_empty() => "",
+            KeyModifiers::SHIFT => "Shift+",
+            KeyModifiers::CONTROL => "Ctrl+",
+            KeyModifiers::ALT => "Alt+",
+            _ => return None,
+        };
+        Some(format!("{prefix}{code}"))
+    }
 }
 
 /// Fold a digit into a count prefix, clamped to `max`. A leading `0` starts no count (vim rule).
@@ -151,8 +190,9 @@ pub fn bindings(config: &Config) -> (HashMap<Key, Vec<Command>>, BindingList) {
     (map, list)
 }
 
+/// The keys bound without a configuration, by name.
 #[allow(clippy::too_many_lines)]
-fn default_keybindings() -> HashMap<String, Vec<Command>> {
+pub fn default_keybindings() -> HashMap<String, Vec<Command>> {
     let mut kb = HashMap::new();
 
     kb.insert("q".into(), vec![Command::Quit]);
@@ -231,6 +271,8 @@ fn default_keybindings() -> HashMap<String, Vec<Command>> {
     kb.insert("F4".into(), vec![Command::Focus(ScreenId::Queue)]);
     kb.insert("F5".into(), vec![Command::Focus(ScreenId::Lyrics)]);
     kb.insert("?".into(), vec![Command::Help]);
+    kb.insert(";".into(), vec![Command::Hints]);
+    kb.insert(",".into(), vec![Command::Settings]);
     kb.insert("Esc".into(), vec![Command::Back]);
     kb.insert("Backspace".into(), vec![Command::Back]);
 
@@ -440,6 +482,28 @@ mod tests {
         assert_eq!(Key::from_event(&shift_p), Key::parse("Shift+p"));
         let back_tab = KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT);
         assert_eq!(Key::from_event(&back_tab), Key::parse("Shift+Tab"));
+    }
+
+    #[test]
+    fn test_key_names_read_back() {
+        for name in [
+            "q",
+            "Shift+p",
+            "Ctrl+s",
+            "Alt+l",
+            "Space",
+            "F1",
+            "Shift+Tab",
+            "PageDown",
+        ] {
+            let key = Key::parse(name).unwrap();
+            assert_eq!(key.name().as_deref(), Some(name));
+        }
+        let ctrl_shift = Key::new(
+            KeyCode::Char('x'),
+            KeyModifiers::CONTROL | KeyModifiers::SHIFT,
+        );
+        assert_eq!(ctrl_shift.name(), None);
     }
 
     #[test]
