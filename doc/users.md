@@ -68,11 +68,11 @@ into Alt and the key.
 ### Count Prefixes
 Like Vim, many keys can be prefixed with a number to repeat them that many
 times. For example, <kbd>1</kbd><kbd>0</kbd><kbd>j</kbd> moves the selection
-down 10 rows and <kbd>3</kbd><kbd>Space</kbd> queues the next 3 items. The
+down 10 rows and <kbd>3</kbd><kbd>e</kbd> queues the next 3 items. The
 count being typed is shown in the status bar, and is cancelled by
 <kbd>Escape</kbd> or by opening the search/command prompt.
 
-Counts apply to the movement keys, <kbd>Space</kbd> and <kbd>.</kbd>, seeking
+Counts apply to the movement keys, <kbd>e</kbd> and <kbd>.</kbd>, seeking
 (<kbd>F</kbd>/<kbd>B</kbd> and their <kbd>Shift</kbd> variants), volume
 (<kbd>+</kbd>/<kbd>-</kbd>/<kbd>[</kbd>/<kbd>]</kbd>), track skipping
 (<kbd><</kbd>/<kbd>></kbd>) and search occurrences (<kbd>n</kbd>/<kbd>N</kbd>).
@@ -106,12 +106,13 @@ things you can click, and a text cursor over text fields.
 | Key                           | Command                                                        |
 |-------------------------------|----------------------------------------------------------------|
 | <kbd>Return</kbd>             | Play track or playlist.                                        |
-| <kbd>Space</kbd>              | Queue track or playlist.                                       |
+| <kbd>Space</kbd>              | Play / pause.                                                  |
+| <kbd>E</kbd>                  | Queue track or playlist, then select the next one.             |
 | <kbd>.</kbd>                  | Play the selected item after the currently playing track.      |
 | <kbd>P</kbd>                  | Move to the currently playing track in the list or queue.      |
 | <kbd>S</kbd>                  | Save the currently playing item to your library.               |
 | <kbd>D</kbd>                  | Remove the currently playing item from your library.           |
-| <kbd>Shift</kbd>+<kbd>P</kbd> | Toggle playback (i.e. Play/Pause).                             |
+| <kbd>Shift</kbd>+<kbd>P</kbd> | Play / pause, like <kbd>Space</kbd>.                           |
 | <kbd>Shift</kbd>+<kbd>S</kbd> | Stop playback.                                                 |
 | <kbd>Shift</kbd>+<kbd>U</kbd> | Update the library cache (tracks, artists, albums, playlists). |
 | <kbd><</kbd>                  | Play the previous track.                                       |

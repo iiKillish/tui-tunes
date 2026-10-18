@@ -836,14 +836,9 @@ impl Page for HomePage {
                 self.set_filter(Filter::ALL[position]);
             }
             Command::Play => return self.activate(ctx),
-            Command::Queue => {
+            Command::Queue | Command::PlayNext => {
                 if let Some(item) = self.selected_item() {
-                    item.as_listitem().queue(&ctx.queue);
-                }
-            }
-            Command::PlayNext => {
-                if let Some(item) = self.selected_item() {
-                    item.as_listitem().play_next(&ctx.queue);
+                    nav::queue_item(item.as_listitem(), matches!(cmd, Command::PlayNext), ctx);
                 }
             }
             Command::Save => {
