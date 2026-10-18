@@ -6,10 +6,13 @@
 //! * One list of rows (2-row cover, title, "Album • Artist"): Jump back in (albums, playlists and
 //!   artists played from recently), your top artists, recently played songs and your top songs.
 //!
+//! Spotify only lists the last 50 songs played, which may all be from one album, so Jump back in
+//! is kept in [HISTORY_FILE] and what Spotify lists is added to it.
+//!
 //! Everything is loaded from Spotify in the background, and again when the screen is shown after
 //! [REFRESH_AFTER], or [RETRY_AFTER] when a request failed.
 
-use std::cmp::min;
+use std::cmp::{Reverse, min};
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use std::thread;
@@ -21,6 +24,7 @@ use ratatui::buffer::Buffer;
 use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::{Position, Rect};
 use ratatui::style::Style;
+use serde::{Deserialize, Serialize};
 
 use crate::command::{Command, GotoMode, MoveAmount, MoveMode, TargetMode};
 use crate::library::Library;
@@ -40,6 +44,8 @@ use crate::tui::style::{SELECTION_MARKER, Styles, bold, fill, put, scroll_to};
 
 /// Items per kind loaded at most.
 const MAX_ITEMS: usize = 20;
+/// Jump back in as of the last load, in the cache directory.
+const HISTORY_FILE: &str = "home_history.json";
 /// Home is reloaded when shown again after this long.
 const REFRESH_AFTER: Duration = Duration::from_secs(10 * 60);
 /// Home is loaded again this soon when a request failed (Spotify rate limits busy starts).
@@ -77,7 +83,7 @@ const MIN_WIDTH_FOR_THUMBNAILS: u16 = 32;
 const FEATURED_MIN_TEXT_WIDTH: u16 = 24;
 
 /// Something shown on Home.
-#[derive(Clone)]
+#[derive(Clone, Serialize, Deserialize)]
 enum HomeItem {
     Album(Album),
     Playlist(Playlist),
@@ -139,6 +145,19 @@ impl HomeItem {
         }
     }
 
+    /// A copy without the tracks of albums, playlists and artists.
+    fn without_tracks(&self) -> Self {
+        match self {
+            Self::Album(album) => Self::Album(album.without_tracks()),
+            Self::Playlist(playlist) => Self::Playlist(playlist.without_tracks()),
+            Self::Artist(artist) => Self::Artist(Artist {
+                tracks: None,
+                ..artist.clone()
+            }),
+            Self::Song(track) => Self::Song(track.clone()),
+        }
+    }
+
     fn as_listitem(&self) -> Box<dyn ListItem> {
         match self {
             Self::Album(album) => album.as_listitem(),
@@ -191,6 +210,54 @@ impl Filter {
 
     fn position(self) -> usize {
         Self::ALL.iter().position(|f| *f == self).unwrap_or(0)
+    }
+}
+
+/// An item of Jump back in, and when something was last played from it (seconds since the Unix
+/// epoch).
+#[derive(Clone, Serialize, Deserialize)]
+struct Played {
+    at: i64,
+    item: HomeItem,
+}
+
+/// `fresh` (from Spotify) added to `saved` (from earlier loads): each item once, as in `fresh` if
+/// it's there, most recently played first, [MAX_ITEMS] at most.
+fn remember(fresh: Vec<Played>, saved: Vec<Played>) -> Vec<Played> {
+    let mut seen = HashSet::new();
+    let mut all: Vec<Played> = fresh
+        .into_iter()
+        .chain(saved)
+        .filter(|played| seen.insert(played.item.key()))
+        .collect();
+    all.sort_by_key(|played| Reverse(played.at));
+    all.truncate(MAX_ITEMS);
+    all
+}
+
+/// Jump back in as saved by the last load; empty if there's none or it can't be read.
+fn load_history() -> Vec<Played> {
+    std::fs::read_to_string(crate::config::cache_path(HISTORY_FILE))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+fn save_history(history: &[Played]) {
+    let path = crate::config::cache_path(HISTORY_FILE);
+    // Tracks are loaded again when an item is opened; saving them would only bloat the file.
+    let history: Vec<Played> = history
+        .iter()
+        .map(|played| Played {
+            at: played.at,
+            item: played.item.without_tracks(),
+        })
+        .collect();
+    let saved = serde_json::to_string(&history)
+        .map_err(|e| e.to_string())
+        .and_then(|json| std::fs::write(&path, json).map_err(|e| e.to_string()));
+    if let Err(e) = saved {
+        error!("Couldn't save Home's history in {}: {e}", path.display());
     }
 }
 
@@ -259,9 +326,9 @@ fn load(spotify: &Spotify, library: &Library) -> Sections {
     // can't be loaded (Spotify's own mixes, like Daily Mix playlists, come through the session).
     let mut loaded: HashMap<(PlayContext, String), Option<HomeItem>> = HashMap::new();
     let mut shown = HashSet::new();
-    let mut jump_back_in = Vec::new();
+    let mut fresh = Vec::new();
     for play in &plays {
-        if jump_back_in.len() >= MAX_ITEMS {
+        if fresh.len() >= MAX_ITEMS {
             break;
         }
         let context_item = play.context.as_ref().and_then(|(kind, id)| {
@@ -281,9 +348,18 @@ fn load(spotify: &Spotify, library: &Library) -> Sections {
         if let Some((key, item)) = item
             && shown.insert(key)
         {
-            jump_back_in.push(item);
+            fresh.push(Played {
+                at: play.played_at,
+                item,
+            });
         }
     }
+    let history = remember(fresh, load_history());
+    // Without Spotify's list there's nothing new to save.
+    if !failed {
+        save_history(&history);
+    }
+    let jump_back_in = history.into_iter().map(|played| played.item).collect();
 
     let mut seen = HashSet::new();
     let recent = plays
@@ -1012,6 +1088,51 @@ mod tests {
             top_tracks: vec![track("t2"), track("t3")],
             failed: false,
         }
+    }
+
+    fn played(at: i64, item: HomeItem) -> Played {
+        Played { at, item }
+    }
+
+    #[test]
+    fn history_keeps_what_spotify_no_longer_lists() {
+        let saved = vec![
+            played(300, album("a1")),
+            played(200, HomeItem::Artist(artist("x"))),
+            played(100, album("a2")),
+        ];
+        // Spotify now lists a new album and a1 again, played since.
+        let fresh = vec![played(500, album("a3")), played(400, album("a1"))];
+        let history = remember(fresh, saved);
+        let items: Vec<HomeItem> = history.iter().map(|p| p.item.clone()).collect();
+        assert_eq!(titles(&items), ["a3", "a1", "x", "a2"]);
+        assert_eq!(history[1].at, 400, "a1 as Spotify lists it now");
+    }
+
+    #[test]
+    fn history_keeps_the_most_recent_items() {
+        let saved = (0..MAX_ITEMS as i64)
+            .map(|i| played(i, album(&format!("old{i}"))))
+            .collect();
+        let history = remember(vec![played(1000, album("new"))], saved);
+        assert_eq!(history.len(), MAX_ITEMS);
+        assert_eq!(history[0].item.title(), "new");
+        assert!(
+            history.iter().all(|p| p.item.title() != "old0"),
+            "the oldest goes"
+        );
+    }
+
+    #[test]
+    fn history_survives_saving() {
+        let history = vec![
+            played(2, album("a1")),
+            played(1, HomeItem::Artist(artist("x"))),
+        ];
+        let json = serde_json::to_string(&history).unwrap();
+        let back: Vec<Played> = serde_json::from_str(&json).unwrap();
+        let items: Vec<HomeItem> = back.into_iter().map(|p| p.item).collect();
+        assert_eq!(titles(&items), ["a1", "x"]);
     }
 
     #[test]

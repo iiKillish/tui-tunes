@@ -30,6 +30,8 @@ use crate::spotify_worker::WorkerCommand;
 pub struct RecentPlay {
     pub track: Track,
     pub album: Album,
+    /// When it was played, in seconds since the Unix epoch.
+    pub played_at: i64,
     /// What it was played from, if it was an album, playlist or artist page, and its ID.
     pub context: Option<(PlayContext, String)>,
 }
@@ -858,6 +860,7 @@ impl WebApi {
                     .map(|play| RecentPlay {
                         track: (&play.track).into(),
                         album: (&play.track.album).into(),
+                        played_at: play.played_at.timestamp(),
                         context: play.context.as_ref().and_then(|context| {
                             let kind = match context._type {
                                 Type::Album => PlayContext::Album,

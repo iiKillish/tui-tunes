@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Home remembers the albums, playlists and artists you played from, up to 20.
+  Spotify only lists the last 50 songs played, which can all be from one or two
+  albums, so Home used to forget everything older
+
 ### Fixed
 
 - When Spotify wouldn't give Home its recently played songs or top songs (it
