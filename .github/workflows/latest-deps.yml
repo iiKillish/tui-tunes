@@ -1,0 +1,47 @@
+name: Latest dependencies
+
+# Builds against the newest version of every dependency that Cargo.toml allows, the way
+# `cargo install ttunes` without `--locked` does, so an upstream release that breaks those
+# installs shows up here instead of in a bug report. CI proper builds with Cargo.lock.
+#
+# Upstream releases break this, not ttunes changes, so it runs daily rather than on every PR.
+# GitHub emails whoever last changed this file when a scheduled run fails.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - .github/workflows/latest-deps.yml
+
+env:
+  TERM: xterm
+
+jobs:
+  latest-deps:
+    name: Building with the latest dependencies
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install rustup
+        run: |
+          if ! command -v rustup &>/dev/null; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            echo "${CARGO_HOME:-$HOME/.cargo}/bin" >> $GITHUB_PATH
+          fi
+      - name: Install Linux dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y pkg-config libssl-dev libpulse-dev
+      - name: Update every dependency to its newest allowed version
+        run: cargo update --verbose
+      - name: Show what changed from Cargo.lock
+        run: git diff --stat Cargo.lock
+      - name: Running cargo build
+        run: cargo build
+      - name: Running cargo test
+        run: cargo test
