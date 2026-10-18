@@ -11,6 +11,7 @@ use ratatui::widgets::{Block, BorderType, Borders, Clear};
 
 use crate::command::{Command, MoveAmount, MoveMode};
 use crate::tui::page::{Ctx, Outcome, Overlay};
+use crate::tui::pointer;
 use crate::tui::style::{SELECTION_MARKER, Styles, bold, fill, put, scroll_to, width};
 
 /// What picking an entry does. Returning [Outcome::Consumed] closes the menu.
@@ -141,6 +142,7 @@ impl Overlay for Menu {
             && inner.height > 1
         {
             let field = Rect::new(inner.x, inner.y, inner.width, 1);
+            pointer::text(field);
             let field_style = styles.panel().bg(ctx.palette.highlight_inactive_bg);
             fill(frame.buffer_mut(), field, field_style);
             let room = usize::from(field.width.saturating_sub(2));
@@ -186,6 +188,7 @@ impl Overlay for Menu {
                 styles.panel()
             };
             fill(buf, Rect::new(inner.x, y, inner.width, 1), style);
+            pointer::clickable(Rect::new(inner.x, y, inner.width, 1));
             if i == self.selected {
                 put(
                     buf,

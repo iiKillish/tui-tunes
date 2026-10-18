@@ -16,6 +16,7 @@ use crate::spotify::UriType;
 use crate::spotify_url::SpotifyUrl;
 use crate::tui::page::{Ctx, Outcome, Page};
 use crate::tui::pages::search_results;
+use crate::tui::pointer;
 use crate::tui::style::{Styles, put, width};
 
 const PLACEHOLDER: &str = "What do you want to listen to?";
@@ -115,6 +116,7 @@ impl Page for SearchPage {
         let x = area.x + 2;
         let room = area.width.saturating_sub(4);
         self.field = Rect::new(x, area.y, room, 2);
+        pointer::text(self.field);
         let buf = frame.buffer_mut();
 
         // The text, scrolled so the cursor stays in view.

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- The mouse pointer turns into a hand over things that can be clicked, and a
+  text cursor over text fields, in terminals that support it (Kitty, Ghostty,
+  foot)
+
 ### Fixed
 
 - Clicking the space below the last item on the Home screen no longer opens the

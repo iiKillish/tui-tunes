@@ -9,7 +9,7 @@ use ratatui::backend::TestBackend;
 use ratatui::crossterm::event::{
     KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
-use ratatui::layout::Rect;
+use ratatui::layout::{Position, Rect};
 
 use crate::command::{Command, MoveAmount, MoveMode, ScreenId, TargetMode};
 use crate::config::Config;
@@ -647,4 +647,47 @@ fn test_tab_leaves_the_search_field_and_switches_screens() {
         app.key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
         assert_eq!(app.current_screen(), *expected);
     }
+}
+
+/// Where `text` was drawn: the column and row of its first character.
+fn find(terminal: &Terminal<TestBackend>, text: &str) -> Option<Position> {
+    screen_text(terminal)
+        .lines()
+        .enumerate()
+        .find_map(|(row, line)| {
+            let byte = line.find(text)?;
+            let column = line[..byte].chars().count();
+            Some(Position::new(column as u16, row as u16))
+        })
+}
+
+#[test]
+fn test_pointer_is_a_hand_over_clickable_things() {
+    use crate::tui::pointer::{Shape, shape_at};
+
+    let mut app = full_app();
+    let mut terminal = Terminal::new(TestBackend::new(120, 40)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let tab = find(&terminal, "Library").expect("the tab row is drawn");
+    assert_eq!(shape_at(tab), Shape::Pointer, "a screen tab");
+    assert_eq!(
+        shape_at(Position::new(119, 39)),
+        Shape::Default,
+        "the bottom right corner"
+    );
+
+    // The search field is for typing.
+    app.run(&Command::Focus(ScreenId::Search));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let field = find(&terminal, "What do you want to listen to?").expect("the search field");
+    assert_eq!(shape_at(field), Shape::Text, "the search field");
+
+    // A menu takes the clicks: its entries are clickable, the tabs under it aren't.
+    app.run(&Command::Help);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert_eq!(shape_at(tab), Shape::Default, "a tab under the key list");
+    let entry = find(&terminal, "focus library").expect("a key list entry");
+    assert_eq!(shape_at(entry), Shape::Pointer, "a key list entry");
+    let filter = find(&terminal, "Type to filter").expect("the filter field");
+    assert_eq!(shape_at(filter), Shape::Text, "the filter field");
 }

@@ -26,6 +26,7 @@ use crate::tui::nav;
 use crate::tui::overlays::menu::Menu;
 use crate::tui::page::{Ctx, Outcome, Page};
 use crate::tui::pages::liked::LikedPage;
+use crate::tui::pointer;
 use crate::tui::style::{SELECTION_MARKER, Styles, bold, fill, put, scroll_to};
 
 /// Rows of a card's cover (when covers can be shown).
@@ -646,6 +647,9 @@ impl Page for CardGrid {
         match self.layout {
             CardLayout::Rows => self.draw_rows(frame, area, &sections, ctx, focused),
             CardLayout::Grid => self.draw_grid(frame, area, &sections, ctx, focused),
+        }
+        for (card, _, _) in &self.card_areas {
+            pointer::clickable(*card);
         }
     }
 

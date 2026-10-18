@@ -12,6 +12,7 @@ pub mod nav;
 pub mod overlays;
 pub mod page;
 pub mod pages;
+pub mod pointer;
 pub mod style;
 pub mod widgets;
 
@@ -57,6 +58,7 @@ impl Terminal {
     pub fn start() -> io::Result<Self> {
         enable_raw_mode()?;
         execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        pointer::enable();
         // Restore the terminal if something panics, so the panic message can be read.
         let hook = std::panic::take_hook();
         std::panic::set_hook(Box::new(move |info| {
@@ -91,13 +93,18 @@ impl Terminal {
         }
         self.terminal.draw(|frame| app.draw(frame))?;
         images::render(app.overlay_areas());
+        // Things may have moved under the mouse.
+        pointer::update();
         Ok(())
     }
 
     pub fn input(&mut self, input: InputEvent, app: &mut App) {
         match input {
             InputEvent::Key(key) if key.kind != KeyEventKind::Release => app.key(key),
-            InputEvent::Mouse(mouse) => app.mouse(mouse),
+            InputEvent::Mouse(mouse) => {
+                pointer::hover((mouse.column, mouse.row).into());
+                app.mouse(mouse);
+            }
             // Terminals move images around when they reflow: place them again.
             InputEvent::Resize(..) => images::reset(),
             _ => {}
@@ -106,6 +113,7 @@ impl Terminal {
 }
 
 fn restore() -> io::Result<()> {
+    pointer::reset();
     disable_raw_mode()?;
     execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)
 }

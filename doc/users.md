@@ -78,7 +78,9 @@ playlist, an artist) stack on top of it; the `‹ name` link above them goes bac
 | <kbd>g</kbd> / <kbd>G</kbd>                                 | Go to the top / bottom of the current page.                                   |
 
 Everything can be clicked: tabs, cards, rows, the player's buttons, progress bar and volume (drag
-its ● knob), and the Play / Shuffle / Like buttons on album, playlist and artist pages.
+its ● knob), and the Play / Shuffle / Like buttons on album, playlist and artist pages. In
+terminals that support it (Kitty, Ghostty and foot), the mouse pointer turns into a hand over
+things you can click, and a text cursor over text fields.
 
 ### Playback
 | Key                           | Command                                                        |
