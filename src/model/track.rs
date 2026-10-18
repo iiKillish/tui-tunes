@@ -79,6 +79,43 @@ impl Track {
     }
 }
 
+/// A track loaded through the playback session (see [crate::model::playlist::Playlist::from_session]).
+impl From<&librespot_metadata::Track> for Track {
+    fn from(track: &librespot_metadata::Track) -> Self {
+        let id = track.id.to_id().ok();
+        let base62 = |uri: &librespot_core::SpotifyUri| uri.to_id().unwrap_or_default();
+        let album = &track.album;
+        let cover = album
+            .covers
+            .iter()
+            .chain(album.cover_group.iter())
+            .max_by_key(|image| image.width)
+            .and_then(|image| image.id.to_base16().ok());
+        Self {
+            uri: track.id.to_uri().unwrap_or_default(),
+            url: id
+                .as_ref()
+                .map(|id| format!("https://open.spotify.com/track/{id}"))
+                .unwrap_or_default(),
+            id,
+            title: track.name.clone(),
+            track_number: track.number.max(0) as u32,
+            disc_number: track.disc_number,
+            duration: track.duration.max(0) as u32,
+            artists: track.artists.iter().map(|a| a.name.clone()).collect(),
+            artist_ids: track.artists.iter().map(|a| base62(&a.id)).collect(),
+            album: Some(album.name.clone()),
+            album_id: Some(base62(&album.id)),
+            album_artists: album.artists.iter().map(|a| a.name.clone()).collect(),
+            cover_url: cover.map(|hex| format!("https://i.scdn.co/image/{hex}")),
+            added_at: None,
+            list_index: 0,
+            is_local: false,
+            is_playable: Some(true),
+        }
+    }
+}
+
 impl From<&SimplifiedTrack> for Track {
     fn from(track: &SimplifiedTrack) -> Self {
         let artists = track

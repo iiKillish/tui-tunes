@@ -1,4 +1,4 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use ratatui::Frame;
 use ratatui::crossterm::event::MouseEvent;
@@ -11,25 +11,66 @@ use crate::model::playlist::Playlist;
 use crate::tui::header::{HeaderAction, PageHeader};
 use crate::tui::nav;
 use crate::tui::page::{Ctx, Outcome, Page};
-use crate::tui::style::songs_and_length;
+use crate::tui::style::{Styles, put, songs_and_length};
 use crate::tui::widgets::list::ItemList;
 
 /// A playlist: its tracks, numbered, under a header. `d` removes a track, `:shift` moves it,
 /// `:sort` sorts and `:rename` renames the playlist.
+/// The tracks are loaded in the background (it can take seconds), with "Loading…" shown until
+/// they're there.
 pub struct PlaylistPage {
     playlist: Playlist,
     list: ItemList<Playable>,
+    /// The tracks once they've been loaded in the background, until they're put in the list.
+    loaded: Arc<Mutex<Option<Vec<Playable>>>>,
 }
 
 impl PlaylistPage {
     pub fn new(playlist: Playlist, ctx: &Ctx) -> Self {
-        let mut playlist = playlist;
-        playlist.load_tracks(&ctx.spotify);
-        if let Some(order) = ctx.library.cfg.state().playlist_orders.get(&playlist.id) {
-            playlist.sort(&order.key, &order.direction);
+        let loaded = Arc::new(Mutex::new(None));
+        if playlist.tracks.is_none() {
+            let mut loading = playlist.without_tracks();
+            let spotify = ctx.spotify.clone();
+            let loaded = loaded.clone();
+            std::thread::spawn(move || {
+                loading.load_tracks(&spotify);
+                *loaded.lock().unwrap() = loading.tracks;
+                crate::tui::request_redraw();
+            });
         }
-        let list = Self::list(&playlist);
-        Self { playlist, list }
+        let mut page = Self {
+            list: Self::list(&playlist),
+            playlist,
+            loaded,
+        };
+        page.sort_as_saved(ctx);
+        page
+    }
+
+    /// Put the tracks in the list if they've arrived since the last look.
+    fn take_loaded(&mut self, ctx: &Ctx) {
+        let Some(tracks) = self.loaded.lock().unwrap().take() else {
+            return;
+        };
+        self.playlist.tracks = Some(tracks);
+        self.sort_as_saved(ctx);
+    }
+
+    /// Sort the tracks in the order saved for this playlist with `sort`, if any, and show them.
+    fn sort_as_saved(&mut self, ctx: &Ctx) {
+        if self.playlist.tracks.is_none() {
+            return;
+        }
+        if let Some(order) = ctx
+            .library
+            .cfg
+            .state()
+            .playlist_orders
+            .get(&self.playlist.id)
+        {
+            self.playlist.sort(&order.key, &order.direction);
+        }
+        self.list = Self::list(&self.playlist);
     }
 
     fn list(playlist: &Playlist) -> ItemList<Playable> {
@@ -128,10 +169,23 @@ impl Page for PlaylistPage {
     }
 
     fn draw(&mut self, frame: &mut Frame, area: Rect, ctx: &Ctx, focused: bool) {
+        self.take_loaded(ctx);
+        if self.playlist.tracks.is_none() {
+            put(
+                frame.buffer_mut(),
+                area.x + 2,
+                area.y,
+                "Loading…",
+                usize::from(area.width.saturating_sub(2)),
+                Styles(&ctx.palette).secondary(),
+            );
+            return;
+        }
         self.list.draw(frame, area, ctx, focused);
     }
 
     fn command(&mut self, cmd: &Command, ctx: &Ctx) -> Outcome {
+        self.take_loaded(ctx);
         match cmd {
             Command::Delete => {
                 let index = self.list.selected();

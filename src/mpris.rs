@@ -17,7 +17,6 @@ use crate::library::Library;
 use crate::model::album::Album;
 use crate::model::episode::Episode;
 use crate::model::playable::Playable;
-use crate::model::playlist::Playlist;
 use crate::model::show::Show;
 use crate::model::track::Track;
 use crate::queue::RepeatSetting;
@@ -417,8 +416,7 @@ impl MprisPlayer {
                 }
             }
             Some(UriType::Playlist) => {
-                if let Ok(p) = self.spotify.api.playlist(&id) {
-                    let mut playlist = Playlist::from(&p);
+                if let Some(mut playlist) = self.spotify.api.any_playlist(&id) {
                     playlist.load_tracks(&self.spotify);
                     if let Some(tracks) = &playlist.tracks {
                         let should_shuffle = self.queue.get_shuffle();

@@ -4850,6 +4850,7 @@ dependencies = [
  "image",
  "libc",
  "librespot-core",
+ "librespot-metadata",
  "librespot-oauth",
  "librespot-playback",
  "librespot-protocol",

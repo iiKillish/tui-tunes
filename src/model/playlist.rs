@@ -15,6 +15,14 @@ use crate::traits::OpenTarget;
 use crate::utils::InOrder;
 use crate::{command::SortDirection, command::SortKey, library::Library};
 
+/// Whether the playlist with `id` is one Spotify makes (Daily Mix, Discover Weekly, artist radios,
+/// editorial playlists), which the Web API refuses to give apps. Their IDs all start alike.
+pub fn is_made_by_spotify(id: &str) -> bool {
+    // 37i9dQZF…: Daily Mix, radios and editorial playlists; 37i9dQZEVX…: Discover Weekly and
+    // Release Radar.
+    id.starts_with("37i9dQZ")
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Playlist {
     pub id: String,
@@ -51,7 +59,72 @@ impl Playlist {
             return;
         }
 
-        self.tracks = Some(self.get_all_tracks(spotify));
+        // The Web API has none of the tracks of playlists Spotify makes: ask the session (also
+        // when the Web API comes back empty, for ones that aren't recognized as Spotify's).
+        let mut tracks = if is_made_by_spotify(&self.id) {
+            Vec::new()
+        } else {
+            self.get_all_tracks(spotify)
+        };
+        if tracks.is_empty()
+            && let Some(playlist) = spotify.api.session_playlist(&self.id, true)
+        {
+            tracks = playlist.tracks.unwrap_or_default();
+        }
+        self.tracks = Some(tracks);
+    }
+
+    /// A playlist loaded through the session (see [crate::spotify_api::WebApi::session_playlist]),
+    /// with its `tracks` if they were loaded. Only Spotify's playlists need this, so Spotify is
+    /// the owner. Its revision stands in for the snapshot ID.
+    pub fn from_session(
+        id: &str,
+        playlist: &librespot_metadata::Playlist,
+        tracks: Option<&[librespot_metadata::Track]>,
+    ) -> Self {
+        let attributes = &playlist.attributes;
+        let cover_url = attributes
+            .picture_sizes
+            .iter()
+            .find(|size| size.target_name == "large")
+            .or_else(|| attributes.picture_sizes.first())
+            .map(|size| size.url.clone())
+            .or_else(|| {
+                (!attributes.picture.is_empty()).then(|| {
+                    let hex: String = attributes
+                        .picture
+                        .iter()
+                        .map(|b| format!("{b:02x}"))
+                        .collect();
+                    format!("https://i.scdn.co/image/{hex}")
+                })
+            });
+        let tracks: Option<Vec<Playable>> = tracks.map(|tracks| {
+            tracks
+                .iter()
+                .enumerate()
+                .map(|(index, track)| {
+                    let mut playable = Playable::Track(Track::from(track));
+                    playable.set_list_index(index);
+                    playable
+                })
+                .collect()
+        });
+        Self {
+            id: id.to_string(),
+            name: playlist.name().to_string(),
+            owner_id: "spotify".into(),
+            owner_name: Some("Spotify".into()),
+            snapshot_id: playlist
+                .revision
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect(),
+            num_tracks: playlist.contents.items.len(),
+            tracks,
+            collaborative: false,
+            cover_url,
+        }
     }
 
     fn get_all_tracks(&self, spotify: &Spotify) -> Vec<Playable> {
@@ -351,5 +424,19 @@ impl ListItem for Playlist {
 
     fn as_listitem(&self) -> Box<dyn ListItem> {
         Box::new(self.clone())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_playlists_made_by_spotify() {
+        // A Daily Mix, Discover Weekly and an artist radio.
+        assert!(is_made_by_spotify("37i9dQZF1E37pQSz62cUyl"));
+        assert!(is_made_by_spotify("37i9dQZEVXcJZyENOWUFo7"));
+        assert!(is_made_by_spotify("37i9dQZF1E4lx2yZrJ95uQ"));
+        assert!(!is_made_by_spotify("0DNDN3ahYfw9RS9XyOr3BN"));
     }
 }

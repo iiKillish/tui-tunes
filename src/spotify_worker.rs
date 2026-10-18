@@ -8,6 +8,7 @@ use futures::future::BoxFuture;
 use librespot_core::SpotifyUri;
 use librespot_core::authentication::Credentials;
 use librespot_core::session::Session;
+use librespot_metadata::{Artist, Metadata, Playlist, Track};
 use librespot_playback::mixer::Mixer;
 use librespot_playback::player::{Player, PlayerEvent as LibrespotPlayerEvent};
 use librespot_protocol::autoplay_context_request::AutoplayContextRequest;
@@ -40,6 +41,12 @@ pub(crate) enum WorkerCommand {
     Preload(Playable),
     /// Ask Spotify's autoplay for tracks to follow a context; the track URIs are sent back.
     Autoplay(AutoplayContextRequest, oneshot::Sender<Vec<String>>),
+    /// Load a playlist through the session; see [session_playlist].
+    SessionPlaylist(SpotifyUri, oneshot::Sender<Option<Playlist>>),
+    /// Load an artist's top tracks (their URIs) through the session; see [session_top_tracks].
+    SessionTopTracks(SpotifyUri, oneshot::Sender<Vec<SpotifyUri>>),
+    /// Load tracks through the session; see [session_tracks].
+    SessionTracks(Vec<SpotifyUri>, oneshot::Sender<Vec<Track>>),
     Shutdown,
 }
 
@@ -47,6 +54,59 @@ enum PlayerStatus {
     Playing,
     Paused,
     Stopped,
+}
+
+/// The playlist at `uri`, loaded through the session the way Spotify's own apps do rather than
+/// through the Web API, which no longer gives apps the playlists Spotify makes (Daily Mix,
+/// Discover Weekly, editorial playlists). Undocumented, so it may stop working.
+async fn session_playlist(session: &Session, uri: &SpotifyUri) -> Option<Playlist> {
+    let playlist = match Playlist::get(session, uri).await {
+        Ok(playlist) => playlist,
+        Err(e) => {
+            warn!("Couldn't load {uri:?} through the session: {e}");
+            return None;
+        }
+    };
+    debug!(
+        "Loaded {uri:?} through the session: {:?}, {} items, picture {:?}, picture sizes {:?}",
+        playlist.name(),
+        playlist.contents.items.len(),
+        playlist.attributes.picture,
+        playlist.attributes.picture_sizes
+    );
+    Some(playlist)
+}
+
+/// The top tracks in the user's country of the artist at `uri`, loaded through the session: the
+/// Web API no longer gives them to apps. Undocumented, so it may stop working.
+async fn session_top_tracks(session: &Session, uri: &SpotifyUri) -> Vec<SpotifyUri> {
+    match Artist::get(session, uri).await {
+        Ok(artist) => artist.top_tracks.for_country(&session.country()).0,
+        Err(e) => {
+            warn!("Couldn't load {uri:?} through the session: {e}");
+            Vec::new()
+        }
+    }
+}
+
+/// The tracks at `uris`, loaded through the session ten at a time, in order; ones that fail are
+/// left out.
+async fn session_tracks(session: &Session, uris: Vec<SpotifyUri>) -> Vec<Track> {
+    let count = uris.len();
+    let loading = futures::StreamExt::map(futures::stream::iter(uris), |uri| async move {
+        Track::get(session, &uri)
+            .await
+            .inspect_err(|e| warn!("Couldn't load {uri:?} through the session: {e}"))
+            .ok()
+    });
+    let loaded: Vec<Option<Track>> =
+        futures::StreamExt::collect(futures::StreamExt::buffered(loading, 10)).await;
+    let tracks: Vec<Track> = loaded.into_iter().flatten().collect();
+    debug!(
+        "Loaded {} of {count} tracks through the session",
+        tracks.len()
+    );
+    tracks
 }
 
 pub struct Worker {
@@ -218,6 +278,24 @@ impl Worker {
                                 }
                             };
                             let _ = reply.send(uris);
+                        });
+                    }
+                    Some(WorkerCommand::SessionPlaylist(uri, reply)) => {
+                        let session = self.session.clone();
+                        tokio::spawn(async move {
+                            let _ = reply.send(session_playlist(&session, &uri).await);
+                        });
+                    }
+                    Some(WorkerCommand::SessionTopTracks(uri, reply)) => {
+                        let session = self.session.clone();
+                        tokio::spawn(async move {
+                            let _ = reply.send(session_top_tracks(&session, &uri).await);
+                        });
+                    }
+                    Some(WorkerCommand::SessionTracks(uris, reply)) => {
+                        let session = self.session.clone();
+                        tokio::spawn(async move {
+                            let _ = reply.send(session_tracks(&session, uris).await);
                         });
                     }
                     Some(WorkerCommand::Shutdown) => {

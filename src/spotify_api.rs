@@ -341,6 +341,85 @@ impl WebApi {
         }
     }
 
+    /// The playlist with `id`, and its tracks if `with_tracks`, loaded through the playback
+    /// session instead of the Web API: the only way to get the playlists Spotify makes. See
+    /// [crate::spotify_worker::session_playlist]. Blocks until it's loaded.
+    ///
+    /// The tracks are cached on disk with the playlist's revision: they're only loaded again
+    /// (a request each) once the playlist has changed, which the playlist itself tells.
+    pub fn session_playlist(&self, id: &str, with_tracks: bool) -> Option<Playlist> {
+        let uri = librespot_core::SpotifyUri::from_uri(&format!("spotify:playlist:{id}")).ok()?;
+        let loaded = self.ask_worker(|reply| WorkerCommand::SessionPlaylist(uri, reply))??;
+        if !with_tracks {
+            return Some(Playlist::from_session(id, &loaded, None));
+        }
+
+        let cache = Self::session_playlist_cache(id);
+        let revision = Playlist::from_session(id, &loaded, None).snapshot_id;
+        let cached = std::fs::read_to_string(&cache)
+            .ok()
+            .and_then(|json| serde_json::from_str::<Playlist>(&json).ok())
+            // Without a revision there's no telling whether it changed.
+            .filter(|cached| {
+                !revision.is_empty() && cached.snapshot_id == revision && cached.tracks.is_some()
+            });
+        if let Some(cached) = cached {
+            debug!("Using the cached tracks of playlist {id}");
+            return Some(cached);
+        }
+
+        let uris = loaded
+            .contents
+            .items
+            .iter()
+            .map(|item| item.id.clone())
+            .filter(|uri| matches!(uri, librespot_core::SpotifyUri::Track { .. }))
+            .collect();
+        let tracks = self.ask_worker(|reply| WorkerCommand::SessionTracks(uris, reply))?;
+        let playlist = Playlist::from_session(id, &loaded, Some(&tracks));
+        let saved = std::fs::create_dir_all(cache.parent().unwrap())
+            .map_err(|e| e.to_string())
+            .and_then(|()| serde_json::to_string(&playlist).map_err(|e| e.to_string()))
+            .and_then(|json| std::fs::write(&cache, json).map_err(|e| e.to_string()));
+        if let Err(e) = saved {
+            error!("Couldn't cache playlist {id}: {e}");
+        }
+        Some(playlist)
+    }
+
+    /// Where the tracks of the playlist with `id`, loaded through the session, are cached.
+    fn session_playlist_cache(id: &str) -> std::path::PathBuf {
+        crate::config::cache_path("session_playlists").join(format!("{id}.json"))
+    }
+
+    /// Send the worker the command `command` makes and wait for its reply. `None` if there's no
+    /// worker or it went away.
+    fn ask_worker<T>(
+        &self,
+        command: impl FnOnce(futures::channel::oneshot::Sender<T>) -> WorkerCommand,
+    ) -> Option<T> {
+        let (reply, answer) = futures::channel::oneshot::channel();
+        self.worker_channel
+            .read()
+            .unwrap()
+            .as_ref()?
+            .send(command(reply))
+            .ok()?;
+        futures::executor::block_on(answer).ok()
+    }
+
+    /// The playlist with `id`, without its tracks: through the session for playlists Spotify
+    /// makes (which the Web API refuses), else from the Web API, falling back to the session.
+    pub fn any_playlist(&self, id: &str) -> Option<Playlist> {
+        if crate::model::playlist::is_made_by_spotify(id) {
+            return self.session_playlist(id, false);
+        }
+        match self.playlist(id) {
+            Ok(playlist) => Some((&playlist).into()),
+            Err(()) => self.session_playlist(id, false),
+        }
+    }
+
     /// Delete the playlist with the given `id`.
     pub fn delete_playlist(&self, id: &str) -> Result<(), ()> {
         self.api_with_retry(|api| {
@@ -684,14 +763,29 @@ impl WebApi {
         .ok_or(())
     }
 
-    /// Get the top tracks of the artist with the given `id`.
+    /// Get the top tracks of the artist with the given `id`: through the playback session, as the
+    /// Web API now refuses apps (403), or from the Web API if that fails. Blocks until loaded.
     pub fn artist_top_tracks(&self, id: &str) -> Result<Vec<Track>, ()> {
+        if let Some(tracks) = self.session_top_tracks(id)
+            && !tracks.is_empty()
+        {
+            return Ok(tracks);
+        }
         #[allow(deprecated)]
         self.api_with_retry(|api| {
             api.artist_top_tracks(ArtistId::from_id(id).unwrap(), Some(Market::FromToken))
         })
         .map(|ft| ft.iter().map(|t| t.into()).collect())
         .ok_or(())
+    }
+
+    /// The top tracks of the artist with `id`, loaded through the session (see
+    /// [crate::spotify_worker::session_top_tracks]).
+    fn session_top_tracks(&self, id: &str) -> Option<Vec<Track>> {
+        let uri = librespot_core::SpotifyUri::from_uri(&format!("spotify:artist:{id}")).ok()?;
+        let uris = self.ask_worker(|reply| WorkerCommand::SessionTopTracks(uri, reply))?;
+        let tracks = self.ask_worker(|reply| WorkerCommand::SessionTracks(uris, reply))?;
+        Some(tracks.iter().map(Track::from).collect())
     }
 
     /// Get artists related to the artist with the given `id`.

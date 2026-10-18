@@ -9,7 +9,6 @@ use crate::model::album::Album;
 use crate::model::artist::Artist;
 use crate::model::episode::Episode;
 use crate::model::playable::Playable;
-use crate::model::playlist::Playlist;
 use crate::model::show::Show;
 use crate::model::track::Track;
 use crate::queue::{RepeatSetting, SleepTimer};
@@ -72,10 +71,7 @@ fn open_link(url: &SpotifyUrl, ctx: &Ctx) -> Outcome {
             .album(&url.id)
             .ok()
             .map(|a| Album::from(&a).as_listitem()),
-        UriType::Playlist => api
-            .playlist(&url.id)
-            .ok()
-            .map(|p| Playlist::from(&p).as_listitem()),
+        UriType::Playlist => api.any_playlist(&url.id).map(|p| p.as_listitem()),
         UriType::Artist => api
             .artist(&url.id)
             .ok()
