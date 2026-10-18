@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use ratatui::buffer::Buffer;
-use ratatui::crossterm::event::{self, Event, KeyCode, KeyModifiers};
+use ratatui::crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use ratatui::crossterm::terminal::{
     Clear, ClearType, EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
@@ -28,6 +28,8 @@ const FIRST_LETTER: Duration = Duration::from_millis(150);
 const LETTER_STEP: Duration = Duration::from_millis(110);
 /// After the last letter, before the tagline shows: the intro is done.
 const TAGLINE_DELAY: Duration = Duration::from_millis(220);
+/// The least time the loading screen shows, so it doesn't just flash by; a key skips the rest.
+const MIN_SHOWN: Duration = Duration::from_secs(2);
 const SPINNER: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const SPINNER_STEP: Duration = Duration::from_millis(80);
 
@@ -76,9 +78,10 @@ impl Splash {
 }
 
 impl Drop for Splash {
-    /// Finish typing the logo (it takes under a second), then clear the screen and give the
+    /// Show it for [MIN_SHOWN] in all (unless a key is pressed), then clear the screen and give the
     /// terminal back: to the UI, which takes it over again, or to an error message.
     fn drop(&mut self) {
+        self.status("Ready");
         self.stop.store(true, Ordering::Relaxed);
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
@@ -100,33 +103,41 @@ fn run(
     stop: &AtomicBool,
 ) {
     let started = Instant::now();
+    let mut skipped = false;
     loop {
         let t = started.elapsed();
+        let ready = stop.load(Ordering::Relaxed);
         let status = status.lock().unwrap().clone();
         let _ = terminal.draw(|frame| {
             let area = frame.area();
-            draw(frame.buffer_mut(), area, palette, t, &status);
+            draw(frame.buffer_mut(), area, palette, t, &status, ready);
         });
-        if stop.load(Ordering::Relaxed) && t >= intro_done() {
+        if ready && (skipped || t >= MIN_SHOWN.max(intro_done())) {
             return;
         }
-        // Ctrl+C or q quits while connecting: raw mode keeps Ctrl+C from interrupting.
-        if event::poll(Duration::from_millis(40)).unwrap_or(false)
-            && let Ok(Event::Key(key)) = event::read()
-            && (key.code == KeyCode::Char('q')
-                || (key.code == KeyCode::Char('c')
-                    && key.modifiers.contains(KeyModifiers::CONTROL)))
-        {
-            let _ = execute!(
-                io::stdout(),
-                Clear(ClearType::All),
-                cursor::Show,
-                LeaveAlternateScreen
-            );
-            let _ = disable_raw_mode();
-            let _ = io::stdout().flush();
-            std::process::exit(130);
+        let Ok(true) = event::poll(Duration::from_millis(40)) else {
+            continue;
+        };
+        let Ok(Event::Key(key)) = event::read() else {
+            continue;
+        };
+        // Ctrl+C or q quits while connecting (raw mode keeps Ctrl+C from interrupting); other keys
+        // go on to the app as soon as it's ready.
+        let quit = key.code == KeyCode::Char('q')
+            || (key.code == KeyCode::Char('c') && key.modifiers.contains(KeyModifiers::CONTROL));
+        if !quit {
+            skipped |= key.kind != KeyEventKind::Release;
+            continue;
         }
+        let _ = execute!(
+            io::stdout(),
+            Clear(ClearType::All),
+            cursor::Show,
+            LeaveAlternateScreen
+        );
+        let _ = disable_raw_mode();
+        let _ = io::stdout().flush();
+        std::process::exit(130);
     }
 }
 
@@ -138,8 +149,8 @@ fn intro_done() -> Duration {
     letter_at(LOGO.len() - 1) + TAGLINE_DELAY
 }
 
-/// The loading screen `t` after it started.
-fn draw(buf: &mut Buffer, area: Rect, palette: &Palette, t: Duration, status: &str) {
+/// The loading screen `t` after it started, `ready` once ttunes has connected.
+fn draw(buf: &mut Buffer, area: Rect, palette: &Palette, t: Duration, status: &str, ready: bool) {
     let styles = Styles(palette);
     fill(buf, area, styles.primary());
     let letters = (0..LOGO.len()).take_while(|&i| t >= letter_at(i)).count();
@@ -205,7 +216,11 @@ fn draw(buf: &mut Buffer, area: Rect, palette: &Palette, t: Duration, status: &s
     if done {
         centered(buf, below, "Spotify for the terminal", styles.secondary());
     }
-    let spinner = SPINNER[(t.as_millis() / SPINNER_STEP.as_millis()) as usize % SPINNER.len()];
+    let spinner = if ready {
+        '✓'
+    } else {
+        SPINNER[(t.as_millis() / SPINNER_STEP.as_millis()) as usize % SPINNER.len()]
+    };
     centered(
         buf,
         below + 2,
@@ -213,12 +228,12 @@ fn draw(buf: &mut Buffer, area: Rect, palette: &Palette, t: Duration, status: &s
         styles.primary(),
     );
     if area.height > block + 2 {
-        centered(
-            buf,
-            area.bottom() - 1,
-            "q or ctrl+c to quit",
-            styles.secondary(),
-        );
+        let hint = if ready {
+            "any key to go on · q to quit"
+        } else {
+            "q or ctrl+c to quit"
+        };
+        centered(buf, area.bottom() - 1, hint, styles.secondary());
     }
 }
 
@@ -255,10 +270,14 @@ mod tests {
 
     /// The rows of the logo drawn at scale 1, as text.
     fn logo_rows(t: Duration) -> Vec<String> {
+        rows(t, false)
+    }
+
+    fn rows(t: Duration, ready: bool) -> Vec<String> {
         let area = Rect::new(0, 0, 40, 12);
         let mut buf = Buffer::empty(area);
         let palette = crate::config::Config::new_for_test().build_theme();
-        draw(&mut buf, area, &palette, t, "Connecting to Spotify");
+        draw(&mut buf, area, &palette, t, "Connecting to Spotify", ready);
         (0..area.height)
             .map(|y| {
                 (0..area.width)
@@ -280,5 +299,12 @@ mod tests {
         // More of the logo is lit once it's typed.
         let lit = |s: &str| s.chars().filter(|c| "█▀▄".contains(*c)).count();
         assert!(lit(&done) > lit(&start));
+    }
+
+    #[test]
+    fn test_ready_says_a_key_goes_on() {
+        let text = rows(MIN_SHOWN, true).join("\n");
+        assert!(text.contains("✓ Connecting to Spotify"), "{text}");
+        assert!(text.contains("any key to go on"), "{text}");
     }
 }
