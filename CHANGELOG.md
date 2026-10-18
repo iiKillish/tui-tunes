@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0]
 
 ### Added
 
@@ -15,6 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Type to filter the playlists in "Add to playlist" and the key list
   (<kbd>?</kbd>)
 - <kbd>P</kbd> says so when the playing track isn't in the list
+
+### Changed
+
+- `focus` with an unknown screen is an error when the command is read, so a
+  typo in a key binding is reported like any other bad argument instead of
+  only when the key is pressed
+- The commands list in the user docs covers every command
 
 ### Fixed
 
