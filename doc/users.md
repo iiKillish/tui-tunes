@@ -325,6 +325,7 @@ Possible configuration values are:
 | `[keybindings]`                 | Custom keybindings                                             | See [custom keybindings](#custom-keybindings)                                         |                     |
 | `ap_port`                       | Set ap-port for librespot (for restrictive firewalls)          | `80`, `443`, `4070`                                                                   |                     |
 | `client_id`                     | Client ID of your own Spotify app for Web API requests<sup>[3]</sup> | String                                                                          | The ID saved at first run |
+| `image_protocol`                | How to draw covers; see [cover drawing](#cover-drawing)        | `"auto"`, `"kitty"`, `"sixel"`, `"iterm2"`, `"none"`                                  | `"auto"`            |
 
 1. Run `ttunes -h` for a list of devices.
 2. If built with the `notify` feature.
@@ -523,8 +524,21 @@ body = "%artists"
 
 ### Cover Drawing
 With the `cover` feature (on by default), `ttunes` draws album art (in the player, on page
-headers and next to list items) with the Kitty graphics protocol, in terminals that support it
-(Kitty, Ghostty, WezTerm, Konsole). In other terminals no covers are shown.
+headers and next to list items) and the player's control icons with whichever image protocol the
+terminal speaks:
+
+- the Kitty graphics protocol: Kitty, Ghostty, WezTerm, Konsole
+- sixel: foot, Windows Terminal (running ttunes in WSL), mlterm, Contour, mintty
+- iTerm2's inline images: iTerm2
+
+The terminal is recognized from environment variables such as `TERM` and `TERM_PROGRAM`. Other
+terminals with sixel support, such as xterm (started with `-ti vt340`) or VS Code (with
+`terminal.integrated.enableImages`), aren't recognized this way: set `image_protocol` in the
+configuration to use them, or to `"none"` to turn images off. In terminals without images, no
+covers are shown.
+
+Sixel and iTerm2 images are drawn at the terminal's cell size in pixels, which ttunes asks the
+terminal for; terminals that don't report it get images of the wrong size.
 
 ## Authentication
 `ttunes` uses OAuth2 for authentication. When launched for the first time, a link will be generated

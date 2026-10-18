@@ -77,7 +77,7 @@ Here are some auxiliary features you may wish to enable:
 
 | Feature           | Default | Description                                                                                |
 |-------------------|---------|--------------------------------------------------------------------------------------------|
-| `cover`           | on      | Draw album art with the Kitty graphics protocol (Kitty, Ghostty, WezTerm).                 |
+| `cover`           | on      | Draw album art with the Kitty graphics protocol, sixel or iTerm2 images.                   |
 | `mpris`           | on      | Control `ttunes` via dbus. See [Arch Wiki: MPRIS](https://wiki.archlinux.org/title/MPRIS). |
 | `notify`          | on      | Send a notification to show what's playing.                                                |
 | `share_clipboard` | on      | Ability to copy the URL of a song/playlist/etc. to system clipboard.                       |

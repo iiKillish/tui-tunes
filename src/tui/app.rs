@@ -746,6 +746,7 @@ impl App {
             let area = overlay.draw(frame, full, &ctx);
             self.overlay_areas.push(area);
         }
+        images::draw_into_buffer(frame.buffer_mut(), &self.overlay_areas);
     }
 
     /// Where overlays were drawn, so images under them are left out.

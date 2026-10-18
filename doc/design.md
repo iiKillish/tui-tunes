@@ -25,4 +25,5 @@ comments.
 - **S2 selection**: the selected row gets a background just off the main one (`statusbar_bg`, derived from the terminal's colors) and a `▌` in the
   accent at its left edge (`Styles::selected` + `SELECTION_MARKER`/`Styles::marker`).
 - **R2 rows**: number, small cover (1 row), title, artist, length.
-- Covers via Kitty graphics (`tui::images`) in terminals that support it (Kitty, Ghostty, WezTerm).
+- Covers via Kitty graphics, sixel or iTerm2 images (`tui::images`) in terminals that support one
+  (Kitty, Ghostty, WezTerm, Konsole; foot, Windows Terminal with WSL; iTerm2).

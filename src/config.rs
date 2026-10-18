@@ -109,6 +109,9 @@ pub struct ConfigValues {
     /// How the volume slider maps to loudness: "cubic" (default, like system mixers), "log"
     /// (60 dB range, quiet sooner) or "linear".
     pub volume_curve: Option<String>,
+    /// How to draw covers and icons: "auto" (default, judged from the terminal), "kitty",
+    /// "sixel", "iterm2" or "none".
+    pub image_protocol: Option<String>,
 }
 
 /// The ttunes theme.

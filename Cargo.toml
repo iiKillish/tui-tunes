@@ -58,6 +58,7 @@ crossbeam-channel = "0.5"
 zbus = {version = "5.16.0", default-features = false, features = ["tokio"], optional = true}
 fern = "0.7"
 futures = "0.3"
+icy_sixel = {version = "0.7", optional = true}
 image = {version = "0.25", default-features = false, features = ["jpeg", "png"], optional = true}
 libc = "0.2.186"
 librespot-core = "0.8.0"
@@ -108,7 +109,7 @@ vergen = {version = "=9.0.6", default-features = false}
 
 [features]
 alsa_backend = ["librespot-playback/alsa-backend"]
-cover = ["image"] # Show album covers (Kitty graphics protocol)
+cover = ["image", "icy_sixel"] # Show album covers (Kitty, sixel or iTerm2 images)
 default = ["cover", "share_clipboard", "pulseaudio_backend", "mpris", "notify"]
 mpris = ["zbus"] # Allow ttunes to be controlled via MPRIS API
 notify = ["notify-rust"] # Show what's playing via a notification
