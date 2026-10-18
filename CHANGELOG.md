@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Clicking the space below the last item on the Home screen no longer opens the
   next item, which isn't shown
+- Clicking just above a list, such as the blank row under a page's tabs, no
+  longer selects or plays the list's top item
+- Clicking an empty row in a filtered menu no longer loses the selection
 
 ## [0.2.0]
 
