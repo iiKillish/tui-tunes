@@ -590,7 +590,7 @@ fn test_typing_filters_a_filterable_menu() {
 
     let ctx = app().ctx.clone();
     let picked = Rc::new(Cell::new(""));
-    let entries = ["Road trip", "Chill", "Rock classics"]
+    let entries = ["Road trip", "Chill", "Rock classics", "Café del Mar"]
         .into_iter()
         .map(|name| {
             let picked = picked.clone();
@@ -619,6 +619,14 @@ fn test_typing_filters_a_filterable_menu() {
     assert!(press(&mut menu, KeyCode::Down).is_ignored());
     assert!(matches!(press(&mut menu, KeyCode::Esc), Outcome::Consumed));
     assert!(press(&mut menu, KeyCode::Esc).is_ignored());
+
+    // Accents don't count either: "cafe" finds "Café del Mar".
+    for c in "cafe".chars() {
+        press(&mut menu, KeyCode::Char(c));
+    }
+    menu.command(&Command::Play, &ctx);
+    assert_eq!(picked.get(), "Café del Mar");
+    press(&mut menu, KeyCode::Esc);
 
     for (width, height) in [(0, 0), (10, 3), (30, 4), (60, 20)] {
         let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();

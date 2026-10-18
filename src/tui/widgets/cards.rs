@@ -29,6 +29,7 @@ use crate::tui::page::{Ctx, Outcome, Page};
 use crate::tui::pages::liked::LikedPage;
 use crate::tui::pointer;
 use crate::tui::style::{SELECTION_MARKER, Styles, bold, fill, put, scroll_to};
+use crate::utils::search_text;
 
 /// Rows of a card's cover (when covers can be shown).
 pub const COVER_ROWS: u16 = 6;
@@ -579,7 +580,7 @@ impl CardGrid {
     fn jump(&mut self, sections: &[Section], mode: &JumpMode) {
         match mode {
             JumpMode::Query(query) => {
-                let query = query.to_lowercase();
+                let query = search_text(query);
                 self.jump_matches = sections
                     .iter()
                     .enumerate()
@@ -591,7 +592,7 @@ impl CardGrid {
                             .enumerate()
                             .filter_map(move |(c, card)| {
                                 let text = format!("{} {}", card.title, card.subtitle);
-                                text.to_lowercase().contains(query).then_some((s, c))
+                                search_text(&text).contains(query).then_some((s, c))
                             })
                     })
                     .collect();

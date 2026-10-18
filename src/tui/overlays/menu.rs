@@ -13,6 +13,7 @@ use crate::command::{Command, MoveAmount, MoveMode};
 use crate::tui::page::{Ctx, Outcome, Overlay};
 use crate::tui::pointer;
 use crate::tui::style::{SELECTION_MARKER, Styles, bold, fill, put, scroll_to, width};
+use crate::utils::search_text;
 
 /// What picking an entry does. Returning [Outcome::Consumed] closes the menu.
 pub type Action = Box<dyn FnMut(&Ctx) -> Outcome>;
@@ -80,11 +81,11 @@ impl Menu {
         self
     }
 
-    /// Show only the entries whose label contains the filter, ignoring case.
+    /// Show only the entries whose label contains the filter, ignoring case and accents.
     fn apply_filter(&mut self) {
-        let query = self.filter.as_deref().unwrap_or_default().to_lowercase();
+        let query = search_text(self.filter.as_deref().unwrap_or_default());
         self.visible = (0..self.entries.len())
-            .filter(|&i| self.entries[i].label.to_lowercase().contains(&query))
+            .filter(|&i| search_text(&self.entries[i].label).contains(&query))
             .collect();
         self.selected = 0;
         self.first = 0;

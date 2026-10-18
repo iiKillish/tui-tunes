@@ -24,6 +24,7 @@ use crate::tui::nav;
 use crate::tui::page::{Ctx, Outcome};
 use crate::tui::pointer;
 use crate::tui::style::{SELECTION_MARKER, Styles, bold, fill, put, scroll_to, width};
+use crate::utils::search_text;
 
 /// Narrowest list that shows covers before its items.
 const MIN_WIDTH_FOR_THUMBNAILS: u16 = 50;
@@ -368,15 +369,13 @@ impl<I: ListItem + Clone> ItemList<I> {
     fn jump(&mut self, mode: &JumpMode, ctx: &Ctx) {
         match mode {
             JumpMode::Query(query) => {
-                self.search = query.to_lowercase();
+                self.search = search_text(query);
                 let content = self.content.read().unwrap();
                 self.matches = content
                     .iter()
                     .enumerate()
                     .filter(|(_, item)| {
-                        item.display_left(&ctx.library)
-                            .to_lowercase()
-                            .contains(&self.search)
+                        search_text(&item.display_left(&ctx.library)).contains(&self.search)
                     })
                     .map(|(i, _)| i)
                     .collect();

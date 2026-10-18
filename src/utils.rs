@@ -2,6 +2,8 @@ use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock, mpsc};
 use std::time::Duration;
 
+use unicode_normalization::{UnicodeNormalization, char::is_combining_mark};
+
 type Job = Box<dyn FnOnce() + Send>;
 
 /// Jobs run one at a time, in the order they were given, on a thread of their own (started on
@@ -139,6 +141,16 @@ pub fn create_runtime_directory() -> Result<PathBuf, Box<dyn std::error::Error>>
     }
 }
 
+/// Lowercase `text` and take the accents off its letters, for searches where "beyonce" finds
+/// "Beyoncé".
+pub fn search_text(text: &str) -> String {
+    text.chars()
+        .flat_map(char::to_lowercase)
+        .nfd()
+        .filter(|c| !is_combining_mark(*c))
+        .collect()
+}
+
 /// Return the path to the current user's runtime directory, or None if it couldn't be found.
 /// This function does not guarantee correct ownership or permissions of the directory.
 #[cfg(unix)]
@@ -165,7 +177,7 @@ fn xdg_runtime_directory() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_duration;
+    use super::{parse_duration, search_text};
     use std::time::Duration;
 
     #[test]
@@ -190,5 +202,13 @@ mod tests {
     fn huge_durations_are_an_error_not_a_hang() {
         assert!(parse_duration(&format!("{}h", "9".repeat(400))).is_err());
         assert!(parse_duration("1e1000000000s").is_err());
+    }
+
+    #[test]
+    fn search_text_ignores_accents_and_case() {
+        assert_eq!(search_text("Tití Me Preguntó"), "titi me pregunto");
+        assert_eq!(search_text("CAFÉ"), "cafe");
+        assert_eq!(search_text("Beyonce\u{301}"), "beyonce");
+        assert_eq!(search_text("Sigur Rós ÅÖ"), "sigur ros ao");
     }
 }
