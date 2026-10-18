@@ -8,6 +8,7 @@ needs a Spotify Premium account.
   or above the _Home_, _Search_, _Library_, _Up next_ and _Lyrics_ screens
 - Album, playlist and artist pages, and cover grids for the library and search results
 - Time-synced lyrics from [LRCLIB](https://lrclib.net)
+- Autoplay: similar songs keep playing when the queue runs out
 - Album covers in terminals that can show images: Kitty, Ghostty, WezTerm, Konsole, foot,
   Windows Terminal (with WSL), iTerm2 and others with sixel
 - Uses your terminal's colors, so it matches the theme you already have

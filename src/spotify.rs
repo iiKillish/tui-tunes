@@ -17,6 +17,7 @@ use librespot_playback::config::VolumeCtrl;
 use librespot_playback::mixer::MixerConfig;
 use librespot_playback::mixer::softmixer::SoftMixer;
 use librespot_playback::player::Player;
+use librespot_protocol::autoplay_context_request::AutoplayContextRequest;
 use log::{debug, error, info, warn};
 use tokio::sync::mpsc;
 use url::Url;
@@ -26,11 +27,16 @@ use crate::authentication::SPOTIFY_CLIENT_ID;
 use crate::config;
 use crate::events::{Event, EventManager};
 use crate::model::playable::Playable;
+use crate::model::track::Track;
 #[cfg(feature = "mpris")]
 use crate::mpris::{MprisCommand, MprisManager};
+use crate::queue::QueueEvent;
 use crate::spotify_api::WebApi;
 use crate::spotify_worker::{Worker, WorkerCommand};
 use crate::traits::ListItem;
+
+/// How many tracks autoplay adds at a time.
+const AUTOPLAY_TRACKS: usize = 20;
 
 /// One percent of the maximum supported [Player] volume, used when setting the volume to a certain
 /// percent.
@@ -547,6 +553,33 @@ impl Spotify {
     }
 
     /// Shut down the worker thread.
+    /// Ask Spotify's autoplay for tracks to follow the track `after`, seeded with `context_uri`
+    /// (its album) and leaving out the `recent` track URIs. Runs in the background: the tracks
+    /// arrive as [QueueEvent::Autoplay]. Uses the same private endpoint as Spotify's own apps, as
+    /// the Web API no longer offers recommendations.
+    pub fn request_autoplay(&self, context_uri: String, recent: Vec<String>, after: String) {
+        let (reply, uris) = oneshot::channel();
+        let request = AutoplayContextRequest {
+            context_uri: Some(context_uri),
+            recent_track_uri: recent,
+            ..Default::default()
+        };
+        self.send_worker(WorkerCommand::Autoplay(request, reply));
+        let api = self.api.clone();
+        let events = self.events.clone();
+        std::thread::spawn(move || {
+            let mut uris = futures::executor::block_on(uris).unwrap_or_default();
+            // Each is a request of its own; more are asked for when these run out.
+            uris.truncate(AUTOPLAY_TRACKS);
+            let tracks = api
+                .tracks_by_uri(&uris)
+                .iter()
+                .map(|track| Playable::Track(Track::from(track)))
+                .collect();
+            events.send(Event::Queue(QueueEvent::Autoplay { after, tracks }));
+        });
+    }
+
     pub fn shutdown(&self) {
         self.send_worker(WorkerCommand::Shutdown);
     }
