@@ -133,10 +133,12 @@ impl Terminal {
 
     pub fn input(&mut self, input: InputEvent, app: &mut App) {
         match input {
-            InputEvent::Key(key) if let KeyCode::Modifier(code) = key.code => {
-                app.modifier_key(code, key.kind);
-            }
-            InputEvent::Key(key) if key.kind != KeyEventKind::Release => app.key(key),
+            // Not `if let` in a match guard, which older Rust (see rust-version) doesn't have.
+            InputEvent::Key(key) => match key.code {
+                KeyCode::Modifier(code) => app.modifier_key(code, key.kind),
+                _ if key.kind != KeyEventKind::Release => app.key(key),
+                _ => {}
+            },
             InputEvent::Mouse(mouse) => {
                 pointer::hover((mouse.column, mouse.row).into());
                 app.mouse(mouse);
