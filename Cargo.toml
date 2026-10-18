@@ -44,8 +44,12 @@ multiple_inherent_impl = "deny"
 [lints]
 workspace = true
 
+# Backtraces keep file and line numbers; full debug info only slows linking.
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.release]
-lto = true
+lto = "thin"
 codegen-units = 1
 
 [profile.optimized]
