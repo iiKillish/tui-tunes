@@ -8,6 +8,9 @@ on:
 
 env:
   TERM: xterm
+  # Nobody debugs CI builds; without debug info they link faster and cache smaller.
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
 
 jobs:
   # Build the Rust code.
@@ -35,16 +38,6 @@ jobs:
             features: '--no-default-features --features rodio_backend,share_clipboard,notify'
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/cache@v6
-        name: Cache build data
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Install rustup
         if: runner.os != 'Windows'
         shell: bash
@@ -55,6 +48,12 @@ jobs:
           fi
       - name: Install clippy + rustfmt
         run: rustup component add clippy rustfmt
+      # Caches dependencies by Rust version, falling back to the newest cache when Cargo.lock
+      # changes. Only main saves, so pull requests don't push main's cache out.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install macOS dependencies
         if: matrix.os == 'macos-latest'
         run: brew install portaudio pkg-config
@@ -81,11 +80,19 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y pkg-config libssl-dev libpulse-dev
-      - name: cargo check with rust-version
+      - name: Install the rust-version toolchain
+        id: msrv
         run: |
           version=$(sed -n 's/^rust-version = "\(.*\)"/\1/p' Cargo.toml)
           rustup toolchain install "$version" --profile minimal
-          cargo +"$version" check --locked --all-targets
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      # The cache's own key has rust-toolchain.toml's Rust, not this one.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: msrv-${{ steps.msrv.outputs.version }}
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: cargo check with rust-version
+        run: cargo +"${{ steps.msrv.outputs.version }}" check --locked --all-targets
 
   # Check Rust code formatting.
   fmt:
@@ -107,20 +114,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/cache@v6
-        name: Cache build data
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-clippy-${{ hashFiles('**/Cargo.lock') }}
       - name: Install rustup
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       - name: Install clippy + rustfmt
         run: rustup component add clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: clippy
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install Linux dependencies
         run: |
           sudo apt update
