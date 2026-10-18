@@ -5,7 +5,7 @@
 ### From [crates.io](https://crates.io/crates/ttunes)
 
 ```sh
-# The --locked option is important and the compilation process might fail without it
+# --locked builds with the exact dependency versions ttunes was tested with
 cargo install --locked ttunes
 ```
 
@@ -15,6 +15,22 @@ Album covers (the `cover` feature) are included. To build without them, use
 Building needs a [Rust installation](https://www.rust-lang.org/tools/install), `pkgconf`, and the
 development headers for PulseAudio (or ALSA, if built with the ALSA backend), OpenSSL and dbus.
 To build from a checkout instead, see [Compiling](/doc/developers.md#compiling).
+
+### macOS
+macOS has no PulseAudio, so the default build fails to link (`library ':libpulse-simple.0.dylib'
+not found`). Build with the Rodio backend, which plays through CoreAudio, instead:
+
+```sh
+cargo install --locked ttunes --no-default-features --features rodio_backend,cover,share_clipboard,notify
+```
+
+(MPRIS is left out: it's for Linux desktops.)
+
+### Ready-made builds
+Every [release](https://github.com/iiKillish/tui-tunes/releases/latest) has builds for Linux
+(x86_64, arm64), macOS (`macos-aarch64` for Apple Silicon, `macos-x86_64` for Intel) and Windows.
+macOS may refuse to open a downloaded build; allow it with
+`xattr -d com.apple.quarantine ./ttunes`.
 
 Runtime dependencies:
 
@@ -44,6 +60,10 @@ playback depending on your desktop environment settings. Have a look at the
 
 <kbd>?</kbd> lists every key binding with its command. Type to filter the list, and press
 <kbd>Return</kbd> to run the selected one.
+
+On a Mac, the <kbd>Option</kbd> key does what <kbd>Alt</kbd> does here, in the same place: the
+keys are the same as on Linux. ttunes turns the characters Option types (`˙` for Option+H) back
+into Alt and the key.
 
 ### Count Prefixes
 Like Vim, many keys can be prefixed with a number to repeat them that many

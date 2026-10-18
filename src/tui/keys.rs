@@ -42,6 +42,21 @@ impl Key {
         Self { code, modifiers }
     }
 
+    /// On a Mac, Option with a key types a character (Option+h types `˙`) instead of reporting
+    /// Alt, unless the terminal is set to send Option as Alt. This turns such a character back
+    /// into Alt with the key in the same place on a US keyboard, so bindings work the same as on
+    /// Linux. Keys that start an accent (Option+e, i, n, u, `) type nothing and can't be told.
+    pub fn as_mac_option_alt(&self) -> Option<Self> {
+        let KeyCode::Char(c) = self.code else {
+            return None;
+        };
+        if !self.modifiers.is_empty() {
+            return None;
+        }
+        let (_, key) = MAC_OPTION.iter().find(|(typed, _)| *typed == c)?;
+        Some(Self::new(KeyCode::Char(*key), KeyModifiers::ALT))
+    }
+
     /// The key pressed in `event`, or `None` for releases and repeats of other kinds.
     pub fn from_event(event: &KeyEvent) -> Option<Self> {
         (event.kind != KeyEventKind::Release).then(|| Self::new(event.code, event.modifiers))
@@ -316,6 +331,74 @@ fn default_keybindings() -> HashMap<String, Vec<Command>> {
     kb
 }
 
+/// What Option (and Option+Shift) with each key types on a US Mac keyboard, and the key.
+const MAC_OPTION: &[(char, char)] = &[
+    ('å', 'a'),
+    ('∫', 'b'),
+    ('ç', 'c'),
+    ('∂', 'd'),
+    ('ƒ', 'f'),
+    ('©', 'g'),
+    ('˙', 'h'),
+    ('∆', 'j'),
+    ('˚', 'k'),
+    ('¬', 'l'),
+    ('µ', 'm'),
+    ('ø', 'o'),
+    ('π', 'p'),
+    ('œ', 'q'),
+    ('®', 'r'),
+    ('ß', 's'),
+    ('†', 't'),
+    ('√', 'v'),
+    ('∑', 'w'),
+    ('≈', 'x'),
+    ('¥', 'y'),
+    ('Ω', 'z'),
+    ('¡', '1'),
+    ('™', '2'),
+    ('£', '3'),
+    ('¢', '4'),
+    ('∞', '5'),
+    ('§', '6'),
+    ('¶', '7'),
+    ('•', '8'),
+    ('ª', '9'),
+    ('º', '0'),
+    ('–', '-'),
+    ('≠', '='),
+    ('“', '['),
+    ('‘', ']'),
+    ('«', '\\'),
+    ('…', ';'),
+    ('æ', '\''),
+    ('≤', ','),
+    ('≥', '.'),
+    ('÷', '/'),
+    ('Å', 'A'),
+    ('ı', 'B'),
+    ('Ç', 'C'),
+    ('Î', 'D'),
+    ('Ï', 'F'),
+    ('˝', 'G'),
+    ('Ó', 'H'),
+    ('Ô', 'J'),
+    ('\u{F8FF}', 'K'),
+    ('Ò', 'L'),
+    ('Â', 'M'),
+    ('Ø', 'O'),
+    ('∏', 'P'),
+    ('Œ', 'Q'),
+    ('‰', 'R'),
+    ('Í', 'S'),
+    ('ˇ', 'T'),
+    ('◊', 'V'),
+    ('„', 'W'),
+    ('˛', 'X'),
+    ('Á', 'Y'),
+    ('¸', 'Z'),
+];
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -355,6 +438,15 @@ mod tests {
         assert_eq!(Key::from_event(&shift_p), Key::parse("Shift+p"));
         let back_tab = KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT);
         assert_eq!(Key::from_event(&back_tab), Key::parse("Shift+Tab"));
+    }
+
+    #[test]
+    fn test_mac_option_characters_are_alt() {
+        let typed = |c| Key::from_event(&KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        assert_eq!(typed('˙').unwrap().as_mac_option_alt(), Key::parse("Alt+h"));
+        assert_eq!(typed('¬').unwrap().as_mac_option_alt(), Key::parse("Alt+l"));
+        assert_eq!(typed('Ó').unwrap().as_mac_option_alt(), Key::parse("Alt+H"));
+        assert_eq!(typed('h').unwrap().as_mac_option_alt(), None);
     }
 
     #[test]

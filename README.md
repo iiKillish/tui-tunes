@@ -28,6 +28,15 @@ feature). MPRIS and notifications use D-Bus. On Debian and Ubuntu:
 sudo apt install build-essential pkg-config libssl-dev libpulse-dev
 ```
 
+On macOS, which has no PulseAudio, build with the Rodio backend (CoreAudio) instead:
+
+```sh
+cargo install --locked ttunes --no-default-features --features rodio_backend,cover,share_clipboard,notify
+```
+
+Or download a ready-made build for macOS, Linux or Windows from the
+[releases](https://github.com/iiKillish/tui-tunes/releases/latest).
+
 Other distributions and building from a checkout are covered in
 [the developer docs](doc/developers.md).
 

@@ -69,6 +69,7 @@ librespot-playback = {version = "0.8.0", default-features = false, features = ["
 log = "0.4.32"
 platform-dirs = "0.3.0"
 rand = "0.10"
+rodio = {version = "0.21", default-features = false, features = ["playback"], optional = true}
 reqwest = {version = "0.13", features = ["blocking", "json", "socks"]}
 serde = "1.0"
 serde_cbor = "0.11.2"
@@ -117,6 +118,6 @@ mpris = ["zbus"] # Allow ttunes to be controlled via MPRIS API
 notify = ["notify-rust"] # Show what's playing via a notification
 portaudio_backend = ["librespot-playback/portaudio-backend"]
 pulseaudio_backend = ["librespot-playback/pulseaudio-backend"]
-rodio_backend = ["librespot-playback/rodio-backend"]
+rodio_backend = ["librespot-playback/rodio-backend", "dep:rodio"]
 share_clipboard = ["arboard", "arboard/wayland-data-control"] # Share a link to the system clipboard
 share_selection = ["arboard", "arboard/wayland-data-control"] # Use the primary selection for sharing - linux and bsd only

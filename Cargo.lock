@@ -4860,6 +4860,7 @@ dependencies = [
  "rand 0.10.3",
  "ratatui",
  "reqwest 0.13.5",
+ "rodio",
  "rspotify",
  "serde",
  "serde_cbor",
