@@ -63,6 +63,8 @@ pub struct Application {
     ipc: Option<IpcSocket>,
     /// Handles for the UI.
     ctx: Ctx,
+    /// The loading screen, until the UI takes over.
+    splash: Option<tui::splash::Splash>,
 }
 
 impl Application {
@@ -92,7 +94,11 @@ impl Application {
             error!("Failed to get rspotify token: {e}");
         }
 
-        println!("Connecting to Spotify..");
+        // Without a terminal to take over, say so the plain way.
+        let splash = tui::splash::Splash::start(palette, "Connecting to Spotify").ok();
+        if splash.is_none() {
+            println!("Connecting to Spotify..");
+        }
 
         let event_manager = EventManager::new();
         tui::set_event_manager(event_manager.clone());
@@ -101,6 +107,9 @@ impl Application {
         let mut spotify =
             spotify::Spotify::new(event_manager.clone(), credentials, configuration.clone())?;
 
+        if let Some(splash) = &splash {
+            splash.status("Loading your library");
+        }
         let library = Arc::new(Library::new(
             event_manager.clone(),
             spotify.clone(),
@@ -182,6 +191,7 @@ impl Application {
             #[cfg(unix)]
             ipc,
             ctx,
+            splash,
         })
     }
 
@@ -191,6 +201,7 @@ impl Application {
         let mut signals =
             Signals::new([SIGTERM, SIGHUP]).expect("could not register signal handler");
 
+        drop(self.splash.take());
         let mut terminal = tui::Terminal::start().map_err(|e| e.to_string())?;
         let mut app = tui::app::App::new(self.ctx.clone());
 
