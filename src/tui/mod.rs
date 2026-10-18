@@ -4,6 +4,7 @@
 pub mod actions;
 pub mod app;
 pub mod header;
+pub mod hints;
 #[cfg(feature = "cover")]
 pub mod icons;
 pub mod images;
@@ -25,7 +26,8 @@ use std::sync::OnceLock;
 
 use ratatui::backend::CrosstermBackend;
 use ratatui::crossterm::event::{
-    self, DisableMouseCapture, EnableMouseCapture, Event as InputEvent, KeyEventKind,
+    self, DisableMouseCapture, EnableMouseCapture, Event as InputEvent, KeyCode, KeyEventKind,
+    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
 };
 use ratatui::crossterm::execute;
 use ratatui::crossterm::terminal::{
@@ -73,6 +75,21 @@ impl Terminal {
     pub fn start() -> io::Result<Self> {
         enable_raw_mode()?;
         execute!(io::stdout(), EnterAlternateScreen, EnableMouseCapture)?;
+        // Terminals with the Kitty keyboard protocol report Ctrl and Shift on their own (held
+        // together, they show the key hints) and Alt as Alt where a Mac would type a character.
+        // Shifted keys come as the character typed, as without it.
+        if ratatui::crossterm::terminal::supports_keyboard_enhancement().unwrap_or(false) {
+            execute!(
+                io::stdout(),
+                PushKeyboardEnhancementFlags(
+                    KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
+                        | KeyboardEnhancementFlags::REPORT_EVENT_TYPES
+                        | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
+                        | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
+                )
+            )?;
+            KEYBOARD_ENHANCED.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
         pointer::enable();
         images::start();
         // Restore the terminal if something panics, so the panic message can be read.
@@ -116,6 +133,9 @@ impl Terminal {
 
     pub fn input(&mut self, input: InputEvent, app: &mut App) {
         match input {
+            InputEvent::Key(key) if let KeyCode::Modifier(code) = key.code => {
+                app.modifier_key(code, key.kind);
+            }
             InputEvent::Key(key) if key.kind != KeyEventKind::Release => app.key(key),
             InputEvent::Mouse(mouse) => {
                 pointer::hover((mouse.column, mouse.row).into());
@@ -128,7 +148,13 @@ impl Terminal {
     }
 }
 
+/// Whether the keyboard protocol was turned on, so it's turned off again on the way out.
+static KEYBOARD_ENHANCED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn restore() -> io::Result<()> {
+    if KEYBOARD_ENHANCED.swap(false, std::sync::atomic::Ordering::Relaxed) {
+        let _ = execute!(io::stdout(), PopKeyboardEnhancementFlags);
+    }
     pointer::reset();
     images::stop();
     disable_raw_mode()?;

@@ -17,7 +17,8 @@ use crate::spotify_url::SpotifyUrl;
 use crate::traits::ListItem;
 use crate::tui::app::App;
 use crate::tui::nav;
-use crate::tui::overlays::menu::{Entry, Menu};
+use crate::tui::overlays::help::Help;
+use crate::tui::overlays::menu::Menu;
 use crate::tui::overlays::prompt::Prompt;
 use crate::tui::page::{Ctx, Outcome, Overlay};
 
@@ -41,22 +42,7 @@ pub fn save_state(ctx: &Ctx) {
 
 /// The keybindings, as a menu (`?` or `:help`).
 pub fn help(app: &App) -> Box<dyn Overlay> {
-    let entries = app
-        .binding_list
-        .iter()
-        .map(|(key, commands)| {
-            let text = commands
-                .iter()
-                .map(ToString::to_string)
-                .collect::<Vec<_>>()
-                .join("; ");
-            let commands = commands.clone();
-            Entry::new(format!("{key:<14} {text}"), move |_| {
-                Outcome::Run(commands.clone())
-            })
-        })
-        .collect();
-    Box::new(Menu::new("Keys", entries).filterable())
+    Box::new(Help::new(&app.binding_list))
 }
 
 /// An item from a Spotify link or URI: open its page, or its menu for tracks and episodes.

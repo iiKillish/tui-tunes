@@ -12,6 +12,7 @@ needs a Spotify Premium account.
 - Album covers in terminals that can show images: Kitty, Ghostty, WezTerm, Konsole, foot,
   Windows Terminal (with WSL), iTerm2 and others with sixel
 - Uses your terminal's colors, so it matches the theme you already have
+- A settings page for library tabs, keys and more; hold Ctrl+Shift to see the keys on screen
 - Vim-style keys, mouse support, MPRIS and an IPC socket for remote control
 
 ## Install

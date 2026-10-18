@@ -80,6 +80,7 @@ tokio = {version = "1", features = ["rt-multi-thread", "sync", "time", "net"]}
 tokio-util = {version = "0.7.18", features = ["codec"]}
 tokio-stream = {version = "0.1.18", features = ["sync"]}
 toml = "1.1"
+toml_edit = "0.25"
 unicode-width = "0.2.2"
 url = "2.5"
 

@@ -41,6 +41,8 @@ const JUMP_PREVIOUS_CMD: &str = "jumpprevious";
 const JUMP_NEXT_CMD: &str = "jumpnext";
 const JUMP_CMD: &str = "jump";
 const HELP_CMD: &str = "help";
+const HINTS_CMD: &str = "hints";
+const SETTINGS_CMD: &str = "settings";
 const RELOAD_CONFIG_CMD: &str = "reload";
 const NOOP_CMD: &str = "noop";
 const INSERT_CMD: &str = "insert";
@@ -92,6 +94,8 @@ pub const ALL_COMMANDS: &[&str] = &[
     JUMP_NEXT_CMD,
     JUMP_CMD,
     HELP_CMD,
+    HINTS_CMD,
+    SETTINGS_CMD,
     RELOAD_CONFIG_CMD,
     NOOP_CMD,
     INSERT_CMD,
@@ -140,6 +144,19 @@ pub enum ScreenId {
     Library,
     Queue,
     Lyrics,
+}
+
+impl ScreenId {
+    /// The screen's name on its tab.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Home => "Home",
+            Self::Search => "Search",
+            Self::Library => "Library",
+            Self::Queue => "Up next",
+            Self::Lyrics => "Lyrics",
+        }
+    }
 }
 
 #[derive(Display, Clone, Serialize, Deserialize, Debug)]
@@ -308,6 +325,10 @@ pub enum Command {
     Search(String),
     Jump(JumpMode),
     Help,
+    /// Show or hide the keys of what's on screen, next to it.
+    Hints,
+    /// Open the settings page.
+    Settings,
     ReloadConfig,
     Noop,
     Insert(InsertSource),
@@ -393,6 +414,8 @@ impl fmt::Display for Command {
             | Self::Delete
             | Self::Back
             | Self::Help
+            | Self::Hints
+            | Self::Settings
             | Self::ReloadConfig
             | Self::Noop
             | Self::Logout
@@ -442,6 +465,8 @@ impl Command {
             Self::Jump(JumpMode::Next) => JUMP_NEXT_CMD,
             Self::Jump(JumpMode::Query(_)) => JUMP_CMD,
             Self::Help => HELP_CMD,
+            Self::Hints => HINTS_CMD,
+            Self::Settings => SETTINGS_CMD,
             Self::ReloadConfig => RELOAD_CONFIG_CMD,
             Self::Noop => NOOP_CMD,
             Self::Insert(_) => INSERT_CMD,
@@ -917,6 +942,8 @@ pub fn parse(input: &str) -> Result<Vec<Command>, CommandParseError> {
                 JUMP_NEXT_CMD => Command::Jump(JumpMode::Next),
                 JUMP_PREVIOUS_CMD => Command::Jump(JumpMode::Previous),
                 HELP_CMD => Command::Help,
+                HINTS_CMD => Command::Hints,
+                SETTINGS_CMD => Command::Settings,
                 RELOAD_CONFIG_CMD => Command::ReloadConfig,
                 NOOP_CMD => Command::Noop,
                 INSERT_CMD => {

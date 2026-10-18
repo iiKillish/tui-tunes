@@ -12,7 +12,8 @@ use std::time::{Duration, Instant};
 use log::info;
 use ratatui::Frame;
 use ratatui::crossterm::event::{
-    KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
+    KeyCode, KeyEvent, KeyEventKind, KeyModifiers, ModifierKeyCode, MouseButton, MouseEvent,
+    MouseEventKind,
 };
 use ratatui::layout::{Position, Rect};
 use ratatui::style::Modifier;
@@ -20,6 +21,7 @@ use ratatui::style::Modifier;
 use crate::command::{self, Command, JumpMode, PanelAction, ScreenId};
 use crate::tui::actions;
 use crate::tui::header::{self, HEADER_ROWS, HeaderAction};
+use crate::tui::hints;
 use crate::tui::images;
 use crate::tui::keys::{self, Key, MAX_COUNT, accumulate_count};
 use crate::tui::page::{Ctx, Outcome, Overlay, Page};
@@ -88,6 +90,11 @@ pub struct App {
     cmdline: Option<CommandLine>,
     message: Option<(Result<String, String>, Instant)>,
     regions: Regions,
+    /// Key hints are showing because of the `hints` command; the next key hides them.
+    hints_on: bool,
+    /// Ctrl and Shift held down (in terminals that report it): hints show while both are.
+    ctrl_held: bool,
+    shift_held: bool,
     pub quit: bool,
     /// Ask the terminal to repaint everything on the next draw.
     pub clear: bool,
@@ -150,6 +157,9 @@ impl App {
             cmdline: None,
             message: None,
             regions: Regions::default(),
+            hints_on: false,
+            ctrl_held: false,
+            shift_held: false,
             quit: false,
             clear: false,
         };
@@ -164,6 +174,11 @@ impl App {
         self.bindings = bindings;
         self.binding_list = list;
         self.ctx.palette = self.ctx.config.build_theme();
+        // The library's tabs may have changed.
+        let ctx = self.ctx.clone();
+        if let Some(library) = self.screens.iter_mut().find(|s| s.id == ScreenId::Library) {
+            library.root = Box::new(pages::library::new(&ctx));
+        }
     }
 
     fn screen(&mut self) -> &mut Screen {
@@ -242,6 +257,12 @@ impl App {
                 }
                 self.set_message(Ok(text));
             }
+            Outcome::SettingsChanged(message) => {
+                self.reload();
+                if let Some(text) = message {
+                    self.set_message(Ok(text));
+                }
+            }
             Outcome::Error(text) => {
                 if from_overlay {
                     self.overlays.pop();
@@ -315,8 +336,15 @@ impl App {
                 self.apply(outcome, false);
             }
             Command::Help => {
+                self.hints_on = false;
                 let overlay = actions::help(self);
                 self.overlays.push(overlay);
+            }
+            Command::Hints => self.hints_on = !self.hints_on,
+            Command::Settings => {
+                self.hints_on = false;
+                let settings = crate::tui::overlays::settings::Settings::new(&self.binding_list);
+                self.overlays.push(Box::new(settings));
             }
             Command::Redraw => self.clear = true,
             Command::ReloadConfig => match ctx.config.reload() {
@@ -406,6 +434,17 @@ impl App {
         let Some(key) = Key::from_event(&event) else {
             return;
         };
+        // Hints shown with `;` go away with the next key, which still does what it does; Ctrl+Shift
+        // ones go when anything else is pressed.
+        let hints_key = self
+            .bindings
+            .get(&key)
+            .is_some_and(|commands| matches!(commands.as_slice(), [Command::Hints]));
+        if !hints_key {
+            self.hints_on = false;
+        }
+        self.ctrl_held = false;
+        self.shift_held = false;
         if key.modifiers == KeyModifiers::NONE
             && let KeyCode::Char(c) = key.code
         {
@@ -575,10 +614,29 @@ impl App {
         )
     }
 
+    /// A modifier key went down or up (reported only by terminals with the Kitty keyboard
+    /// protocol): holding Ctrl and Shift shows the key hints.
+    pub fn modifier_key(&mut self, code: ModifierKeyCode, kind: KeyEventKind) {
+        let down = kind != KeyEventKind::Release;
+        match code {
+            ModifierKeyCode::LeftControl | ModifierKeyCode::RightControl => self.ctrl_held = down,
+            ModifierKeyCode::LeftShift | ModifierKeyCode::RightShift => self.shift_held = down,
+            _ => {}
+        }
+    }
+
+    /// Whether the key hints are showing: over the page, not over menus or the command line.
+    fn hints_showing(&self) -> bool {
+        self.overlays.is_empty()
+            && self.cmdline.is_none()
+            && (self.hints_on || (self.ctrl_held && self.shift_held))
+    }
+
     pub fn draw(&mut self, frame: &mut Frame) {
         if let Some(error) = crate::tui::take_background_error() {
             self.set_message(Err(error));
         }
+        hints::clear();
         images::begin_frame();
         let ctx = self.ctx.clone();
         let styles = Styles(&ctx.palette);
@@ -618,6 +676,9 @@ impl App {
                 self.current,
                 &ctx,
             );
+            for (tab, screen) in self.regions.tabs.iter().zip(&self.screens) {
+                hints::add_below(*tab, Command::Focus(screen.id));
+            }
             y += 2;
         }
 
@@ -648,6 +709,7 @@ impl App {
                 );
                 let back = Rect::new(x, y, written as u16, 1);
                 pointer::clickable(back);
+                hints::add(back, Command::Back);
                 self.regions.back = Some(back);
                 x += written as u16 + 3;
             }
@@ -752,6 +814,16 @@ impl App {
             pointer::clear();
             let area = overlay.draw(frame, full, &ctx);
             self.overlay_areas.push(area);
+        }
+        if self.hints_showing() {
+            let held = self.ctrl_held && self.shift_held;
+            hints::draw(
+                frame.buffer_mut(),
+                full,
+                &self.binding_list,
+                &ctx.palette,
+                held,
+            );
         }
         images::draw_into_buffer(frame.buffer_mut(), &self.overlay_areas);
     }
