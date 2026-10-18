@@ -691,3 +691,69 @@ fn test_pointer_is_a_hand_over_clickable_things() {
     let filter = find(&terminal, "Type to filter").expect("the filter field");
     assert_eq!(shape_at(filter), Shape::Text, "the filter field");
 }
+
+fn click(column: u16, row: u16) -> MouseEvent {
+    MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Left),
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    }
+}
+
+#[test]
+fn test_clicks_outside_a_lists_rows_do_nothing() {
+    use crate::tui::widgets::list::ItemList;
+    use std::sync::RwLock;
+
+    let ctx = app().ctx.clone();
+    let mut list = ItemList::new(Arc::new(RwLock::new(tracks(10))));
+    let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+    // The list sits below two rows of something else, like a tab row, and above two more.
+    let area = Rect::new(0, 2, 40, 8);
+    terminal
+        .draw(|frame| list.draw(frame, area, &ctx, true))
+        .unwrap();
+    list.select(2);
+    list.mouse(click(5, 0), &ctx);
+    assert_eq!(list.selected(), 2, "a click above the list");
+    list.mouse(click(5, 11), &ctx);
+    assert_eq!(list.selected(), 2, "a click below the list");
+    list.mouse(click(5, 3), &ctx);
+    assert_eq!(list.selected(), 1, "a click on the list's second row");
+}
+
+#[test]
+fn test_clicking_an_empty_menu_row_keeps_the_selection() {
+    use crate::tui::overlays::menu::{Entry, Menu};
+    use crate::tui::page::Overlay;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    let ctx = app().ctx.clone();
+    let picked = Rc::new(Cell::new(""));
+    let entries = ["Rock", "Jazz", "Pop"]
+        .into_iter()
+        .map(|name| {
+            let picked = picked.clone();
+            Entry::new(name, move |_| {
+                picked.set(name);
+                crate::tui::page::Outcome::Consumed
+            })
+        })
+        .collect();
+    let mut menu = Menu::new("Add to playlist", entries).filterable();
+    menu.key(KeyEvent::new(KeyCode::Char('j'), KeyModifiers::NONE), &ctx);
+    let mut terminal = Terminal::new(TestBackend::new(40, 20)).unwrap();
+    terminal
+        .draw(|frame| {
+            menu.draw(frame, frame.area(), &ctx);
+        })
+        .unwrap();
+    // Only Jazz is left; the rows the other two used are empty.
+    let jazz = find(&terminal, "Jazz").expect("the remaining entry");
+    menu.mouse(click(jazz.x, jazz.y + 1), &ctx);
+    assert_eq!(picked.get(), "", "an empty row picked something");
+    menu.command(&Command::Play, &ctx);
+    assert_eq!(picked.get(), "Jazz", "the selection moved off Jazz");
+}

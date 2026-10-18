@@ -490,7 +490,11 @@ impl<I: ListItem + Clone> ItemList<I> {
                 }
             }
             MouseEventKind::Down(MouseButton::Left) => {
-                let row = usize::from(event.row.saturating_sub(self.area.y));
+                // Only rows of the list; it may sit below something else, like a tab row.
+                if !self.area.contains((event.column, event.row).into()) {
+                    return Outcome::Consumed;
+                }
+                let row = usize::from(event.row - self.area.y);
                 let index = self.first + row;
                 if index >= self.len() {
                     return Outcome::Consumed;

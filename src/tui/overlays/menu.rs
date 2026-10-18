@@ -259,8 +259,10 @@ impl Overlay for Menu {
         let inside = |area: Rect| area.contains((event.column, event.row).into());
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) if inside(self.list_area) => {
-                self.selected = self.first + usize::from(event.row - self.list_area.y);
-                if self.selected < self.visible.len() {
+                // Rows past the last entry (when filtered) leave the selection where it was.
+                let row = self.first + usize::from(event.row - self.list_area.y);
+                if row < self.visible.len() {
+                    self.selected = row;
                     return self.pick(ctx);
                 }
             }
