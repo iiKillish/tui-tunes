@@ -27,7 +27,7 @@ use crate::tui::images;
 use crate::tui::page::Ctx;
 use crate::tui::pages;
 
-fn app() -> App {
+pub(crate) fn app() -> App {
     let config = Config::new_for_test();
     let events = EventManager::new_for_test();
     let spotify = Spotify::new_for_test(config.clone(), events.clone());
@@ -239,12 +239,13 @@ fn full_app() -> App {
     app
 }
 
-const SCREENS: [ScreenId; 5] = [
+const SCREENS: [ScreenId; 6] = [
     ScreenId::Home,
     ScreenId::Search,
     ScreenId::Library,
     ScreenId::Queue,
     ScreenId::Lyrics,
+    ScreenId::Stats,
 ];
 const PAGES: [&str; 3] = ["album", "playlist", "artist"];
 /// The library's tabs after Tracks.
@@ -329,6 +330,7 @@ fn page_content(name: &str) -> &'static [&'static str] {
         "library" => &["Tracks", "Song number 1"],
         "queue" => &["Now playing", "Song number 1"],
         "lyrics" => &["Loading lyrics"],
+        "stats" => &["Listening", "Top: 4 weeks"],
         "albums" => &["An Album Title", "Album • Some"],
         "artists" => &["Some Artist", "Artist"],
         "playlists" => &["Liked Songs", "A Playlist"],
@@ -831,6 +833,7 @@ fn test_help_groups_keys_and_filters() {
     };
     assert!(at("Go to Home") < at("Go to Search"));
     assert!(at("Go to Search") < at("Go to Library"));
+    assert!(at("Go to Lyrics") < at("Go to Stats"));
     assert!(!text.contains("Play / pause"), "{text}");
 }
 
@@ -880,6 +883,25 @@ fn test_settings_change_tabs_home_and_keys() {
     let bindings = app.ctx.config.values().keybindings.clone().unwrap();
     assert!(bindings.contains_key("y"), "{bindings:?}");
     assert!(screen_text(&terminal).contains("y now does this"));
+}
+
+#[test]
+fn test_stats_screen_shows_listening_and_tabs() {
+    let mut app = app();
+    let mut terminal = Terminal::new(TestBackend::new(110, 50)).unwrap();
+    key(&mut app, KeyCode::F(6));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let text = screen_text(&terminal);
+    for expected in ["Stats", "Listening", "Top: 4 weeks", "All time", "Library"] {
+        assert!(text.contains(expected), "{expected:?} missing:\n{text}");
+    }
+    // The library in numbers, on the last tab.
+    for _ in 0..4 {
+        app.run(&Command::Tab(true));
+    }
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let text = screen_text(&terminal);
+    assert!(text.contains("liked songs"), "{text}");
 }
 
 #[test]

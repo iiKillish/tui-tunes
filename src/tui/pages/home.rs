@@ -284,9 +284,11 @@ fn load(spotify: &Spotify, library: &Library) -> Sections {
         .take(MAX_ITEMS)
         .map(|play| play.track)
         .collect();
-    let top_tracks = api.top_tracks(MAX_ITEMS as u32).unwrap_or_default();
+    let top_tracks = api
+        .top_tracks(rspotify::model::TimeRange::ShortTerm, MAX_ITEMS as u32)
+        .unwrap_or_default();
     let top_artists = api
-        .top_artists(MAX_ITEMS as u32)
+        .top_artists(rspotify::model::TimeRange::ShortTerm, MAX_ITEMS as u32)
         .unwrap_or_default()
         .into_iter()
         .map(|(artist, _)| artist)

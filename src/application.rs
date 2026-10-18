@@ -236,6 +236,10 @@ impl Application {
         match event {
             Event::Player(state) => {
                 trace!("event received: {state:?}");
+                // Before the status says it's over, which leaves nothing to note.
+                if state == PlayerEvent::FinishedTrack {
+                    self.queue.record_finished();
+                }
                 self.spotify.update_status(state.clone());
 
                 #[cfg(unix)]

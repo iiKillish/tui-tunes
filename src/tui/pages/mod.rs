@@ -13,6 +13,7 @@ pub mod queue;
 pub mod search;
 pub mod search_results;
 pub mod show;
+pub mod stats;
 
 use ratatui::Frame;
 use ratatui::crossterm::event::MouseEvent;

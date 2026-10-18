@@ -144,6 +144,7 @@ pub enum ScreenId {
     Library,
     Queue,
     Lyrics,
+    Stats,
 }
 
 impl ScreenId {
@@ -155,6 +156,7 @@ impl ScreenId {
             Self::Library => "Library",
             Self::Queue => "Up next",
             Self::Lyrics => "Lyrics",
+            Self::Stats => "Stats",
         }
     }
 }

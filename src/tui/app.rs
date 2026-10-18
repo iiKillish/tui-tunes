@@ -134,6 +134,12 @@ impl App {
                 root: Box::new(pages::lyrics::new(&ctx)),
                 stack: Vec::new(),
             },
+            Screen {
+                id: ScreenId::Stats,
+                label: "Stats",
+                root: Box::new(pages::stats::new()),
+                stack: Vec::new(),
+            },
         ];
         let initial = ctx
             .config
@@ -354,6 +360,7 @@ impl App {
                 )),
             },
             Command::Quit => {
+                ctx.queue.record_listened();
                 actions::save_state(&ctx);
                 self.quit = true;
             }
