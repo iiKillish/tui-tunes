@@ -46,6 +46,21 @@ const FEATURED_ROWS: u16 = 7;
 const FEATURED_ROWS_TEXT: u16 = 5;
 /// Rows per list item: title, subtitle, and a blank row.
 const ITEM_ROWS: u16 = 3;
+
+/// How many list items fit whole in `height` rows (the blank row after the last one isn't
+/// needed).
+fn items_fitting(height: u16) -> usize {
+    usize::from((height + 1) / ITEM_ROWS)
+}
+
+/// The item drawn at `offset` rows into a list of `height` rows that starts at item `first`,
+/// out of `len`; `None` for the blank rows between items and the space below the last one.
+fn item_at(offset: u16, height: u16, first: usize, len: usize) -> Option<usize> {
+    let slot = usize::from(offset / ITEM_ROWS);
+    let index = first + slot;
+    (offset % ITEM_ROWS != ITEM_ROWS - 1 && slot < items_fitting(height) && index < len)
+        .then_some(index)
+}
 /// Left margin.
 const MARGIN: u16 = 2;
 /// Label of the featured card.
@@ -431,7 +446,7 @@ impl HomePage {
 
     /// List items that fit in the list's area (the last one's blank row may be cut off).
     fn visible_items(&self) -> usize {
-        usize::from((self.regions.list.height + 1) / ITEM_ROWS).max(1)
+        items_fitting(self.regions.list.height).max(1)
     }
 
     /// Selectable positions: the featured card (0, when shown), then the rows.
@@ -626,9 +641,12 @@ impl HomePage {
             0
         };
         let has_queue = ctx.queue.get_current_index().is_some();
-        // Only items that fit whole (the blank row after the last one isn't needed).
-        let drawn = usize::from((area.height + 1) / ITEM_ROWS);
-        for (row, item) in rows.iter().enumerate().skip(self.first).take(drawn) {
+        for (row, item) in rows
+            .iter()
+            .enumerate()
+            .skip(self.first)
+            .take(items_fitting(area.height))
+        {
             let y = area.y + (row - self.first) as u16 * ITEM_ROWS;
             let lines = Rect::new(area.x, y, area.width, 2).intersection(area);
             let selected = self.selected == Selection::Row(row);
@@ -890,14 +908,15 @@ impl Page for HomePage {
                 if self.regions.featured.is_some_and(|r| r.contains(at)) {
                     self.selected = Selection::Featured;
                 } else if self.regions.list.contains(at) {
-                    let offset = event.row - self.regions.list.y;
-                    if offset % ITEM_ROWS == ITEM_ROWS - 1 {
+                    let list = self.regions.list;
+                    let Some(index) = item_at(
+                        event.row - list.y,
+                        list.height,
+                        self.first,
+                        self.rows().len(),
+                    ) else {
                         return Outcome::Consumed;
-                    }
-                    let index = self.first + usize::from(offset / ITEM_ROWS);
-                    if index >= self.rows().len() {
-                        return Outcome::Consumed;
-                    }
+                    };
                     self.selected = Selection::Row(index);
                 } else {
                     return Outcome::Consumed;
@@ -938,6 +957,18 @@ mod tests {
             "album_artists": [], "url": "", "list_index": 0, "is_local": false,
         });
         serde_json::from_value(track).unwrap()
+    }
+
+    #[test]
+    fn clicks_only_find_items_that_are_drawn() {
+        // 10 rows fit three items (rows 0-1, 3-4, 6-7); row 9 is below the last one.
+        assert_eq!(items_fitting(10), 3);
+        assert_eq!(item_at(0, 10, 0, 20), Some(0));
+        assert_eq!(item_at(1, 10, 0, 20), Some(0));
+        assert_eq!(item_at(2, 10, 0, 20), None, "the blank row between items");
+        assert_eq!(item_at(7, 10, 5, 20), Some(7));
+        assert_eq!(item_at(9, 10, 5, 20), None, "below the last item drawn");
+        assert_eq!(item_at(3, 10, 0, 1), None, "past the end of the list");
     }
 
     fn sections() -> Sections {
