@@ -56,6 +56,10 @@ static BACKGROUND_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::ne
 
 /// Show `message` as an error from any thread, e.g. when a change couldn't be made on Spotify.
 pub fn report_error(message: String) {
+    // Tests run side by side: one's error would show in another's screen.
+    if cfg!(test) {
+        return;
+    }
     *BACKGROUND_ERROR.lock().unwrap() = Some(message);
     request_redraw();
 }

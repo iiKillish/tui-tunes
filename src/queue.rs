@@ -71,6 +71,10 @@ pub struct Queue {
     sources: RwLock<Vec<Option<Arc<str>>>>,
     current_track: RwLock<Option<usize>>,
     sleep_timer: RwLock<Option<SleepTimer>>,
+    /// When the current track was loaded, and how many tracks in a row "finished" moments after
+    /// loading, as ones that fail to play do; see [Queue::failing].
+    loaded_at: RwLock<Option<Instant>>,
+    failed_in_a_row: RwLock<u32>,
     /// The URI of the track autoplay was last asked to follow, so it's asked once per track.
     autoplay_after: RwLock<Option<String>>,
     /// The queue ran out while autoplay was still looking: play what it finds.
@@ -101,6 +105,8 @@ impl Queue {
             spotify: spotify.clone(),
             current_track: RwLock::new(queue_state.current_track),
             sleep_timer: RwLock::new(None),
+            loaded_at: RwLock::new(None),
+            failed_in_a_row: RwLock::new(0),
             autoplay_after: RwLock::new(None),
             waiting_for_autoplay: RwLock::new(false),
             random_order: RwLock::new(queue_state.random_order),
@@ -421,6 +427,32 @@ impl Queue {
         }
     }
 
+    /// Whether tracks keep failing to play: one that "finishes" moments after it was loaded didn't
+    /// play, and after a few in a row Spotify is refusing them (it does when asked for too many
+    /// too fast). Then playback stops rather than going on to the next track, which would be
+    /// refused too and skip through the whole queue. Counts the track that just finished.
+    fn failing(&self) -> bool {
+        const QUICK: std::time::Duration = std::time::Duration::from_secs(5);
+        const MAX_FAILURES: u32 = 3;
+        let quick = self
+            .loaded_at
+            .read()
+            .unwrap()
+            .is_some_and(|at| at.elapsed() < QUICK);
+        let mut failed = self.failed_in_a_row.write().unwrap();
+        *failed = if quick { *failed + 1 } else { 0 };
+        if *failed < MAX_FAILURES {
+            return false;
+        }
+        *failed = 0;
+        drop(failed);
+        self.spotify.stop();
+        crate::tui::report_error(
+            "Spotify isn't letting songs play right now: wait a minute, then play again".into(),
+        );
+        true
+    }
+
     /// Note the current track in the listening history as played to the end.
     pub fn record_finished(&self) {
         if let Some(Playable::Track(track)) = self.get_current() {
@@ -432,6 +464,7 @@ impl Queue {
     /// [Queue::play], but the track only starts playing if `start_playing`.
     fn load(&self, mut index: usize, reshuffle: bool, shuffle_index: bool, start_playing: bool) {
         self.record_listened();
+        *self.loaded_at.write().unwrap() = Some(Instant::now());
         let queue_length = self.queue.read().unwrap().len();
         // The length of the queue must be bigger than 0 or gen_range panics!
         if queue_length > 0 && shuffle_index && self.get_shuffle() {
@@ -482,6 +515,16 @@ impl Queue {
     /// Toggle the playback. If playback is currently stopped, this will either
     /// play the next song if one is available, or restart from the start.
     pub fn toggleplayback(&self) {
+        // A track still loading starts, or doesn't, once it's loaded: rather than going on to the
+        // next one, which (pressed while waiting) would skip through the queue.
+        if let Some(starts) = self.spotify.loading() {
+            if starts {
+                self.spotify.pause();
+            } else {
+                self.spotify.play();
+            }
+            return;
+        }
         match self.spotify.get_current_status() {
             PlayerEvent::Playing(_) | PlayerEvent::Paused(_) => {
                 self.spotify.toggleplayback();
@@ -509,6 +552,9 @@ impl Queue {
     /// used, and the next track will actually be played. This should be used
     /// when going to the next entry in the queue is the wanted behavior.
     pub fn next(&self, manual: bool) {
+        if !manual && self.failing() {
+            return;
+        }
         let q = self.queue.read().unwrap();
         let current = *self.current_track.read().unwrap();
         let repeat = self.cfg.state().repeat;
@@ -955,12 +1001,51 @@ mod tests {
             sources: RwLock::new(vec![None; len]),
             current_track: RwLock::new(current),
             sleep_timer: RwLock::new(None),
+            loaded_at: RwLock::new(None),
+            failed_in_a_row: RwLock::new(0),
             autoplay_after: RwLock::new(None),
             waiting_for_autoplay: RwLock::new(false),
             spotify,
             cfg,
             library,
         }
+    }
+
+    // --- loading ---
+
+    #[test]
+    fn test_play_pause_while_loading_keeps_the_track() {
+        let q = make_queue(vec![make_track(0), make_track(1), make_track(2)], None);
+        let _worker = q.spotify.connect_for_test();
+        q.play(0, false, false);
+        assert_eq!(q.spotify.loading(), Some(true));
+        // Pressed while it loads: it won't start, and it's still the same track.
+        q.toggleplayback();
+        assert_eq!(q.spotify.loading(), Some(false));
+        assert_eq!(q.get_current_index(), Some(0));
+        q.toggleplayback();
+        assert_eq!(q.spotify.loading(), Some(true));
+        assert_eq!(q.get_current_index(), Some(0));
+        // Once the player has word, it's loaded.
+        q.spotify
+            .update_status(PlayerEvent::Playing(std::time::SystemTime::now()));
+        assert_eq!(q.spotify.loading(), None);
+    }
+
+    #[test]
+    fn test_tracks_failing_one_after_another_stop_playback() {
+        let q = make_queue((0..10).map(make_track).collect(), None);
+        q.play(0, false, false);
+        // Each "finishes" at once, as when Spotify refuses them: the first two go on to the next.
+        q.next(false);
+        q.next(false);
+        assert_eq!(q.get_current_index(), Some(2));
+        // The third in a row stops, instead of skipping through the queue.
+        q.next(false);
+        assert_eq!(q.get_current_index(), Some(2));
+        // Skipping by hand still works.
+        q.next(true);
+        assert_eq!(q.get_current_index(), Some(3));
     }
 
     // --- autoplay ---
