@@ -5,7 +5,7 @@
 - A C compiler
 
 On Linux, you also need `pkgconf` (sometimes called `pkg-config`) and the development headers for
-OpenSSL and PulseAudio (ALSA instead when building with the `alsa_backend` feature):
+OpenSSL and PulseAudio (and ALSA when building with the `alsa_backend` feature):
 
 - Debian and derivatives:
   ```sh
@@ -59,12 +59,14 @@ cargo build --release
 Backends](#audio-backends).
 
 ## Audio Backends
-ttunes uses PulseAudio by default. Support for other backends can be enabled with the following
-commands.
+Each system gets its own sound with no features: PulseAudio on Linux and the BSDs (which PipeWire
+provides too), and Rodio (CoreAudio) on macOS. These come from target-specific dependencies in
+Cargo.toml, as features can't differ by system. Other backends are features, used besides those:
+the `backend` option picks one.
 
-Rodio for macOS (CoreAudio), as the release builds use
+ALSA on Linux
 ```sh
-cargo build --no-default-features --features rodio_backend,cover,share_clipboard,notify
+cargo build --features alsa_backend
 ```
 
 PortAudio for BSDs

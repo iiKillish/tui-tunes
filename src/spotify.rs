@@ -277,7 +277,7 @@ impl Spotify {
         // startup, see `pulseaudio_environment`.
         info!("Initializing audio backend {}", backend.0);
         // Ours pauses at once; see crate::audio.
-        #[cfg(feature = "rodio_backend")]
+        #[cfg(any(feature = "rodio_backend", target_os = "macos"))]
         if backend.0 == "rodio" {
             return Ok(crate::audio::BUILDER);
         }

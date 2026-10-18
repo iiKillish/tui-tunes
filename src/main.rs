@@ -9,7 +9,7 @@ use log::error;
 use ttunes::program_arguments;
 
 mod application;
-#[cfg(feature = "rodio_backend")]
+#[cfg(any(feature = "rodio_backend", target_os = "macos"))]
 mod audio;
 mod authentication;
 mod cli;

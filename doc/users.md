@@ -13,18 +13,14 @@ Album covers (the `cover` feature) are included. To build without them, use
 `cargo install --locked ttunes --no-default-features --features pulseaudio_backend,mpris,notify,share_clipboard`.
 
 Building needs a [Rust installation](https://www.rust-lang.org/tools/install), `pkgconf`, and the
-development headers for PulseAudio (or ALSA, if built with the ALSA backend), OpenSSL and dbus.
+development headers for OpenSSL and dbus, and on Linux PulseAudio (and ALSA, if built with the
+ALSA backend). PipeWire provides PulseAudio, so it works there too.
 To build from a checkout instead, see [Compiling](/doc/developers.md#compiling).
 
 ### macOS
-macOS has no PulseAudio, so the default build fails to link (`library ':libpulse-simple.0.dylib'
-not found`). Build with the Rodio backend, which plays through CoreAudio, instead:
-
-```sh
-cargo install --locked ttunes --no-default-features --features rodio_backend,cover,share_clipboard,notify
-```
-
-(MPRIS is left out: it's for Linux desktops.)
+The same `cargo install --locked ttunes` works: on macOS, ttunes plays through CoreAudio (the
+Rodio backend) instead of PulseAudio, which macOS doesn't have. Before 0.4.1 it needed
+`--no-default-features --features rodio_backend,cover,share_clipboard,notify`.
 
 ### Ready-made builds
 Every [release](https://github.com/iiKillish/tui-tunes/releases/latest) has builds for Linux
@@ -35,7 +31,7 @@ macOS may refuse to open a downloaded build; allow it with
 Runtime dependencies:
 
 - `dbus`, `libssl`
-- `libpulse` (or `portaudio`, if built using the PortAudio backend)
+- on Linux, `libpulse` (PipeWire provides it), and `libasound` if built with the ALSA backend
 
 ## First run
 ttunes needs a Spotify app of your own for Spotify's Web API. The first time it starts, it asks
