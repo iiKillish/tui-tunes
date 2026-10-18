@@ -13,6 +13,7 @@ pub mod overlays;
 pub mod page;
 pub mod pages;
 pub mod pointer;
+pub mod splash;
 pub mod style;
 pub mod widgets;
 
