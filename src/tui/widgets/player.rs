@@ -354,6 +354,9 @@ impl Player {
             }
             None => {}
         }
+        if ctx.spotify.loading().is_some() {
+            status.push("loading…".to_string());
+        }
         if !*ctx.library.is_done.read().unwrap() {
             status.push("updating library…".to_string());
         }

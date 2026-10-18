@@ -101,6 +101,9 @@ pub struct Spotify {
     since: Arc<RwLock<Option<SystemTime>>>,
     /// Channel to send commands to the worker thread.
     channel: Arc<RwLock<Option<mpsc::UnboundedSender<WorkerCommand>>>>,
+    /// A track is being loaded (no word from the player since), and whether it's to start
+    /// playing once it's loaded. Loading can take seconds.
+    loading: Arc<RwLock<Option<bool>>>,
 }
 
 impl Spotify {
@@ -120,6 +123,7 @@ impl Spotify {
             elapsed: Arc::new(RwLock::new(None)),
             since: Arc::new(RwLock::new(None)),
             channel: Arc::new(RwLock::new(None)),
+            loading: Arc::new(RwLock::new(None)),
         };
 
         let (user_tx, user_rx) = oneshot::channel();
@@ -162,6 +166,7 @@ impl Spotify {
             elapsed: Arc::new(RwLock::new(None)),
             since: Arc::new(RwLock::new(None)),
             channel: Arc::new(RwLock::new(None)),
+            loading: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -407,6 +412,10 @@ impl Spotify {
             return;
         }
 
+        // Loading until the player says otherwise, if there's a player.
+        if self.channel.read().unwrap().is_some() {
+            *self.loading.write().unwrap() = Some(start_playing);
+        }
         self.send_worker(WorkerCommand::Load(
             track.clone(),
             start_playing,
@@ -421,6 +430,8 @@ impl Spotify {
     /// doesn't have to be retrieved every time from the thread, which would be harder and more
     /// expensive.
     pub fn update_status(&self, new_status: PlayerEvent) {
+        // The player has had its say on the track being loaded, whatever it was.
+        *self.loading.write().unwrap() = None;
         match new_status {
             PlayerEvent::Paused(position) => {
                 self.set_elapsed(Some(position));
@@ -450,9 +461,26 @@ impl Spotify {
         self.set_since(None);
     }
 
+    /// Take the worker's commands, as if there were a worker (tests have none).
+    #[cfg(test)]
+    pub(crate) fn connect_for_test(&self) -> mpsc::UnboundedReceiver<WorkerCommand> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        *self.channel.write().unwrap() = Some(tx);
+        rx
+    }
+
+    /// Whether a track is being loaded (it can take seconds), and if so, whether it's to start
+    /// playing once it's loaded.
+    pub fn loading(&self) -> Option<bool> {
+        *self.loading.read().unwrap()
+    }
+
     /// Start playback of the [Player].
     pub fn play(&self) {
         info!("play()");
+        if let Some(starts) = self.loading.write().unwrap().as_mut() {
+            *starts = true;
+        }
         self.send_worker(WorkerCommand::Play);
     }
 
@@ -495,6 +523,9 @@ impl Spotify {
 
     /// Pause playback of the [Player].
     pub fn pause(&self) {
+        if let Some(starts) = self.loading.write().unwrap().as_mut() {
+            *starts = false;
+        }
         info!("pause()");
         self.send_worker(WorkerCommand::Pause);
     }
