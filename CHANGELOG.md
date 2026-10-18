@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1]
+
+### Changed
+
+- `cargo install --locked ttunes` works on macOS, playing through CoreAudio:
+  each system gets its own sound backend (PulseAudio on Linux and the BSDs,
+  Rodio on macOS) without features. The `pulseaudio_backend` feature does
+  nothing now; Linux builds always have PulseAudio, which PipeWire provides
+
+### Fixed
+
+- Installing 0.4.0 failed with Rust 1.93. ttunes says which Rust it needs
+  (`rust-version`), and CI builds with it
+- Pressing <kbd>Space</kbd> while a song was loading skipped to the next song.
+  The player says "loading…", and <kbd>Space</kbd> decides whether the song
+  starts once it's loaded
+- When Spotify refused to play songs (it does when asked for too many at once),
+  ttunes skipped through the whole queue. It stops after three in a row and
+  says so
+
 ## [0.4.0]
 
 ### Added
