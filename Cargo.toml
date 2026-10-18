@@ -87,6 +87,16 @@ url = "2.5"
 [target.'cfg(unix)'.dependencies]
 signal-hook = "0.4.4"
 
+# Each system's sound, so a plain install works everywhere: PulseAudio on Linux and the BSDs (PipeWire
+# provides it too)...
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+librespot-playback = {version = "0.8.0", default-features = false, features = ["native-tls", "pulseaudio-backend"]}
+
+# ...and Rodio (CoreAudio) on macOS, which has no PulseAudio, with ttunes' own sink (src/audio.rs).
+[target.'cfg(target_os = "macos")'.dependencies]
+librespot-playback = {version = "0.8.0", default-features = false, features = ["native-tls", "rodio-backend"]}
+rodio = {version = "0.21", default-features = false, features = ["playback"]}
+
 [dependencies.rspotify]
 default-features = false
 features = ["client-ureq", "ureq-native-tls"]
@@ -114,11 +124,11 @@ vergen = {version = "=9.0.6", default-features = false}
 [features]
 alsa_backend = ["librespot-playback/alsa-backend"]
 cover = ["image", "icy_sixel"] # Show album covers (Kitty, sixel or iTerm2 images)
-default = ["cover", "share_clipboard", "pulseaudio_backend", "mpris", "notify"]
+default = ["cover", "share_clipboard", "mpris", "notify"]
 mpris = ["zbus"] # Allow ttunes to be controlled via MPRIS API
 notify = ["notify-rust"] # Show what's playing via a notification
 portaudio_backend = ["librespot-playback/portaudio-backend"]
-pulseaudio_backend = ["librespot-playback/pulseaudio-backend"]
+pulseaudio_backend = [] # Kept for older build commands: Linux and BSD builds have PulseAudio anyway
 rodio_backend = ["librespot-playback/rodio-backend", "dep:rodio"]
 share_clipboard = ["arboard", "arboard/wayland-data-control"] # Share a link to the system clipboard
 share_selection = ["arboard", "arboard/wayland-data-control"] # Use the primary selection for sharing - linux and bsd only
