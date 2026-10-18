@@ -248,7 +248,7 @@ fn load(spotify: &Spotify, library: &Library) -> Sections {
     });
 
     // Jump back in: what recent tracks were played from, or their album when that's unknown or
-    // can't be loaded (Spotify doesn't let apps load its own mixes, like Daily Mix playlists).
+    // can't be loaded (Spotify's own mixes, like Daily Mix playlists, come through the session).
     let mut loaded: HashMap<(PlayContext, String), Option<HomeItem>> = HashMap::new();
     let mut shown = HashSet::new();
     let mut jump_back_in = Vec::new();
@@ -320,7 +320,7 @@ fn load_context(
             .iter()
             .find(|p| p.id == id)
             .cloned()
-            .or_else(|| api.playlist(id).ok().map(|p| (&p).into()))
+            .or_else(|| api.any_playlist(id))
             .map(HomeItem::Playlist),
         PlayContext::Artist => api.artist(id).ok().map(|a| HomeItem::Artist((&a).into())),
     }

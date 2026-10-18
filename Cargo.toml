@@ -62,6 +62,7 @@ icy_sixel = {version = "0.7", optional = true}
 image = {version = "0.25", default-features = false, features = ["jpeg", "png"], optional = true}
 libc = "0.2.186"
 librespot-core = "0.8.0"
+librespot-metadata = "0.8.0"
 librespot-oauth = "0.8.0"
 librespot-protocol = "0.8.0"
 librespot-playback = {version = "0.8.0", default-features = false, features = ["native-tls"]}
