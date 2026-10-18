@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (<kbd>?</kbd>)
 - <kbd>P</kbd> says so when the playing track isn't in the list
 
+### Fixed
+
+- <kbd>Tab</kbd> on the Search screen switches to the next screen in one press,
+  instead of first only leaving the search field
+
 ## [0.1.2]
 
 ### Changed

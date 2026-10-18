@@ -634,3 +634,17 @@ fn test_typing_filters_a_filterable_menu() {
         press(&mut menu, KeyCode::Backspace);
     }
 }
+
+#[test]
+fn test_tab_leaves_the_search_field_and_switches_screens() {
+    let mut app = app();
+    // Through every screen and back, including Search, whose field has the keyboard when shown.
+    for expected in SCREENS.iter().cycle().skip(1).take(SCREENS.len()) {
+        key(&mut app, KeyCode::Tab);
+        assert_eq!(app.current_screen(), *expected);
+    }
+    for expected in SCREENS.iter().rev() {
+        app.key(KeyEvent::new(KeyCode::BackTab, KeyModifiers::SHIFT));
+        assert_eq!(app.current_screen(), *expected);
+    }
+}

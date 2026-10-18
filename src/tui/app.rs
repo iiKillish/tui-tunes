@@ -199,6 +199,12 @@ impl App {
         self.apply(Outcome::Open(page), false);
     }
 
+    /// The screen showing.
+    #[cfg(test)]
+    pub fn current_screen(&self) -> ScreenId {
+        self.screens[self.current].id
+    }
+
     /// Replace the root page of the screen `id`.
     #[cfg(test)]
     pub fn set_root(&mut self, id: ScreenId, page: Box<dyn crate::tui::page::Page>) {
