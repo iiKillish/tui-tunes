@@ -13,6 +13,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   text cursor over text fields, in terminals that support it (Kitty, Ghostty,
   foot)
 
+### Changed
+
+- The selected tab is no longer underlined; it's still bold and in the accent
+  color
+
 ### Fixed
 
 - Clicking the space below the last item on the Home screen no longer opens the
