@@ -1,8 +1,9 @@
 //! The Search screen: a text field. Enter opens the results (see [search_results]); a Spotify
 //! link or URI typed in opens that item directly. `:search term` runs a search from anywhere.
 //!
-//! The field has the keyboard while focused (shown with an accent underline); Esc or Tab leave
-//! it so keybindings work again, and Enter, `/`, a click or coming back to the screen focus it.
+//! The field has the keyboard while focused (shown with an accent underline); Esc leaves it so
+//! keybindings work again, and Tab leaves it and switches screens as usual. Enter, `/`, a click or
+//! coming back to the screen focus it.
 
 use ratatui::Frame;
 use ratatui::crossterm::event::{
@@ -216,9 +217,15 @@ impl Page for SearchPage {
                 let query = self.text.clone();
                 self.search(&query, ctx)
             }
-            KeyCode::Esc | KeyCode::Tab => {
+            KeyCode::Esc => {
                 self.focused = false;
                 Outcome::Consumed
+            }
+            // Leave the field and let the key bindings have Tab, so it switches screens in one
+            // press like everywhere else.
+            KeyCode::Tab | KeyCode::BackTab => {
+                self.focused = false;
+                Outcome::Ignored
             }
             _ if self.edit(key) => Outcome::Consumed,
             _ => Outcome::Ignored,
