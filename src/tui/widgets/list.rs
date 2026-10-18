@@ -419,14 +419,9 @@ impl<I: ListItem + Clone> ItemList<I> {
                 }
             }
             Command::Play => self.play(ctx),
-            Command::PlayNext => {
-                if let Some(mut item) = self.selected_item() {
-                    item.play_next(&ctx.queue);
-                }
-            }
-            Command::Queue => {
-                if let Some(mut item) = self.selected_item() {
-                    item.queue(&ctx.queue);
+            Command::PlayNext | Command::Queue => {
+                if let Some(item) = self.selected_item() {
+                    nav::queue_item(item.as_listitem(), matches!(cmd, Command::PlayNext), ctx);
                 }
             }
             Command::Save => {

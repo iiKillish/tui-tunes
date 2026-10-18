@@ -12,6 +12,22 @@ use crate::tui::overlays::prompt::Prompt;
 use crate::tui::page::{Ctx, Outcome, Overlay, Page};
 use crate::tui::pages;
 
+/// Queue `item`, after the current track if `next`. On a thread of its own, one at a time in
+/// order: an album's or playlist's tracks may have to be loaded first, which mustn't freeze the
+/// interface.
+pub fn queue_item(mut item: Box<dyn ListItem>, next: bool, ctx: &Ctx) {
+    static QUEUEING: crate::utils::InOrder = crate::utils::InOrder::new("queueing");
+    let queue = ctx.queue.clone();
+    QUEUEING.run(move || {
+        if next {
+            item.play_next(&queue);
+        } else {
+            item.queue(&queue);
+        }
+        crate::tui::request_redraw();
+    });
+}
+
 /// Whether the user may change `playlist`: their own, or a collaborative one.
 pub fn can_edit(playlist: &Playlist, ctx: &Ctx) -> bool {
     playlist.collaborative || ctx.library.user_id.as_deref() == Some(playlist.owner_id.as_str())

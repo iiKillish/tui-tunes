@@ -676,8 +676,8 @@ impl Page for CardGrid {
             Command::Queue | Command::PlayNext | Command::Save => {
                 if let Some(mut item) = selected.as_ref().and_then(Card::as_listitem) {
                     match cmd {
-                        Command::Queue => item.queue(&ctx.queue),
-                        Command::PlayNext => item.play_next(&ctx.queue),
+                        Command::Queue => nav::queue_item(item, false, ctx),
+                        Command::PlayNext => nav::queue_item(item, true, ctx),
                         _ => item.save(&ctx.library),
                     }
                 }

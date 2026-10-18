@@ -18,12 +18,12 @@ pub fn context_menu(item: Box<dyn ListItem>, ctx: &Ctx) -> Box<dyn Overlay> {
     }));
     let i = item.clone();
     entries.push(Entry::new("Play next", move |ctx| {
-        i.as_listitem().play_next(&ctx.queue);
+        nav::queue_item(i.as_listitem(), true, ctx);
         Outcome::Message("Playing next".into())
     }));
     let i = item.clone();
     entries.push(Entry::new("Add to queue", move |ctx| {
-        i.as_listitem().queue(&ctx.queue);
+        nav::queue_item(i.as_listitem(), false, ctx);
         Outcome::Message("Added to the queue".into())
     }));
     if let Some(track) = item.track() {
