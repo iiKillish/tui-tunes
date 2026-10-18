@@ -1,5 +1,38 @@
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock, mpsc};
 use std::time::Duration;
+
+type Job = Box<dyn FnOnce() + Send>;
+
+/// Jobs run one at a time, in the order they were given, on a thread of their own (started on
+/// first use): for slow work, like requests to Spotify, that mustn't hold up the interface but
+/// must happen in order.
+pub struct InOrder {
+    name: &'static str,
+    jobs: OnceLock<Mutex<mpsc::Sender<Job>>>,
+}
+
+impl InOrder {
+    pub const fn new(name: &'static str) -> Self {
+        Self {
+            name,
+            jobs: OnceLock::new(),
+        }
+    }
+
+    /// Run `job` after the jobs given before it.
+    pub fn run(&self, job: impl FnOnce() + Send + 'static) {
+        let jobs = self.jobs.get_or_init(|| {
+            let (tx, rx) = mpsc::channel::<Job>();
+            std::thread::Builder::new()
+                .name(self.name.into())
+                .spawn(move || rx.into_iter().for_each(|job| job()))
+                .expect("could not start a background thread");
+            Mutex::new(tx)
+        });
+        let _ = jobs.lock().unwrap().send(Box::new(job));
+    }
+}
 
 /// Returns a human readable String of milliseconds in the HH:MM:SS format.
 pub fn ms_to_hms(duration: u32) -> String {

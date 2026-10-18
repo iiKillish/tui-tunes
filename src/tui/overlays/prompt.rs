@@ -34,6 +34,12 @@ impl Prompt {
             area: Rect::default(),
         }
     }
+
+    /// Start with `text` in the field, e.g. the name being changed.
+    pub fn with_text(mut self, text: impl Into<String>) -> Self {
+        self.text = text.into();
+        self
+    }
 }
 
 impl Overlay for Prompt {

@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use std::{cmp::Ordering, iter::Iterator};
 
 use log::{debug, warn};
@@ -8,8 +9,10 @@ use crate::model::playable::Playable;
 use crate::model::track::Track;
 use crate::queue::Queue;
 use crate::spotify::Spotify;
+use crate::spotify_api::WebApi;
 use crate::traits::ListItem;
 use crate::traits::OpenTarget;
+use crate::utils::InOrder;
 use crate::{command::SortDirection, command::SortKey, library::Library};
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -61,8 +64,16 @@ impl Playlist {
         tracks.clone()
     }
 
-    pub fn delete_track(&mut self, index: usize, spotify: Spotify, library: &Library) -> bool {
-        let playable = self.tracks.as_ref().unwrap()[index].clone();
+    /// Remove the track at `index`: here at once, on Spotify in the background (see [sync]).
+    pub fn delete_track(
+        &mut self,
+        index: usize,
+        spotify: &Spotify,
+        library: &Arc<Library>,
+    ) -> bool {
+        let Some(playable) = self.tracks.as_ref().and_then(|t| t.get(index)).cloned() else {
+            return false;
+        };
         debug!("deleting track: {index} {playable:?}");
 
         if playable.track().map(|t| t.is_local) == Some(true) {
@@ -70,21 +81,74 @@ impl Playlist {
             return false;
         }
 
-        match spotify
-            .api
-            .delete_tracks(&self.id, &self.snapshot_id, &[playable])
-            .is_ok()
-        {
-            false => false,
-            true => {
-                if let Some(tracks) = &mut self.tracks {
-                    tracks.remove(index);
-                    library.playlist_update(self);
+        if let Some(tracks) = &mut self.tracks {
+            tracks.remove(index);
+            // The tracks after it move up one place (in the playlist's own order, which a sorted
+            // list doesn't show).
+            for track in tracks.iter_mut() {
+                let position = track.list_index();
+                if position > playable.list_index() {
+                    track.set_list_index(position - 1);
                 }
-
-                true
             }
         }
+        let id = self.id.clone();
+        self.sync(spotify, library, "remove the song", move |api| {
+            api.delete_tracks(&id, None, &[playable]).map(|_| ())
+        });
+        true
+    }
+
+    /// Move the track at `from` to `to`: here at once, on Spotify in the background (see [sync]).
+    /// The tracks must be in the playlist's own order (not sorted).
+    pub fn move_track(
+        &mut self,
+        from: usize,
+        to: usize,
+        spotify: &Spotify,
+        library: &Arc<Library>,
+    ) -> bool {
+        let Some(tracks) = &mut self.tracks else {
+            return false;
+        };
+        if from >= tracks.len() || to >= tracks.len() {
+            return false;
+        }
+        let track = tracks.remove(from);
+        tracks.insert(to, track);
+        for (position, track) in tracks.iter_mut().enumerate() {
+            track.set_list_index(position);
+        }
+        let id = self.id.clone();
+        self.sync(spotify, library, "move the song", move |api| {
+            api.move_track(&id, None, from, to).map(|_| ())
+        });
+        true
+    }
+
+    /// Make a change on Spotify that's already been made here, then save the playlist in the
+    /// library. Changes are made one at a time, in order, on a thread of their own, so the UI
+    /// doesn't wait for Spotify and each change applies to the playlist as the one before left
+    /// it (positions refer to the playlist as it is, not to a snapshot). A failed change is
+    /// reported in the UI; the playlist is then out of step until it's opened again.
+    fn sync(
+        &self,
+        spotify: &Spotify,
+        library: &Arc<Library>,
+        what: &'static str,
+        change: impl FnOnce(&WebApi) -> Result<(), ()> + Send + 'static,
+    ) {
+        static EDITS: InOrder = InOrder::new("playlist edits");
+        let api = spotify.api.clone();
+        let library = library.clone();
+        let playlist = self.clone();
+        EDITS.run(move || {
+            if change(&api).is_ok() {
+                library.playlist_update(&playlist);
+            } else {
+                crate::tui::report_error(format!("Couldn't {what} on Spotify"));
+            }
+        });
     }
 
     pub fn append_tracks(&mut self, new_tracks: &[Playable], spotify: &Spotify, library: &Library) {
@@ -133,6 +197,15 @@ impl Playlist {
                 .then_with(|| a.track_number.cmp(&b.track_number))
         }
 
+        if let SortKey::Original = key {
+            if let Some(tracks) = self.tracks.as_mut() {
+                tracks.sort_by_key(Playable::list_index);
+                if let SortDirection::Descending = direction {
+                    tracks.reverse();
+                }
+            }
+            return;
+        }
         if let Some(c) = self.tracks.as_mut() {
             c.sort_by(|a, b| match (a.track(), b.track()) {
                 (Some(a), Some(b)) => {
@@ -147,6 +220,7 @@ impl Playlist {
                         SortKey::Added => a.added_at.cmp(&b.added_at),
                         SortKey::Artist => compare_artists(&a.artists, &b.artists)
                             .then_with(|| compare_album(&a, &b)),
+                        SortKey::Original => a.list_index.cmp(&b.list_index),
                     }
                 }
                 _ => std::cmp::Ordering::Equal,

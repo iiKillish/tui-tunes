@@ -45,6 +45,7 @@ const RELOAD_CONFIG_CMD: &str = "reload";
 const NOOP_CMD: &str = "noop";
 const INSERT_CMD: &str = "insert";
 const NEW_PLAYLIST_CMD: &str = "newplaylist";
+const RENAME_CMD: &str = "rename";
 const SORT_CMD: &str = "sort";
 const LOGOUT_CMD: &str = "logout";
 const REDRAW_CMD: &str = "redraw";
@@ -95,6 +96,7 @@ pub const ALL_COMMANDS: &[&str] = &[
     NOOP_CMD,
     INSERT_CMD,
     NEW_PLAYLIST_CMD,
+    RENAME_CMD,
     SORT_CMD,
     LOGOUT_CMD,
     REDRAW_CMD,
@@ -180,6 +182,8 @@ pub enum SortKey {
     Artist,
     Album,
     Added,
+    /// The playlist's own order, as on Spotify.
+    Original,
 }
 
 #[derive(Display, Clone, Serialize, Deserialize, Debug)]
@@ -308,6 +312,8 @@ pub enum Command {
     Noop,
     Insert(InsertSource),
     NewPlaylist(String),
+    /// Rename the open playlist, or ask for a name when it's empty.
+    Rename(String),
     Sort(SortKey, SortDirection),
     Logout,
     Redraw,
@@ -360,7 +366,7 @@ impl fmt::Display for Command {
                 JumpMode::Query(term) => vec![term.to_owned()],
             },
             Self::Insert(source) => vec![source.to_string()],
-            Self::NewPlaylist(name) => vec![name.to_owned()],
+            Self::NewPlaylist(name) | Self::Rename(name) => vec![name.to_owned()],
             Self::Sort(key, direction) => vec![key.to_string(), direction.to_string()],
             Self::Execute(cmd) => vec![cmd.to_owned()],
             Self::Panel(action) => vec![action.to_string()],
@@ -440,6 +446,7 @@ impl Command {
             Self::Noop => NOOP_CMD,
             Self::Insert(_) => INSERT_CMD,
             Self::NewPlaylist(_) => NEW_PLAYLIST_CMD,
+            Self::Rename(_) => RENAME_CMD,
             Self::Sort(_, _) => SORT_CMD,
             Self::Logout => LOGOUT_CMD,
             Self::Redraw => REDRAW_CMD,
@@ -941,6 +948,7 @@ pub fn parse(input: &str) -> Result<Vec<Command>, CommandParseError> {
                         })
                     }?
                 }
+                RENAME_CMD => Command::Rename(args.join(" ")),
                 SORT_CMD => {
                     let &key_raw = args.first().ok_or(E::InsufficientArgs {
                         cmd: command.into(),
@@ -952,6 +960,7 @@ pub fn parse(input: &str) -> Result<Vec<Command>, CommandParseError> {
                         "album" => Ok(SortKey::Album),
                         "added" => Ok(SortKey::Added),
                         "artist" => Ok(SortKey::Artist),
+                        "original" => Ok(SortKey::Original),
                         _ => Err(E::BadEnumArg {
                             arg: key_raw.into(),
                             accept: vec![
@@ -960,6 +969,7 @@ pub fn parse(input: &str) -> Result<Vec<Command>, CommandParseError> {
                                 "album".into(),
                                 "added".into(),
                                 "artist".into(),
+                                "original".into(),
                             ],
                             optional: false,
                         }),
@@ -1081,6 +1091,26 @@ mod tests {
         assert!(matches!(
             parse("focus").as_deref(),
             Err(CommandParseError::InsufficientArgs { .. })
+        ));
+    }
+
+    #[test]
+    fn rename_takes_an_optional_name() {
+        assert!(matches!(
+            parse("rename Road trip").as_deref(),
+            Ok([Command::Rename(name)]) if name == "Road trip"
+        ));
+        assert!(matches!(
+            parse("rename").as_deref(),
+            Ok([Command::Rename(name)]) if name.is_empty()
+        ));
+    }
+
+    #[test]
+    fn sort_takes_original() {
+        assert!(matches!(
+            parse("sort original").as_deref(),
+            Ok([Command::Sort(SortKey::Original, SortDirection::Ascending)])
         ));
     }
 

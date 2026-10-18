@@ -48,6 +48,20 @@ pub fn request_redraw() {
     }
 }
 
+/// An error from work in the background, shown as a message on the next frame.
+static BACKGROUND_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+/// Show `message` as an error from any thread, e.g. when a change couldn't be made on Spotify.
+pub fn report_error(message: String) {
+    *BACKGROUND_ERROR.lock().unwrap() = Some(message);
+    request_redraw();
+}
+
+/// The error [report_error] left, if any.
+pub fn take_background_error() -> Option<String> {
+    BACKGROUND_ERROR.lock().unwrap().take()
+}
+
 /// The terminal, set up for the UI: raw mode, the alternate screen, mouse reporting. Keys and
 /// mouse events are read on a thread and arrive as [Event::Input].
 pub struct Terminal {
