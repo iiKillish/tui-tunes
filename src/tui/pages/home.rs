@@ -414,7 +414,7 @@ fn load_context(
             .unwrap()
             .iter()
             .find(|p| p.id == id)
-            .cloned()
+            .map(Playlist::without_tracks)
             .or_else(|| api.any_playlist(id))
             .map(HomeItem::Playlist),
         PlayContext::Artist => api.artist(id).ok().map(|a| HomeItem::Artist((&a).into())),
@@ -437,8 +437,19 @@ struct Regions {
     list: Rect,
 }
 
+/// [Sections::rows] as of the last draw, and what they were worked out from.
+struct Rows {
+    sections: Arc<Sections>,
+    filter: Filter,
+    skip_featured: bool,
+    rows: Arc<Vec<HomeItem>>,
+}
+
 pub struct HomePage {
-    sections: Arc<RwLock<Option<Sections>>>,
+    /// Replaced as a whole by each load, so drawing only copies the [Arc].
+    sections: Arc<RwLock<Option<Arc<Sections>>>>,
+    /// Kept between draws: albums and playlists come with their tracks, which are slow to copy.
+    rows: Option<Rows>,
     loaded_at: Option<Instant>,
     filter: Filter,
     selected: Selection,
@@ -450,6 +461,7 @@ pub struct HomePage {
 pub fn new() -> HomePage {
     HomePage {
         sections: Arc::new(RwLock::new(None)),
+        rows: None,
         loaded_at: None,
         filter: Filter::All,
         selected: Selection::Featured,
@@ -473,13 +485,13 @@ pub fn new_for_test(
         .collect();
     let mut page = new();
     page.loaded_at = Some(Instant::now());
-    *page.sections.write().unwrap() = Some(Sections {
+    *page.sections.write().unwrap() = Some(Arc::new(Sections {
         jump_back_in,
         top_artists: artists,
         recent,
         top_tracks: Vec::new(),
         failed: false,
-    });
+    }));
     page
 }
 
@@ -501,7 +513,7 @@ impl HomePage {
         let events = ctx.events.clone();
         thread::spawn(move || {
             let loaded = load(&spotify, &library);
-            *sections.write().unwrap() = Some(loaded);
+            *sections.write().unwrap() = Some(Arc::new(loaded));
             events.trigger();
         });
     }
@@ -541,14 +553,22 @@ impl HomePage {
             .and_then(|s| s.featured().cloned())
     }
 
-    /// The list's rows for the current filter.
-    fn rows(&self) -> Vec<HomeItem> {
-        self.sections
-            .read()
-            .unwrap()
-            .as_ref()
-            .map(|s| s.rows(self.filter, self.featured_shown()))
-            .unwrap_or_default()
+    /// The list's rows for the current filter: as drawn last, unless something changed since.
+    fn rows(&self) -> Arc<Vec<HomeItem>> {
+        let Some(sections) = self.sections.read().unwrap().clone() else {
+            return Arc::default();
+        };
+        let skip_featured = self.featured_shown();
+        match &self.rows {
+            Some(rows)
+                if Arc::ptr_eq(&rows.sections, &sections)
+                    && rows.filter == self.filter
+                    && rows.skip_featured == skip_featured =>
+            {
+                rows.rows.clone()
+            }
+            _ => Arc::new(sections.rows(self.filter, skip_featured)),
+        }
     }
 
     fn selected_item(&self) -> Option<HomeItem> {
@@ -792,9 +812,8 @@ impl HomePage {
                 x += thumb + 2;
             }
             let room = usize::from(area.right().saturating_sub(x + 1));
-            let playing = has_queue
-                && matches!(item, HomeItem::Song(_))
-                && item.as_listitem().is_playing(&ctx.queue);
+            let playing =
+                has_queue && matches!(item, HomeItem::Song(track) if track.is_playing(&ctx.queue));
             let title_style: Style = if playing {
                 styles.accent().bg(bg)
             } else {
@@ -899,7 +918,13 @@ impl Page for HomePage {
             y += 2;
         }
 
-        let rows = sections.rows(self.filter, self.featured_shown());
+        let rows = self.rows();
+        self.rows = Some(Rows {
+            sections: sections.clone(),
+            filter: self.filter,
+            skip_featured: self.featured_shown(),
+            rows: rows.clone(),
+        });
         if let Selection::Row(index) = self.selected {
             if rows.is_empty() && self.featured_shown() {
                 self.selected = Selection::Featured;
@@ -1138,9 +1163,12 @@ mod tests {
     #[test]
     fn failed_loads_say_so_instead_of_nothing_here() {
         let page = new();
-        *page.sections.write().unwrap() = Some(Sections::default());
+        *page.sections.write().unwrap() = Some(Arc::default());
         assert_eq!(page.empty_message(Filter::Songs), "No songs here yet");
-        page.sections.write().unwrap().as_mut().unwrap().failed = true;
+        *page.sections.write().unwrap() = Some(Arc::new(Sections {
+            failed: true,
+            ..Sections::default()
+        }));
         assert_eq!(page.empty_message(Filter::Songs), FAILED_MESSAGE);
         assert_eq!(page.empty_message(Filter::All), FAILED_MESSAGE);
     }
