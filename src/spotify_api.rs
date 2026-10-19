@@ -1,6 +1,6 @@
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Condvar, Mutex, RwLock};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::application::ASYNC_RUNTIME;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
@@ -63,6 +63,41 @@ pub fn rate_limit_remaining() -> Option<u64> {
     until.checked_sub(unix_now()).filter(|&s| s > 0)
 }
 
+/// Renew the Web API token when it expires within this many seconds.
+const RENEW_TOKEN_BEFORE_SECS: i64 = 5 * 60;
+
+/// Least time between background renewals of a token that's still valid: the cached token is
+/// handed back until it's about to expire (see [crate::authentication::get_rspotify_token]),
+/// and a failed renewal shouldn't be tried again by every request.
+const RENEW_TOKEN_INTERVAL: Duration = Duration::from_secs(10);
+
+/// Longest a request waits for the token to be renewed: briefly on the UI thread, so the
+/// interface doesn't freeze, longer in the background.
+fn token_renewal_wait() -> Duration {
+    if thread::current().name() == Some("main") {
+        Duration::from_secs(5)
+    } else {
+        Duration::from_secs(30)
+    }
+}
+
+/// Whether the token is being renewed, so that only one renewal runs at a time and requests
+/// can wait for it.
+#[derive(Default)]
+struct TokenRenewalState {
+    running: bool,
+    /// Renewals finished (successfully or not).
+    finished: u64,
+    last_started: Option<Instant>,
+}
+
+#[derive(Default)]
+struct TokenRenewal {
+    state: Mutex<TokenRenewalState>,
+    /// Notified when a renewal finishes.
+    done: Condvar,
+}
+
 /// Convenient wrapper around the rspotify web API functionality.
 #[derive(Clone)]
 pub struct WebApi {
@@ -74,6 +109,7 @@ pub struct WebApi {
     worker_channel: Arc<RwLock<Option<mpsc::UnboundedSender<WorkerCommand>>>>,
     /// Time at which the token expires.
     token_expiration: Arc<RwLock<DateTime<Utc>>>,
+    token_renewal: Arc<TokenRenewal>,
 }
 
 impl Default for WebApi {
@@ -92,6 +128,7 @@ impl Default for WebApi {
             user: None,
             worker_channel: Arc::new(RwLock::new(None)),
             token_expiration: Arc::new(RwLock::new(Utc::now())),
+            token_renewal: Default::default(),
         }
     }
 }
@@ -115,24 +152,74 @@ impl WebApi {
         self.worker_channel = channel;
     }
 
-    /// Update the authentication token when it expires.
+    /// Time left until the token expires.
+    fn token_time_left(&self) -> ChronoDuration {
+        *self.token_expiration.read().unwrap() - Utc::now()
+    }
+
+    /// Renew the authentication token if it expires within 5 minutes. The returned handle
+    /// finishes once it's renewed (or renewing failed), however long that takes: the first
+    /// token may need the user to log in in their browser.
     pub fn update_token(&self) -> Option<JoinHandle<()>> {
-        {
-            let token_expiration = self.token_expiration.read().unwrap();
-            let now = Utc::now();
-            let delta = *token_expiration - now;
-
-            // token is valid for 5 more minutes, renewal is not necessary yet
-            if delta.num_seconds() > 60 * 5 {
-                return None;
-            }
-
-            info!("Token will expire in {delta}, renewing");
+        let left = self.token_time_left();
+        if left.num_seconds() > RENEW_TOKEN_BEFORE_SECS {
+            return None;
         }
+        info!("Token will expire in {left}, renewing");
+        let renewal = self.start_token_renewal(false);
+        let api = self.clone();
+        Some(
+            ASYNC_RUNTIME
+                .get()
+                .unwrap()
+                .spawn_blocking(move || api.wait_for_token_renewal(renewal, None)),
+        )
+    }
+
+    /// Renew the token before a request if it expires soon. While it's still valid that happens
+    /// in the background; once it has (nearly) expired, the request waits for the new one.
+    /// Checking before every request keeps the token fresh without a timer: no requests, no
+    /// renewals needed.
+    fn renew_token_if_expiring(&self) {
+        // No token yet: the first one is fetched at startup (see update_token).
+        if self.api.token.lock().unwrap().is_none() {
+            return;
+        }
+        let left = self.token_time_left();
+        if left.num_seconds() > RENEW_TOKEN_BEFORE_SECS {
+            return;
+        }
+        let renewal = self.start_token_renewal(false);
+        // rspotify counts a token as expired 10 seconds early.
+        if left.num_seconds() <= 10 {
+            self.wait_for_token_renewal(renewal, Some(token_renewal_wait()));
+        }
+    }
+
+    /// Start renewing the token on a thread of its own, unless a renewal is running already, or
+    /// (unless `now`) one started in the last [RENEW_TOKEN_INTERVAL]. Returns the number of
+    /// finished renewals to wait for (see [Self::wait_for_token_renewal]).
+    fn start_token_renewal(&self, now: bool) -> u64 {
+        let mut state = self.token_renewal.state.lock().unwrap();
+        if state.running {
+            return state.finished + 1;
+        }
+        if !now
+            && state
+                .last_started
+                .is_some_and(|at| at.elapsed() < RENEW_TOKEN_INTERVAL)
+        {
+            return state.finished;
+        }
+        state.running = true;
+        state.last_started = Some(Instant::now());
+        let renewal = state.finished + 1;
+        drop(state);
 
         let api_token = self.api.token.clone();
         let api_token_expiration = self.token_expiration.clone();
-        Some(ASYNC_RUNTIME.get().unwrap().spawn_blocking(move || {
+        let shared = self.token_renewal.clone();
+        let renew = move || {
             match crate::authentication::get_rspotify_token() {
                 Ok(token) => {
                     let expires_at = token
@@ -145,14 +232,56 @@ impl WebApi {
                     error!("Failed to update token: {e}");
                 }
             }
-        }))
+            let mut state = shared.state.lock().unwrap();
+            state.running = false;
+            state.finished += 1;
+            shared.done.notify_all();
+        };
+        thread::Builder::new()
+            .name("token renewal".into())
+            .spawn(renew)
+            .expect("could not start a background thread");
+        renewal
     }
 
-    /// Execute `api_call` and retry once if a rate limit occurs.
+    /// Renewals of the token finished so far.
+    fn token_renewals_finished(&self) -> u64 {
+        self.token_renewal.state.lock().unwrap().finished
+    }
+
+    /// Wait until `renewal` renewals of the token have finished, but no longer than `timeout`
+    /// after the running one started, so a renewal that hangs (a login waiting for the browser)
+    /// holds up each request only once.
+    fn wait_for_token_renewal(&self, renewal: u64, timeout: Option<Duration>) {
+        let state = self.token_renewal.state.lock().unwrap();
+        let unfinished = |state: &mut TokenRenewalState| state.finished < renewal;
+        match timeout {
+            None => drop(self.token_renewal.done.wait_while(state, unfinished)),
+            Some(timeout) => {
+                let deadline = state
+                    .last_started
+                    .map_or_else(Instant::now, |at| at + timeout);
+                let left = deadline.saturating_duration_since(Instant::now());
+                let (state, _) = self
+                    .token_renewal
+                    .done
+                    .wait_timeout_while(state, left, unfinished)
+                    .unwrap();
+                if state.finished < renewal {
+                    warn!("token renewal is taking long, going on with the old token");
+                }
+            }
+        }
+    }
+
+    /// Execute `api_call`, retrying once if a rate limit occurs or the token was refused (after
+    /// renewing it).
     fn api_with_retry<F, R>(&self, api_call: F) -> Option<R>
     where
         F: Fn(&AuthCodeSpotify) -> ClientResult<R>,
     {
+        self.renew_token_if_expiring();
+        let renewals_before = self.token_renewals_finished();
         let result = { api_call(&self.api) };
         match result {
             Ok(v) => Some(v),
@@ -185,8 +314,16 @@ impl WebApi {
                         }
                         401 => {
                             debug!("token unauthorized. trying refresh..");
-                            self.update_token()
-                                .and_then(move |_| api_call(&self.api).ok())
+                            // Retried with the token renewed since this request was sent, by
+                            // this thread or another: one renewal for all requests refused.
+                            let finished = self.token_renewals_finished();
+                            let renewal = if finished > renewals_before {
+                                finished
+                            } else {
+                                self.start_token_renewal(true)
+                            };
+                            self.wait_for_token_renewal(renewal, Some(token_renewal_wait()));
+                            api_call(&self.api).ok()
                         }
                         _ => {
                             error!("unhandled api error: {response:?}");
@@ -909,5 +1046,58 @@ impl WebApi {
     /// Get details about the logged in user.
     pub fn current_user(&self) -> Result<PrivateUser, ()> {
         self.api_with_retry(|api| api.current_user()).ok_or(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Finish the running token renewal after `delay`, as its thread would.
+    fn finish_renewal(api: &WebApi, delay: Duration) -> thread::JoinHandle<()> {
+        let shared = api.token_renewal.clone();
+        thread::spawn(move || {
+            thread::sleep(delay);
+            let mut state = shared.state.lock().unwrap();
+            state.running = false;
+            state.finished += 1;
+            shared.done.notify_all();
+        })
+    }
+
+    fn pretend_renewing(api: &WebApi, started: Instant) {
+        let mut state = api.token_renewal.state.lock().unwrap();
+        state.running = true;
+        state.last_started = Some(started);
+    }
+
+    #[test]
+    fn requests_wait_for_the_running_token_renewal() {
+        let api = WebApi::new();
+        pretend_renewing(&api, Instant::now());
+        // Asking for another while one runs waits for that one instead of starting a second.
+        let renewal = api.start_token_renewal(true);
+        assert_eq!(renewal, 1);
+        let finisher = finish_renewal(&api, Duration::from_millis(50));
+        api.wait_for_token_renewal(renewal, Some(Duration::from_secs(10)));
+        assert_eq!(api.token_renewals_finished(), 1);
+        finisher.join().unwrap();
+    }
+
+    #[test]
+    fn a_hanging_token_renewal_holds_requests_up_only_once() {
+        let api = WebApi::new();
+        pretend_renewing(&api, Instant::now() - Duration::from_secs(60));
+        let waited = Instant::now();
+        api.wait_for_token_renewal(1, Some(Duration::from_secs(30)));
+        assert!(waited.elapsed() < Duration::from_secs(1));
+        assert_eq!(api.token_renewals_finished(), 0);
+    }
+
+    #[test]
+    fn no_renewal_without_a_first_token() {
+        let api = WebApi::new();
+        api.renew_token_if_expiring();
+        assert!(!api.token_renewal.state.lock().unwrap().running);
     }
 }

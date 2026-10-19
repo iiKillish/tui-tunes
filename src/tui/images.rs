@@ -24,7 +24,7 @@ use std::io::Write;
 use std::num::NonZeroU16;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Mutex, OnceLock, RwLock};
 
 use log::{debug, error};
 use ratatui::buffer::{Buffer, CellDiffOption};
@@ -140,14 +140,66 @@ pub fn request_image(source: Source, area: Rect, y_shift: u16) {
     }
 }
 
-/// Show the cover at `url` filling `area` in the frame being drawn.
+/// Show the cover at `url` filling `area` in the frame being drawn. A smaller size of it is
+/// shown when that's big enough (see [smaller_image]), unless that one couldn't be downloaded.
 pub fn cover(url: &str, area: Rect) {
-    request_image(Source::Url(url.to_string()), area, 0);
+    if !supported() || area.is_empty() {
+        return;
+    }
+    let font = font_size();
+    let pixels = (area.width * font.width).max(area.height * font.height);
+    let url = smaller_image(url, u32::from(pixels))
+        .filter(|smaller| !downloads().failed.contains_key(smaller))
+        .unwrap_or_else(|| url.to_string());
+    request_image(Source::Url(url), area, 0);
+}
+
+/// Codes that Spotify's image IDs start with for each size of an image (the rest of the ID is
+/// the same for every size), largest first: for covers, artist pictures and podcast covers.
+/// The models keep the largest, which a thumbnail in a list doesn't need: downloading and
+/// scaling it costs ten times as much as the smallest.
+const IMAGE_SIZE_CODES: &[&[(u32, &str)]] = &[
+    &[
+        (640, "ab67616d0000b273"),
+        (300, "ab67616d00001e02"),
+        (64, "ab67616d00004851"),
+    ],
+    &[
+        (640, "ab6761610000e5eb"),
+        (320, "ab67616100005174"),
+        (160, "ab6761610000f178"),
+    ],
+    &[
+        (640, "ab6765630000ba8a"),
+        (300, "ab67656300005f1f"),
+        (64, "ab6765630000f68d"),
+    ],
+];
+
+/// The URL of the smallest size of Spotify's image at `url` that is still at least `pixels`
+/// across, if that's smaller than the one at `url`.
+fn smaller_image(url: &str, pixels: u32) -> Option<String> {
+    let (base, id) = url.rsplit_once('/')?;
+    if base != "https://i.scdn.co/image" {
+        return None;
+    }
+    let sizes = IMAGE_SIZE_CODES
+        .iter()
+        .find(|sizes| sizes.iter().any(|(_, code)| id.starts_with(code)))?;
+    let current = sizes.iter().position(|(_, code)| id.starts_with(code))?;
+    let fitting = sizes[current..]
+        .iter()
+        .rposition(|&(size, _)| size >= pixels)?
+        + current;
+    (fitting != current).then(|| {
+        let rest = &id[sizes[current].1.len()..];
+        format!("{base}/{}{rest}", sizes[fitting].1)
+    })
 }
 
 /// Put the last frame's Kitty images on the terminal, except ones overlapping `overlays` (menus
 /// and dialogs drawn over the page: images are always drawn over text). Call after ratatui has
-/// drawn. Covers still downloading are retried on the next call.
+/// drawn. Covers still downloading or being scaled are left out until a later call.
 pub fn render(overlays: &[Rect]) {
     #[cfg(not(feature = "cover"))]
     let _ = overlays;
@@ -201,11 +253,18 @@ fn draw_cells(
             shown.height,
         );
         if !layer.encoded.contains_key(&key) {
-            let Some(pixels) = load(&request.source, Size::new(width as u16, height as u16)) else {
-                continue;
-            };
+            // Kept, like Kitty's, so showing another part of it (a menu opened over it) doesn't
+            // wait for it to be scaled again.
+            let pixels_key = (request.source.clone(), width, height);
+            if !layer.cache.contains_key(&pixels_key) {
+                let Some(pixels) = load(&request.source, Size::new(width as u16, height as u16))
+                else {
+                    continue;
+                };
+                layer.cache.insert(pixels_key.clone(), pixels);
+            }
             let pixels = image::imageops::crop_imm(
-                &pixels,
+                &layer.cache[&pixels_key],
                 u32::from((shown.x - area.x) * font.width),
                 u32::from((shown.y - area.y) * font.height),
                 u32::from(shown.width * font.width),
@@ -230,6 +289,9 @@ fn draw_cells(
     }
     if layer.encoded.len() > 400 {
         layer.encoded.clear();
+    }
+    if layer.cache.len() > 400 {
+        layer.cache.clear();
     }
 }
 
@@ -442,33 +504,78 @@ fn grow(rect: Rect) -> Rect {
     )
 }
 
-/// The pixels for `source` at `size`, or `None` while a cover is still downloading.
+/// The pixels for `source` at `size`, or `None` while a cover is still downloading or being
+/// scaled (see [scaled_cover]).
 #[cfg(feature = "cover")]
 fn load(source: &Source, size: Size) -> Option<image::RgbaImage> {
     let (width, height) = (u32::from(size.width.max(1)), u32::from(size.height.max(1)));
     match source {
-        Source::Url(url) => {
-            let path = cached_cover_path(url)?;
-            let image = image::ImageReader::open(&path)
-                .and_then(|r| r.with_guessed_format())
-                .map_err(|e| e.to_string())
-                .and_then(|r| r.decode().map_err(|e| e.to_string()));
-            match image {
-                // Fill the area, cropping rather than letterboxing.
-                Ok(image) => Some(
-                    image
-                        .resize_to_fill(width, height, image::imageops::FilterType::Triangle)
-                        .to_rgba8(),
-                ),
-                Err(e) => {
-                    error!("Failed to load cover {}: {e}", path.display());
-                    None
-                }
-            }
-        }
+        Source::Url(url) => scaled_cover(url, width, height),
         #[cfg(feature = "cover")]
         Source::Icon(icon, color) => Some(icons::render(*icon, width, height, *color)),
     }
+}
+
+/// Threads that decode and scale covers, away from the UI thread: a large cover takes long
+/// enough to stall the frame drawing it.
+#[cfg(feature = "cover")]
+fn scaling_pool() -> &'static crossbeam_channel::Sender<Job> {
+    static POOL: OnceLock<crossbeam_channel::Sender<Job>> = OnceLock::new();
+    POOL.get_or_init(|| start_pool("cover scaling", 2))
+}
+
+/// The cover at `url` scaled to `width` by `height` pixels, or `None` until it's been
+/// downloaded and scaled in the background, which asks for a redraw once done. Each scaled
+/// cover is handed out once: callers keep it (see [Layer::cache]).
+#[cfg(feature = "cover")]
+fn scaled_cover(url: &str, width: u32, height: u32) -> Option<image::RgbaImage> {
+    type Scaled = HashMap<(String, u32, u32), Option<image::RgbaImage>>;
+    /// Covers being scaled (`None`), and scaled ones not yet handed out.
+    static SCALED: OnceLock<Mutex<Scaled>> = OnceLock::new();
+    let scaled = || SCALED.get_or_init(Default::default).lock().unwrap();
+
+    let key = (url.to_string(), width, height);
+    {
+        let mut scaled = scaled();
+        match scaled.get(&key) {
+            Some(None) => return None,
+            Some(Some(_)) => return scaled.remove(&key).flatten(),
+            None => {}
+        }
+    }
+    let path = cached_cover_path(url)?;
+    {
+        let mut scaled = scaled();
+        // Ones scaled but no longer drawn (scrolled away) would otherwise be kept forever.
+        if scaled.len() > 400 {
+            scaled.retain(|_, pixels| pixels.is_none());
+        }
+        scaled.insert(key.clone(), None);
+    }
+    let url = url.to_string();
+    let job = move || {
+        let image = image::ImageReader::open(&path)
+            .and_then(|r| r.with_guessed_format())
+            .map_err(|e| e.to_string())
+            .and_then(|r| r.decode().map_err(|e| e.to_string()));
+        match image {
+            // Fill the area, cropping rather than letterboxing.
+            Ok(image) => {
+                let pixels = image
+                    .resize_to_fill(width, height, image::imageops::FilterType::Triangle)
+                    .to_rgba8();
+                scaled().insert(key, Some(pixels));
+            }
+            Err(e) => {
+                error!("Failed to load cover {}: {e}", path.display());
+                scaled().remove(&key);
+                forget_cover(&url, &path);
+            }
+        }
+        crate::tui::request_redraw();
+    };
+    let _ = scaling_pool().send(Box::new(job));
+    None
 }
 
 /// Whether the terminal can show images; see [protocol].
@@ -584,32 +691,104 @@ pub fn square_width(rows: u16) -> u16 {
     (rows * font.height).div_ceil(font.width.max(1))
 }
 
+type Job = Box<dyn FnOnce() + Send>;
+
+/// Start `threads` threads called `name` that run the jobs sent to the returned channel, any
+/// thread taking the next job, so at most `threads` run at once.
+fn start_pool(name: &str, threads: usize) -> crossbeam_channel::Sender<Job> {
+    let (tx, rx) = crossbeam_channel::unbounded::<Job>();
+    for _ in 0..threads {
+        let rx = rx.clone();
+        std::thread::Builder::new()
+            .name(name.into())
+            .spawn(move || rx.into_iter().for_each(|job| job()))
+            .expect("could not start a background thread");
+    }
+    tx
+}
+
+/// Covers downloaded at once: a page of thumbnails would otherwise start dozens of connections.
+const DOWNLOAD_THREADS: usize = 4;
+
+/// How long a cover that couldn't be downloaded (or read) is left before it's tried again, so
+/// being offline doesn't start a download for every cover on every frame.
+const RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Covers being downloaded (or waiting to be), and when ones that failed last were tried.
+#[derive(Default)]
+struct Downloads {
+    pending: HashSet<String>,
+    /// Kept until a download succeeds, also while it's tried again.
+    failed: HashMap<String, std::time::Instant>,
+}
+
+impl Downloads {
+    /// Whether to start downloading `url` (not on disk) now: not if it's already on its way, or
+    /// failed less than [RETRY_AFTER] ago. Counts it as pending if so.
+    fn start(&mut self, url: &str, now: std::time::Instant) -> bool {
+        if self.pending.contains(url)
+            || self
+                .failed
+                .get(url)
+                .is_some_and(|&at| now.duration_since(at) < RETRY_AFTER)
+        {
+            return false;
+        }
+        self.pending.insert(url.to_string())
+    }
+
+    /// `url` is done downloading, or failed (`ok` false) at `now`.
+    fn finish(&mut self, url: &str, ok: bool, now: std::time::Instant) {
+        self.pending.remove(url);
+        if ok {
+            self.failed.remove(url);
+        } else {
+            self.failed.insert(url.to_string(), now);
+        }
+    }
+}
+
+fn downloads() -> std::sync::MutexGuard<'static, Downloads> {
+    static DOWNLOADS: OnceLock<Mutex<Downloads>> = OnceLock::new();
+    DOWNLOADS.get_or_init(Default::default).lock().unwrap()
+}
+
 /// Local path of the cover image at `url`, or `None` while it's still being downloaded (a
 /// download is started in the background the first time). Each cover is downloaded once.
 pub fn cached_cover_path(url: &str) -> Option<PathBuf> {
-    static LOADING: OnceLock<Arc<RwLock<HashSet<String>>>> = OnceLock::new();
-    let loading = LOADING.get_or_init(Default::default).clone();
+    static POOL: OnceLock<crossbeam_channel::Sender<Job>> = OnceLock::new();
 
     let path = crate::utils::cache_path_for_url(url.to_string());
-    let mut in_progress = loading.write().unwrap();
-    if in_progress.contains(url) {
-        return None;
-    }
+    // Files only appear there once complete (see utils::download).
     if path.exists() {
         return Some(path);
     }
-    in_progress.insert(url.to_string());
-    drop(in_progress);
-
+    if !downloads().start(url, std::time::Instant::now()) {
+        return None;
+    }
     let url = url.to_string();
-    std::thread::spawn(move || {
-        if let Err(e) = crate::utils::download(url.clone(), path) {
-            error!("Failed to download cover: {e}");
+    let job = move || {
+        let result = crate::utils::download(url.clone(), path);
+        if let Err(e) = &result {
+            error!("Failed to download cover {url}: {e}");
         }
-        loading.write().unwrap().remove(&url);
+        downloads().finish(&url, result.is_ok(), std::time::Instant::now());
         crate::tui::request_redraw();
-    });
+    };
+    let pool = POOL.get_or_init(|| start_pool("cover download", DOWNLOAD_THREADS));
+    let _ = pool.send(Box::new(job));
     None
+}
+
+/// The cached cover for `url`, at `path`, couldn't be read: delete it so it's downloaded again,
+/// after [RETRY_AFTER] so a server sending something unreadable isn't asked again every frame.
+fn forget_cover(url: &str, path: &std::path::Path) {
+    let _ = std::fs::remove_file(path);
+    let mut downloads = downloads();
+    downloads.pending.remove(url);
+    downloads
+        .failed
+        .insert(url.to_string(), std::time::Instant::now());
 }
 
 /// The main color of the cover at `url` (its average, skipping near-black and near-white pixels),
@@ -630,7 +809,7 @@ pub fn cover_tint(url: &str) -> Option<[u8; 3]> {
     let path = cached_cover_path(url)?;
     tints.write().unwrap().insert(url.to_string(), None);
     let url = url.to_string();
-    std::thread::spawn(move || {
+    let job = move || {
         let tint = image::open(&path).ok().map(|image| {
             let small = image.thumbnail(32, 32).to_rgb8();
             average_color(small.pixels().map(|p| p.0))
@@ -642,7 +821,8 @@ pub fn cover_tint(url: &str) -> Option<[u8; 3]> {
             .unwrap()
             .insert(url, tint.flatten());
         crate::tui::request_redraw();
-    });
+    };
+    let _ = scaling_pool().send(Box::new(job));
     None
 }
 
@@ -846,6 +1026,52 @@ mod tests {
             sequence,
             "\x1b7\x1b[2;3H   \x1b[3;3H   \x1b[2;3HIMAGE\x1b8\x1b[1C"
         );
+    }
+
+    #[test]
+    fn test_smaller_image() {
+        let cover = "https://i.scdn.co/image/ab67616d0000b273c0ffee";
+        assert_eq!(
+            smaller_image(cover, 40).as_deref(),
+            Some("https://i.scdn.co/image/ab67616d00004851c0ffee")
+        );
+        assert_eq!(
+            smaller_image(cover, 140).as_deref(),
+            Some("https://i.scdn.co/image/ab67616d00001e02c0ffee")
+        );
+        assert_eq!(smaller_image(cover, 500), None);
+        assert_eq!(
+            smaller_image("https://i.scdn.co/image/ab6761610000e5ebc0ffee", 140).as_deref(),
+            Some("https://i.scdn.co/image/ab6761610000f178c0ffee")
+        );
+        // Already small, or not one of Spotify's.
+        assert_eq!(
+            smaller_image("https://i.scdn.co/image/ab67616d00004851c0ffee", 40),
+            None
+        );
+        assert_eq!(
+            smaller_image("https://example.com/image/ab67616d0000b273", 40),
+            None
+        );
+        assert_eq!(
+            smaller_image("https://i.scdn.co/image/ab67706c0000da84", 40),
+            None
+        );
+    }
+
+    #[test]
+    fn test_downloads_wait_before_retrying() {
+        let mut downloads = Downloads::default();
+        let start = std::time::Instant::now();
+        assert!(downloads.start("a", start));
+        // Already on its way.
+        assert!(!downloads.start("a", start));
+        downloads.finish("a", false, start);
+        // Failed: left alone for a while, then tried again.
+        assert!(!downloads.start("a", start + RETRY_AFTER / 2));
+        assert!(downloads.start("a", start + RETRY_AFTER));
+        downloads.finish("a", true, start + RETRY_AFTER);
+        assert!(downloads.start("a", start + RETRY_AFTER));
     }
 
     #[test]

@@ -24,6 +24,38 @@ const RETRY_AFTER: Duration = Duration::from_secs(60);
 /// Largest difference between a search result's length and the track's for it to count as the
 /// same recording.
 const MAX_DURATION_DIFFERENCE_SECS: f64 = 5.0;
+/// Largest response read. Lyrics are a few kilobytes, a search's results some hundreds.
+const MAX_RESPONSE_BYTES: u64 = 5 * 1024 * 1024;
+
+/// The HTTP client for LRCLIB, shared so its connection is reused from song to song.
+fn client() -> Result<&'static reqwest::blocking::Client, String> {
+    static CLIENT: std::sync::OnceLock<reqwest::blocking::Client> = std::sync::OnceLock::new();
+    if let Some(client) = CLIENT.get() {
+        return Ok(client);
+    }
+    let client = reqwest::blocking::Client::builder()
+        .user_agent(USER_AGENT)
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|e| e.to_string())?;
+    Ok(CLIENT.get_or_init(|| client))
+}
+
+/// Parse the JSON `body`, failing instead of reading more than `max` bytes of it.
+fn read_json<T: serde::de::DeserializeOwned>(
+    body: impl std::io::Read,
+    max: u64,
+) -> Result<T, String> {
+    use std::io::Read;
+    let mut bytes = Vec::new();
+    body.take(max + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > max {
+        return Err("response too large".into());
+    }
+    serde_json::from_slice(&bytes).map_err(|e| e.to_string())
+}
 
 /// One line of synced lyrics: when it starts (milliseconds into the song) and its text. Empty
 /// text marks an instrumental break.
@@ -135,11 +167,7 @@ impl Record {
 /// Look up `track`: first an exact match on title, artist, album and length, then a search by
 /// title and artist (picking the closest length, preferring synced lyrics).
 fn fetch(track: &Track) -> Result<Lyrics, String> {
-    let client = reqwest::blocking::Client::builder()
-        .user_agent(USER_AGENT)
-        .timeout(Duration::from_secs(15))
-        .build()
-        .map_err(|e| e.to_string())?;
+    let client = client()?;
     let artist = track
         .artists
         .first()
@@ -159,7 +187,7 @@ fn fetch(track: &Track) -> Result<Lyrics, String> {
         url::Url::parse_with_params(&format!("{API}/get"), &params).map_err(|e| e.to_string())?;
     let response = client.get(url).send().map_err(|e| e.to_string())?;
     if response.status().is_success() {
-        let record: Record = response.json().map_err(|e| e.to_string())?;
+        let record: Record = read_json(response, MAX_RESPONSE_BYTES)?;
         return Ok(record.into_lyrics());
     }
     if response.status() != reqwest::StatusCode::NOT_FOUND {
@@ -174,12 +202,12 @@ fn fetch(track: &Track) -> Result<Lyrics, String> {
         ],
     )
     .map_err(|e| e.to_string())?;
-    let records: Vec<Record> = client
+    let response = client
         .get(url)
         .send()
         .and_then(|r| r.error_for_status())
-        .and_then(|r| r.json())
         .map_err(|e| e.to_string())?;
+    let records: Vec<Record> = read_json(response, MAX_RESPONSE_BYTES)?;
     let best = records
         .into_iter()
         .filter_map(|r| {
@@ -239,6 +267,13 @@ fn parse_timestamp(tag: &str) -> Option<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn responses_are_read_up_to_a_limit() {
+        let body = br#"[1, 2, 3]"#;
+        assert_eq!(read_json::<Vec<u8>>(&body[..], 9), Ok(vec![1, 2, 3]));
+        assert!(read_json::<Vec<u8>>(&body[..], 8).is_err());
+    }
 
     fn line(time: u32, text: &str) -> SyncedLine {
         SyncedLine {

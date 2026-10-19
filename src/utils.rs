@@ -98,14 +98,67 @@ pub fn cache_path_for_url(url: String) -> std::path::PathBuf {
     path
 }
 
+/// Largest download accepted. Spotify's covers are well under 1 MB; this keeps a broken or
+/// hostile server from filling the disk.
+const MAX_DOWNLOAD_BYTES: u64 = 20 * 1024 * 1024;
+
+/// HTTP client for downloads, shared so connections (and TLS sessions) are reused. With
+/// timeouts, so a stalled server doesn't hold a download thread forever.
+fn http_client() -> &'static reqwest::blocking::Client {
+    static CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+    CLIENT.get_or_init(|| {
+        reqwest::blocking::Client::builder()
+            .connect_timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
+            .build()
+            .unwrap_or_default()
+    })
+}
+
+/// Download `url` to `path`. Fails on an HTTP error status or a body over 20 MB, and never
+/// leaves a partial file at `path`.
 pub fn download(url: String, path: std::path::PathBuf) -> Result<(), std::io::Error> {
-    let mut resp = reqwest::blocking::get(url).map_err(std::io::Error::other)?;
+    let resp = http_client()
+        .get(url)
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .map_err(std::io::Error::other)?;
+    if resp
+        .content_length()
+        .is_some_and(|len| len > MAX_DOWNLOAD_BYTES)
+    {
+        return Err(std::io::Error::other("download too large"));
+    }
+    save_limited(resp, &path, MAX_DOWNLOAD_BYTES)
+}
 
+/// Write what `reader` gives to `path`, failing if it's over `max` bytes. It's written to a
+/// temporary file next to `path` and renamed into place once complete, so readers never see a
+/// truncated file, even when the connection drops or two downloads of it overlap.
+fn save_limited(
+    reader: impl std::io::Read,
+    path: &std::path::Path,
+    max: u64,
+) -> Result<(), std::io::Error> {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     std::fs::create_dir_all(path.parent().unwrap())?;
-    let mut file = std::fs::File::create(path)?;
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut part = path.as_os_str().to_owned();
+    part.push(format!(".{}-{n}.part", std::process::id()));
+    let part = PathBuf::from(part);
 
-    std::io::copy(&mut resp, &mut file)?;
-    Ok(())
+    let saved = (|| {
+        let mut file = std::fs::File::create(&part)?;
+        let copied = std::io::copy(&mut reader.take(max + 1), &mut file)?;
+        if copied > max {
+            return Err(std::io::Error::other("download too large"));
+        }
+        std::fs::rename(&part, path)
+    })();
+    if saved.is_err() {
+        let _ = std::fs::remove_file(&part);
+    }
+    saved
 }
 
 /// Create the application specific runtime directory and return the path to it.
@@ -218,8 +271,22 @@ fn xdg_runtime_directory() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_duration, redact_proxy_password, search_text};
+    use super::{parse_duration, redact_proxy_password, save_limited, search_text};
     use std::time::Duration;
+
+    #[test]
+    fn saves_whole_files_only() {
+        let dir = std::env::temp_dir().join(format!("ttunes-save-test-{}", std::process::id()));
+        let path = dir.join("cover");
+        save_limited(&b"pixels"[..], &path, 6).unwrap();
+        assert_eq!(std::fs::read(&path).unwrap(), b"pixels");
+
+        // Too big: an error, the old file is kept, and nothing else is left behind.
+        assert!(save_limited(&b"more pixels"[..], &path, 6).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), b"pixels");
+        assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 
     #[test]
     fn durations_combine_numbers_and_units() {
