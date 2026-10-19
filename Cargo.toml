@@ -51,6 +51,7 @@ debug = "line-tables-only"
 [profile.release]
 lto = "thin"
 codegen-units = 1
+strip = true
 
 [profile.optimized]
 inherits = "release"
@@ -77,7 +78,9 @@ log = "0.4.32"
 platform-dirs = "0.3.0"
 rand = "0.10"
 rodio = {version = "0.21", default-features = false, features = ["playback"], optional = true}
-reqwest = {version = "0.13", features = ["blocking", "json", "socks"]}
+# native-tls like the other dependencies: reqwest's default, rustls, builds aws-lc-rs (C code,
+# slow to compile) just for this.
+reqwest = {version = "0.13", default-features = false, features = ["blocking", "charset", "http2", "json", "native-tls", "socks", "system-proxy"]}
 serde = "1.0"
 serde_cbor = "0.11.2"
 serde_json = "1.0"
