@@ -140,9 +140,61 @@ pub fn request_image(source: Source, area: Rect, y_shift: u16) {
     }
 }
 
-/// Show the cover at `url` filling `area` in the frame being drawn.
+/// Show the cover at `url` filling `area` in the frame being drawn. A smaller size of it is
+/// shown when that's big enough (see [smaller_image]), unless that one couldn't be downloaded.
 pub fn cover(url: &str, area: Rect) {
-    request_image(Source::Url(url.to_string()), area, 0);
+    if !supported() || area.is_empty() {
+        return;
+    }
+    let font = font_size();
+    let pixels = (area.width * font.width).max(area.height * font.height);
+    let url = smaller_image(url, u32::from(pixels))
+        .filter(|smaller| !downloads().failed.contains_key(smaller))
+        .unwrap_or_else(|| url.to_string());
+    request_image(Source::Url(url), area, 0);
+}
+
+/// Codes that Spotify's image IDs start with for each size of an image (the rest of the ID is
+/// the same for every size), largest first: for covers, artist pictures and podcast covers.
+/// The models keep the largest, which a thumbnail in a list doesn't need: downloading and
+/// scaling it costs ten times as much as the smallest.
+const IMAGE_SIZE_CODES: &[&[(u32, &str)]] = &[
+    &[
+        (640, "ab67616d0000b273"),
+        (300, "ab67616d00001e02"),
+        (64, "ab67616d00004851"),
+    ],
+    &[
+        (640, "ab6761610000e5eb"),
+        (320, "ab67616100005174"),
+        (160, "ab6761610000f178"),
+    ],
+    &[
+        (640, "ab6765630000ba8a"),
+        (300, "ab67656300005f1f"),
+        (64, "ab6765630000f68d"),
+    ],
+];
+
+/// The URL of the smallest size of Spotify's image at `url` that is still at least `pixels`
+/// across, if that's smaller than the one at `url`.
+fn smaller_image(url: &str, pixels: u32) -> Option<String> {
+    let (base, id) = url.rsplit_once('/')?;
+    if base != "https://i.scdn.co/image" {
+        return None;
+    }
+    let sizes = IMAGE_SIZE_CODES
+        .iter()
+        .find(|sizes| sizes.iter().any(|(_, code)| id.starts_with(code)))?;
+    let current = sizes.iter().position(|(_, code)| id.starts_with(code))?;
+    let fitting = sizes[current..]
+        .iter()
+        .rposition(|&(size, _)| size >= pixels)?
+        + current;
+    (fitting != current).then(|| {
+        let rest = &id[sizes[current].1.len()..];
+        format!("{base}/{}{rest}", sizes[fitting].1)
+    })
 }
 
 /// Put the last frame's Kitty images on the terminal, except ones overlapping `overlays` (menus
@@ -666,6 +718,7 @@ const RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
 #[derive(Default)]
 struct Downloads {
     pending: HashSet<String>,
+    /// Kept until a download succeeds, also while it's tried again.
     failed: HashMap<String, std::time::Instant>,
 }
 
@@ -681,14 +734,15 @@ impl Downloads {
         {
             return false;
         }
-        self.failed.remove(url);
         self.pending.insert(url.to_string())
     }
 
     /// `url` is done downloading, or failed (`ok` false) at `now`.
     fn finish(&mut self, url: &str, ok: bool, now: std::time::Instant) {
         self.pending.remove(url);
-        if !ok {
+        if ok {
+            self.failed.remove(url);
+        } else {
             self.failed.insert(url.to_string(), now);
         }
     }
@@ -971,6 +1025,37 @@ mod tests {
         assert_eq!(
             sequence,
             "\x1b7\x1b[2;3H   \x1b[3;3H   \x1b[2;3HIMAGE\x1b8\x1b[1C"
+        );
+    }
+
+    #[test]
+    fn test_smaller_image() {
+        let cover = "https://i.scdn.co/image/ab67616d0000b273c0ffee";
+        assert_eq!(
+            smaller_image(cover, 40).as_deref(),
+            Some("https://i.scdn.co/image/ab67616d00004851c0ffee")
+        );
+        assert_eq!(
+            smaller_image(cover, 140).as_deref(),
+            Some("https://i.scdn.co/image/ab67616d00001e02c0ffee")
+        );
+        assert_eq!(smaller_image(cover, 500), None);
+        assert_eq!(
+            smaller_image("https://i.scdn.co/image/ab6761610000e5ebc0ffee", 140).as_deref(),
+            Some("https://i.scdn.co/image/ab6761610000f178c0ffee")
+        );
+        // Already small, or not one of Spotify's.
+        assert_eq!(
+            smaller_image("https://i.scdn.co/image/ab67616d00004851c0ffee", 40),
+            None
+        );
+        assert_eq!(
+            smaller_image("https://example.com/image/ab67616d0000b273", 40),
+            None
+        );
+        assert_eq!(
+            smaller_image("https://i.scdn.co/image/ab67706c0000da84", 40),
+            None
         );
     }
 
