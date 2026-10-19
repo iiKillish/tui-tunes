@@ -1,0 +1,8 @@
+# cargo-deny settings; CI runs only `cargo deny check advisories`.
+[advisories]
+# A crate going unmaintained deep in the tree is the job of the crate that uses it, so only
+# fail for crates ttunes depends on directly. Vulnerabilities and unsoundness always fail.
+unmaintained = "workspace"
+ignore = [
+    { id = "RUSTSEC-2021-0127", reason = "serde_cbor is unmaintained but has no known vulnerabilities; it only reads and writes the state file ttunes itself saves" },
+]
