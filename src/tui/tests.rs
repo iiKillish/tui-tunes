@@ -972,3 +972,14 @@ fn test_go_to_album_opens_without_waiting_for_spotify() {
     let text = screen_text(&terminal);
     assert!(text.contains("An Album Title"), "no header:\n{text}");
 }
+
+#[test]
+fn test_idle_app_waits_for_events() {
+    use std::time::Duration;
+    let mut app = full_app();
+    // Nothing playing or counting down: no need to draw again for a good while.
+    assert!(app.redraw_after() >= Duration::from_secs(10));
+    // A message is drawn again when it's due to go.
+    app.set_message(Ok("Hello".into()));
+    assert!(app.redraw_after() <= Duration::from_secs(5));
+}
