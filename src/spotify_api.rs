@@ -478,15 +478,18 @@ impl WebApi {
             .ok_or(())
     }
 
-    /// Fetch the tracks with these `spotify:track:` URIs, leaving out ones that can't be found.
-    /// One request each: Spotify removed the endpoint for several at once.
-    pub fn tracks_by_uri(&self, uris: &[String]) -> Vec<FullTrack> {
-        uris.iter()
-            .filter_map(|uri| TrackId::from_uri(uri).ok())
-            .filter_map(|id| {
-                self.api_with_retry(|api| api.track(id.clone(), Some(Market::FromToken)))
-            })
-            .collect()
+    /// The tracks with these `spotify:track:` URIs, leaving out ones that can't be found, loaded
+    /// through the session (see [crate::spotify_worker::session_tracks]) rather than one Web API
+    /// request each.
+    pub fn session_tracks_by_uri(&self, uris: &[String]) -> Vec<Track> {
+        let uris = uris
+            .iter()
+            .filter_map(|uri| librespot_core::SpotifyUri::from_uri(uri).ok())
+            .filter(|uri| matches!(uri, librespot_core::SpotifyUri::Track { .. }))
+            .collect();
+        self.ask_worker(|reply| WorkerCommand::SessionTracks(uris, reply))
+            .map(|tracks| tracks.iter().map(Track::from).collect())
+            .unwrap_or_default()
     }
 
     /// Fetch the show with the given `show_id`.
