@@ -147,7 +147,7 @@ pub fn cover(url: &str, area: Rect) {
 
 /// Put the last frame's Kitty images on the terminal, except ones overlapping `overlays` (menus
 /// and dialogs drawn over the page: images are always drawn over text). Call after ratatui has
-/// drawn. Covers still downloading are retried on the next call.
+/// drawn. Covers still downloading or being scaled are left out until a later call.
 pub fn render(overlays: &[Rect]) {
     #[cfg(not(feature = "cover"))]
     let _ = overlays;
@@ -201,11 +201,18 @@ fn draw_cells(
             shown.height,
         );
         if !layer.encoded.contains_key(&key) {
-            let Some(pixels) = load(&request.source, Size::new(width as u16, height as u16)) else {
-                continue;
-            };
+            // Kept, like Kitty's, so showing another part of it (a menu opened over it) doesn't
+            // wait for it to be scaled again.
+            let pixels_key = (request.source.clone(), width, height);
+            if !layer.cache.contains_key(&pixels_key) {
+                let Some(pixels) = load(&request.source, Size::new(width as u16, height as u16))
+                else {
+                    continue;
+                };
+                layer.cache.insert(pixels_key.clone(), pixels);
+            }
             let pixels = image::imageops::crop_imm(
-                &pixels,
+                &layer.cache[&pixels_key],
                 u32::from((shown.x - area.x) * font.width),
                 u32::from((shown.y - area.y) * font.height),
                 u32::from(shown.width * font.width),
@@ -230,6 +237,9 @@ fn draw_cells(
     }
     if layer.encoded.len() > 400 {
         layer.encoded.clear();
+    }
+    if layer.cache.len() > 400 {
+        layer.cache.clear();
     }
 }
 
@@ -442,34 +452,78 @@ fn grow(rect: Rect) -> Rect {
     )
 }
 
-/// The pixels for `source` at `size`, or `None` while a cover is still downloading.
+/// The pixels for `source` at `size`, or `None` while a cover is still downloading or being
+/// scaled (see [scaled_cover]).
 #[cfg(feature = "cover")]
 fn load(source: &Source, size: Size) -> Option<image::RgbaImage> {
     let (width, height) = (u32::from(size.width.max(1)), u32::from(size.height.max(1)));
     match source {
-        Source::Url(url) => {
-            let path = cached_cover_path(url)?;
-            let image = image::ImageReader::open(&path)
-                .and_then(|r| r.with_guessed_format())
-                .map_err(|e| e.to_string())
-                .and_then(|r| r.decode().map_err(|e| e.to_string()));
-            match image {
-                // Fill the area, cropping rather than letterboxing.
-                Ok(image) => Some(
-                    image
-                        .resize_to_fill(width, height, image::imageops::FilterType::Triangle)
-                        .to_rgba8(),
-                ),
-                Err(e) => {
-                    error!("Failed to load cover {}: {e}", path.display());
-                    forget_cover(url, &path);
-                    None
-                }
-            }
-        }
+        Source::Url(url) => scaled_cover(url, width, height),
         #[cfg(feature = "cover")]
         Source::Icon(icon, color) => Some(icons::render(*icon, width, height, *color)),
     }
+}
+
+/// Threads that decode and scale covers, away from the UI thread: a large cover takes long
+/// enough to stall the frame drawing it.
+#[cfg(feature = "cover")]
+fn scaling_pool() -> &'static crossbeam_channel::Sender<Job> {
+    static POOL: OnceLock<crossbeam_channel::Sender<Job>> = OnceLock::new();
+    POOL.get_or_init(|| start_pool("cover scaling", 2))
+}
+
+/// The cover at `url` scaled to `width` by `height` pixels, or `None` until it's been
+/// downloaded and scaled in the background, which asks for a redraw once done. Each scaled
+/// cover is handed out once: callers keep it (see [Layer::cache]).
+#[cfg(feature = "cover")]
+fn scaled_cover(url: &str, width: u32, height: u32) -> Option<image::RgbaImage> {
+    type Scaled = HashMap<(String, u32, u32), Option<image::RgbaImage>>;
+    /// Covers being scaled (`None`), and scaled ones not yet handed out.
+    static SCALED: OnceLock<Mutex<Scaled>> = OnceLock::new();
+    let scaled = || SCALED.get_or_init(Default::default).lock().unwrap();
+
+    let key = (url.to_string(), width, height);
+    {
+        let mut scaled = scaled();
+        match scaled.get(&key) {
+            Some(None) => return None,
+            Some(Some(_)) => return scaled.remove(&key).flatten(),
+            None => {}
+        }
+    }
+    let path = cached_cover_path(url)?;
+    {
+        let mut scaled = scaled();
+        // Ones scaled but no longer drawn (scrolled away) would otherwise be kept forever.
+        if scaled.len() > 400 {
+            scaled.retain(|_, pixels| pixels.is_none());
+        }
+        scaled.insert(key.clone(), None);
+    }
+    let url = url.to_string();
+    let job = move || {
+        let image = image::ImageReader::open(&path)
+            .and_then(|r| r.with_guessed_format())
+            .map_err(|e| e.to_string())
+            .and_then(|r| r.decode().map_err(|e| e.to_string()));
+        match image {
+            // Fill the area, cropping rather than letterboxing.
+            Ok(image) => {
+                let pixels = image
+                    .resize_to_fill(width, height, image::imageops::FilterType::Triangle)
+                    .to_rgba8();
+                scaled().insert(key, Some(pixels));
+            }
+            Err(e) => {
+                error!("Failed to load cover {}: {e}", path.display());
+                scaled().remove(&key);
+                forget_cover(&url, &path);
+            }
+        }
+        crate::tui::request_redraw();
+    };
+    let _ = scaling_pool().send(Box::new(job));
+    None
 }
 
 /// Whether the terminal can show images; see [protocol].
@@ -701,7 +755,7 @@ pub fn cover_tint(url: &str) -> Option<[u8; 3]> {
     let path = cached_cover_path(url)?;
     tints.write().unwrap().insert(url.to_string(), None);
     let url = url.to_string();
-    std::thread::spawn(move || {
+    let job = move || {
         let tint = image::open(&path).ok().map(|image| {
             let small = image.thumbnail(32, 32).to_rgb8();
             average_color(small.pixels().map(|p| p.0))
@@ -713,7 +767,8 @@ pub fn cover_tint(url: &str) -> Option<[u8; 3]> {
             .unwrap()
             .insert(url, tint.flatten());
         crate::tui::request_redraw();
-    });
+    };
+    let _ = scaling_pool().send(Box::new(job));
     None
 }
 
