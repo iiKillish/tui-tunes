@@ -9,8 +9,8 @@ use rspotify::http::HttpError;
 use rspotify::model::{
     AlbumId, ArtistId, CursorBasedPage, EpisodeId, FullAlbum, FullArtist, FullEpisode,
     FullPlaylist, FullShow, FullTrack, ItemPositions, LibraryId, Market, Page, PlayableId,
-    PlaylistId, PlaylistResult, PrivateUser, SavedAlbum, SavedTrack, SearchResult, SearchType,
-    Show, ShowId, SimplifiedTrack, TimeRange, TrackId, Type, UserId,
+    PlaylistId, PlaylistResult, PrivateUser, SavedAlbum, SavedTrack, SearchMultipleResult,
+    SearchResult, SearchType, Show, ShowId, SimplifiedTrack, TimeRange, TrackId, Type, UserId,
 };
 use rspotify::{AuthCodeSpotify, ClientError, ClientResult, Config, prelude::*};
 use tokio::sync::mpsc;
@@ -520,6 +520,27 @@ impl WebApi {
                 None,
                 Some(limit),
                 Some(offset),
+            )
+        })
+        .ok_or(())
+    }
+
+    /// Search for several kinds of item at once: one request, with the first `limit` results of
+    /// each kind.
+    pub fn search_multiple(
+        &self,
+        searchtypes: &[SearchType],
+        query: &str,
+        limit: u32,
+    ) -> Result<SearchMultipleResult, ()> {
+        self.api_with_retry(|api| {
+            api.search_multiple(
+                query,
+                searchtypes.iter().copied(),
+                Some(Market::FromToken),
+                None,
+                Some(limit),
+                Some(0),
             )
         })
         .ok_or(())
