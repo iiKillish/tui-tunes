@@ -222,7 +222,8 @@ impl App {
     pub fn redraw_after(&self) -> Duration {
         const PLAYING: Duration = Duration::from_millis(250);
         const COUNTDOWN: Duration = Duration::from_secs(1);
-        const IDLE: Duration = Duration::from_secs(30);
+        // Often enough that Home's retry after Spotify didn't answer (30s) isn't much late.
+        const IDLE: Duration = Duration::from_secs(10);
         let ctx = &self.ctx;
         if matches!(
             ctx.spotify.get_current_status(),
