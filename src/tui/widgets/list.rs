@@ -340,22 +340,23 @@ impl<I: ListItem + Clone> ItemList<I> {
     /// Play from the selected item: for lists of tracks, the whole list from there (so the rest
     /// follows in the queue); otherwise the item itself (an album, a playlist…).
     fn play(&self, ctx: &Ctx) {
-        let content = self.content.read().unwrap();
-        let any = &*content as &dyn std::any::Any;
-        let tracks: Option<Vec<Playable>> =
+        let tracks: Option<Vec<Playable>> = {
+            let content = self.content.read().unwrap();
+            let any = &*content as &dyn std::any::Any;
             any.downcast_ref::<Vec<Playable>>().cloned().or_else(|| {
                 any.downcast_ref::<Vec<Track>>()
                     .map(|t| t.iter().cloned().map(Playable::Track).collect())
-            });
-        ctx.queue.clear();
+            })
+        };
         match tracks {
             Some(tracks) => {
+                ctx.queue.clear();
                 let index = ctx.queue.append_next_from(&tracks, self.source.as_deref());
                 ctx.queue.play(index + self.selected, true, false);
             }
             None => {
-                if let Some(item) = content.get(self.selected) {
-                    item.clone().play(&ctx.queue);
+                if let Some(item) = self.selected_item() {
+                    nav::play_item(item.as_listitem(), ctx);
                 }
             }
         }

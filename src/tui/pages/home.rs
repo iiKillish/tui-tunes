@@ -605,8 +605,8 @@ impl HomePage {
     /// Play the item: an album, playlist or artist by itself, a song with the songs after it in
     /// the list following in the queue.
     fn play(&self, item: &HomeItem, ctx: &Ctx) {
-        ctx.queue.clear();
         if let (HomeItem::Song(_), Selection::Row(index)) = (item, self.selected) {
+            ctx.queue.clear();
             let rows = self.rows();
             let tracks: Vec<Playable> = rows
                 .iter()
@@ -622,7 +622,7 @@ impl HomePage {
             let first = ctx.queue.append_next_from(&tracks, Some("Home"));
             ctx.queue.play(first + song_index, true, false);
         } else {
-            item.as_listitem().play(&ctx.queue);
+            nav::play_item(item.as_listitem(), ctx);
         }
     }
 

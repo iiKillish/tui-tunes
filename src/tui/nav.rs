@@ -12,11 +12,13 @@ use crate::tui::overlays::prompt::Prompt;
 use crate::tui::page::{Ctx, Outcome, Overlay, Page};
 use crate::tui::pages;
 
-/// Queue `item`, after the current track if `next`. On a thread of its own, one at a time in
-/// order: an album's or playlist's tracks may have to be loaded first, which mustn't freeze the
-/// interface.
+/// Where [queue_item] and [play_item] change the queue: one at a time, in order, on a thread of its
+/// own, since an album's or playlist's tracks may have to be loaded first, which mustn't freeze
+/// the interface.
+static QUEUEING: crate::utils::InOrder = crate::utils::InOrder::new("queueing");
+
+/// Queue `item`, after the current track if `next` (see [QUEUEING]).
 pub fn queue_item(mut item: Box<dyn ListItem>, next: bool, ctx: &Ctx) {
-    static QUEUEING: crate::utils::InOrder = crate::utils::InOrder::new("queueing");
     let queue = ctx.queue.clone();
     QUEUEING.run(move || {
         if next {
@@ -24,6 +26,17 @@ pub fn queue_item(mut item: Box<dyn ListItem>, next: bool, ctx: &Ctx) {
         } else {
             item.queue(&queue);
         }
+        crate::tui::request_redraw();
+    });
+}
+
+/// Replace the queue with `item` (an album, a playlist, an artist's top tracks…) and play it
+/// (see [QUEUEING]).
+pub fn play_item(mut item: Box<dyn ListItem>, ctx: &Ctx) {
+    let queue = ctx.queue.clone();
+    QUEUEING.run(move || {
+        queue.clear();
+        item.play(&queue);
         crate::tui::request_redraw();
     });
 }
