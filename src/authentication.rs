@@ -144,7 +144,14 @@ pub fn create_credentials() -> Result<RespotCredentials, String> {
         .map_err(|e| e.to_string())
 }
 
-pub fn get_rspotify_token() -> Result<rspotify::Token, String> {
+/// Renew the Web API token when it expires within this many seconds.
+pub const RENEW_TOKEN_BEFORE_SECS: i64 = 5 * 60;
+
+/// The Web API token: the saved one while it has more than [RENEW_TOKEN_BEFORE_SECS] left
+/// (unless `renew`, e.g. because Spotify refused it), else a refreshed one. If refreshing fails
+/// the saved one is kept while it's still valid; only without a usable token does the user have
+/// to log in again in their browser.
+pub fn get_rspotify_token(renew: bool) -> Result<rspotify::Token, String> {
     let path = rspotify_token_path();
     let token = if let Ok(token_json) = fs::read_to_string(&path) {
         serde_json::from_str::<rspotify::Token>(&token_json).ok()
@@ -153,16 +160,19 @@ pub fn get_rspotify_token() -> Result<rspotify::Token, String> {
     };
 
     if let Some(t) = token {
-        if !t.is_expired() {
+        let expiring = t
+            .expires_at
+            .is_none_or(|at| (at - chrono::Utc::now()).num_seconds() <= RENEW_TOKEN_BEFORE_SECS);
+        if !renew && !expiring {
             return Ok(t);
         }
 
-        // Token is expired, try to refresh if we have a refresh token. Spotify's refresh
-        // responses may omit the refresh token, in which case it must be reused, so an
-        // empty/missing value here means we don't actually have a usable refresh token.
+        // Spotify's refresh responses may omit the refresh token, in which case it must be
+        // reused, so an empty/missing value here means we don't actually have a usable refresh
+        // token.
         let refresh_token = t.refresh_token.as_deref().filter(|s| !s.is_empty());
         if let Some(refresh_token) = refresh_token {
-            info!("Access token expired, attempting to refresh..");
+            info!("Access token expiring or refused, attempting to refresh..");
             let client_builder = OAuthClientBuilder::new(
                 web_api_client_id(),
                 WEB_API_REDIRECT_URI,
@@ -180,6 +190,9 @@ pub fn get_rspotify_token() -> Result<rspotify::Token, String> {
                     }
                 }
             }
+        }
+        if !t.is_expired() {
+            return Ok(t);
         }
     }
 

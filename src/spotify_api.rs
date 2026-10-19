@@ -3,6 +3,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::application::ASYNC_RUNTIME;
+use crate::authentication::RENEW_TOKEN_BEFORE_SECS;
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use log::{debug, error, info, warn};
 use rspotify::http::HttpError;
@@ -115,12 +116,8 @@ pub fn rate_limit_remaining() -> Option<u64> {
     until.checked_sub(unix_now()).filter(|&s| s > 0)
 }
 
-/// Renew the Web API token when it expires within this many seconds.
-const RENEW_TOKEN_BEFORE_SECS: i64 = 5 * 60;
-
-/// Least time between background renewals of a token that's still valid: the cached token is
-/// handed back until it's about to expire (see [crate::authentication::get_rspotify_token]),
-/// and a failed renewal shouldn't be tried again by every request.
+/// Least time between background renewals of a token that's still valid: a failed renewal
+/// shouldn't be tried again by every request.
 const RENEW_TOKEN_INTERVAL: Duration = Duration::from_secs(10);
 
 /// Longest a request waits for the token to be renewed: briefly on the UI thread, so the
@@ -249,8 +246,9 @@ impl WebApi {
     }
 
     /// Start renewing the token on a thread of its own, unless a renewal is running already, or
-    /// (unless `now`) one started in the last [RENEW_TOKEN_INTERVAL]. Returns the number of
-    /// finished renewals to wait for (see [Self::wait_for_token_renewal]).
+    /// (unless `now`) one started in the last [RENEW_TOKEN_INTERVAL]. `now` also refreshes a token
+    /// that's still valid, for when Spotify refused it. Returns the number of finished renewals
+    /// to wait for (see [Self::wait_for_token_renewal]).
     fn start_token_renewal(&self, now: bool) -> u64 {
         let mut state = self.token_renewal.state.lock().unwrap();
         if state.running {
@@ -272,7 +270,7 @@ impl WebApi {
         let api_token_expiration = self.token_expiration.clone();
         let shared = self.token_renewal.clone();
         let renew = move || {
-            match crate::authentication::get_rspotify_token() {
+            match crate::authentication::get_rspotify_token(now) {
                 Ok(token) => {
                     let expires_at = token
                         .expires_at

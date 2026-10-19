@@ -122,7 +122,7 @@ impl Application {
         tui::images::configure(configuration.values().image_protocol.as_deref());
         let palette = configuration.build_theme();
 
-        if let Err(e) = authentication::get_rspotify_token() {
+        if let Err(e) = authentication::get_rspotify_token(false) {
             error!("Failed to get rspotify token: {e}");
         }
 
