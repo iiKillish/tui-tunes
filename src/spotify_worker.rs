@@ -47,6 +47,8 @@ pub(crate) enum WorkerCommand {
     SessionTopTracks(SpotifyUri, oneshot::Sender<Vec<SpotifyUri>>),
     /// Load tracks through the session; see [session_tracks].
     SessionTracks(Vec<SpotifyUri>, oneshot::Sender<Vec<Track>>),
+    /// Load artists' pictures through the session; see [session_artist_pictures].
+    SessionArtistPictures(Vec<SpotifyUri>, oneshot::Sender<Vec<Option<String>>>),
     Shutdown,
 }
 
@@ -107,6 +109,26 @@ async fn session_tracks(session: &Session, uris: Vec<SpotifyUri>) -> Vec<Track> 
         tracks.len()
     );
     tracks
+}
+
+/// The URLs of the pictures of the artists at `uris`, in order, loaded through the session ten at
+/// a time: `None` where there's no picture or the artist couldn't be loaded. Undocumented, so it
+/// may stop working.
+async fn session_artist_pictures(session: &Session, uris: Vec<SpotifyUri>) -> Vec<Option<String>> {
+    let loading = futures::StreamExt::map(futures::stream::iter(uris), |uri| async move {
+        let artist = Artist::get(session, &uri)
+            .await
+            .inspect_err(|e| warn!("Couldn't load {uri:?} through the session: {e}"))
+            .ok()?;
+        artist
+            .portraits
+            .iter()
+            .chain(artist.portrait_group.iter())
+            .max_by_key(|image| image.width)
+            .and_then(|image| image.id.to_base16().ok())
+            .map(|hex| format!("https://i.scdn.co/image/{hex}"))
+    });
+    futures::StreamExt::collect(futures::StreamExt::buffered(loading, 10)).await
 }
 
 pub struct Worker {
@@ -296,6 +318,12 @@ impl Worker {
                         let session = self.session.clone();
                         tokio::spawn(async move {
                             let _ = reply.send(session_tracks(&session, uris).await);
+                        });
+                    }
+                    Some(WorkerCommand::SessionArtistPictures(uris, reply)) => {
+                        let session = self.session.clone();
+                        tokio::spawn(async move {
+                            let _ = reply.send(session_artist_pictures(&session, uris).await);
                         });
                     }
                     Some(WorkerCommand::Shutdown) => {

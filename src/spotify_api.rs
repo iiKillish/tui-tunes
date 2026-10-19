@@ -814,6 +814,23 @@ impl WebApi {
         Some(tracks.iter().map(Track::from).collect())
     }
 
+    /// The URLs of the pictures of the artists with these `ids`, in order, loaded through the
+    /// session (see [crate::spotify_worker::session_artist_pictures]): `None` where there's no
+    /// picture or the artist couldn't be loaded.
+    pub fn session_artist_pictures(&self, ids: &[String]) -> Vec<Option<String>> {
+        let uris: Vec<_> = ids
+            .iter()
+            .filter_map(|id| {
+                librespot_core::SpotifyUri::from_uri(&format!("spotify:artist:{id}")).ok()
+            })
+            .collect();
+        if uris.len() != ids.len() {
+            return vec![None; ids.len()];
+        }
+        self.ask_worker(|reply| WorkerCommand::SessionArtistPictures(uris, reply))
+            .unwrap_or_else(|| vec![None; ids.len()])
+    }
+
     /// Get artists related to the artist with the given `id`.
     pub fn artist_related_artists(&self, id: &str) -> Result<Vec<Artist>, ()> {
         #[allow(deprecated)]
