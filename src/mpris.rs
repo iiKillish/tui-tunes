@@ -353,10 +353,10 @@ impl MprisPlayer {
     fn seek(&self, offset: i64) {
         if let Some(current_track) = self.queue.get_current() {
             let progress = self.spotify.get_current_progress();
-            let new_position = (progress.as_secs() * 1000) as i32
-                + progress.subsec_millis() as i32
-                + (offset / 1000) as i32;
-            let new_position = new_position.max(0) as u32;
+            // The offset comes from any D-Bus client, so it can be anything.
+            let progress = i64::try_from(progress.as_millis()).unwrap_or(i64::MAX);
+            let new_position = progress.saturating_add(offset / 1000);
+            let new_position = new_position.clamp(0, u32::MAX.into()) as u32;
             let duration = current_track.duration();
 
             if new_position < duration {
@@ -369,7 +369,8 @@ impl MprisPlayer {
 
     fn set_position(&self, _track: ObjectPath, position: i64) {
         if let Some(current_track) = self.queue.get_current() {
-            let position = (position / 1000) as u32;
+            // Negative or huge positions are out of the track, rather than wrapped into it.
+            let position = u32::try_from(position / 1000).unwrap_or(u32::MAX);
             let duration = current_track.duration();
 
             if position < duration {

@@ -227,7 +227,13 @@ fn parse_timestamp(tag: &str) -> Option<u32> {
     let (minutes, seconds) = tag.split_once(':')?;
     let minutes: u32 = minutes.trim().parse().ok()?;
     let seconds: f64 = seconds.trim().parse().ok()?;
-    (seconds >= 0.0).then(|| minutes * 60_000 + (seconds * 1000.0).round() as u32)
+    let millis = (seconds * 1000.0).round();
+    // The text comes from LRCLIB, so a time too large for a u32 (or NaN or infinity, which
+    // parse as numbers too) makes the tag invalid rather than overflowing.
+    if seconds < 0.0 || !(0.0..=f64::from(u32::MAX)).contains(&millis) {
+        return None;
+    }
+    minutes.checked_mul(60_000)?.checked_add(millis as u32)
 }
 
 #[cfg(test)]
@@ -239,6 +245,28 @@ mod tests {
             time,
             text: text.to_string(),
         }
+    }
+
+    #[test]
+    fn test_parse_timestamp() {
+        assert_eq!(parse_timestamp("01:02.345"), Some(62345));
+        assert_eq!(parse_timestamp("71582:00"), Some(4_294_920_000));
+        assert_eq!(parse_timestamp("00:-1"), None);
+        assert_eq!(parse_timestamp("00:NaN"), None);
+        assert_eq!(parse_timestamp("00:inf"), None);
+    }
+
+    #[test]
+    fn test_parse_timestamp_overflow_is_invalid() {
+        // Each of these overflowed a u32 (panicking in debug builds).
+        assert_eq!(parse_timestamp("71583:00"), None);
+        assert_eq!(parse_timestamp("71582:47.296"), None);
+        assert_eq!(parse_timestamp("4294967295:00"), None);
+        assert_eq!(parse_timestamp("00:99999999999"), None);
+        assert_eq!(
+            parse_lrc("[71583:00]Too late\n[00:01]Fine"),
+            vec![line(1000, "Fine")]
+        );
     }
 
     #[test]
