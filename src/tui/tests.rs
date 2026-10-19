@@ -221,6 +221,8 @@ fn full_app() -> App {
     ctx.library.albums.write().unwrap().push(album());
     ctx.library.playlists.write().unwrap().push(playlist());
     ctx.library.artists.write().unwrap().push(artist());
+    ctx.library.index_tracks();
+    ctx.library.index_playlists();
     *ctx.library.is_done.write().unwrap() = true;
     for track in tracks(25) {
         ctx.queue.append(Playable::Track(track));
@@ -940,4 +942,17 @@ fn test_key_list_scrolls_back_to_its_titles() {
         terminal.draw(|frame| app.draw(frame)).unwrap();
     }
     assert!(screen_text(&terminal).contains("Library tabs"));
+}
+
+#[test]
+fn test_saved_checks_dont_lock_the_library_lists() {
+    // Liked Songs draws while holding the library's tracks, and asks the library whether each one
+    // is saved: that mustn't need the tracks (or a change waiting for them would block both).
+    let app = full_app();
+    let library = &app.ctx.library;
+    let _tracks = library.tracks.write().unwrap();
+    let _playlists = library.playlists.write().unwrap();
+    assert!(library.is_saved_track_id(Some("test1")));
+    assert!(!library.is_saved_track_id(Some("unknown")));
+    assert!(library.is_saved_playlist(&playlist()));
 }

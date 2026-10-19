@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::iter::Iterator;
 use std::path::Path;
@@ -48,6 +48,9 @@ pub struct Library {
     /// Tracks being saved (true) or removed (false) by [Self::toggle_saved_track_in_background],
     /// shown in their new state until Spotify has been told.
     pending_saves: Arc<RwLock<HashMap<String, bool>>>,
+    /// IDs of [Self::tracks] and [Self::playlists], kept up to date with them by
+    /// [Self::index_tracks] and [Self::index_playlists].
+    saved_ids: Arc<RwLock<SavedIds>>,
     ev: EventManager,
     spotify: Spotify,
     pub cfg: Arc<Config>,
@@ -67,6 +70,7 @@ impl Library {
             user_id: None,
             display_name: None,
             pending_saves: Arc::default(),
+            saved_ids: Arc::default(),
             ev,
             spotify,
             cfg,
@@ -88,6 +92,7 @@ impl Library {
             user_id,
             display_name,
             pending_saves: Arc::default(),
+            saved_ids: Arc::default(),
             ev,
             spotify,
             cfg,
@@ -163,7 +168,10 @@ impl Library {
             }
         }
         store.push(updated);
-        store.len() - 1
+        let index = store.len() - 1;
+        drop(store);
+        self.index_playlists();
+        index
     }
 
     /// Delete the playlist with the given `id` if it exists.
@@ -183,6 +191,7 @@ impl Library {
             && self.spotify.api.delete_playlist(id).is_ok()
         {
             self.playlists.write().unwrap().remove(position);
+            self.index_playlists();
             self.save_cache(
                 &config::cache_path(CACHE_PLAYLISTS),
                 &self.playlists.read().unwrap(),
@@ -225,6 +234,7 @@ impl Library {
                         &config::cache_path(CACHE_TRACKS),
                         library.tracks.write().unwrap().as_mut(),
                     );
+                    library.index_tracks();
                     if library.fetch_tracks(force) {
                         library.save_cache(
                             &config::cache_path(CACHE_TRACKS),
@@ -268,6 +278,7 @@ impl Library {
                         &config::cache_path(CACHE_PLAYLISTS),
                         library.playlists.write().unwrap().as_mut(),
                     );
+                    library.index_playlists();
                     library.fetch_playlists();
                     library.save_cache(
                         &config::cache_path(CACHE_PLAYLISTS),
@@ -382,6 +393,7 @@ impl Library {
                 self.playlists.write().unwrap().remove(index);
             }
         }
+        self.index_playlists();
 
         // sort by remote order
         self.playlists.write().unwrap().sort_by(|a, b| {
@@ -529,6 +541,7 @@ impl Library {
         }
 
         *self.tracks.write().unwrap() = tracks;
+        self.index_tracks();
         true
     }
 
@@ -652,8 +665,33 @@ impl Library {
             return saved;
         }
 
-        let tracks = self.tracks.read().unwrap();
-        tracks.iter().any(|t| t.id.as_deref() == id)
+        // Not `self.tracks`: Liked Songs holds it while drawing, and taking it again would wait
+        // behind any change to it that's waiting for that.
+        id.is_some_and(|id| self.saved_ids.read().unwrap().tracks.contains(id))
+    }
+
+    /// Bring the IDs [Self::is_saved_track] looks up in line with [Self::tracks].
+    pub(crate) fn index_tracks(&self) {
+        let ids = self
+            .tracks
+            .read()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t.id.clone())
+            .collect();
+        self.saved_ids.write().unwrap().tracks = ids;
+    }
+
+    /// Bring the IDs [Self::is_saved_playlist] looks up in line with [Self::playlists].
+    pub(crate) fn index_playlists(&self) {
+        let ids = self
+            .playlists
+            .read()
+            .unwrap()
+            .iter()
+            .map(|p| p.id.clone())
+            .collect();
+        self.saved_ids.write().unwrap().playlists = ids;
     }
 
     /// Save `track` if it isn't saved, else remove it, without waiting for Spotify: the new state
@@ -709,6 +747,7 @@ impl Library {
                 i += 1;
             }
         }
+        self.index_tracks();
 
         self.populate_artists();
 
@@ -747,6 +786,7 @@ impl Library {
                 .cloned()
                 .collect();
         }
+        self.index_tracks();
 
         self.populate_artists();
 
@@ -909,8 +949,11 @@ impl Library {
             return false;
         }
 
-        let playlists = self.playlists.read().unwrap();
-        playlists.iter().any(|p| p.id == playlist.id)
+        self.saved_ids
+            .read()
+            .unwrap()
+            .playlists
+            .contains(&playlist.id)
     }
 
     /// Check whether `playlist` is in the library but not created by the library's owner.
@@ -941,6 +984,7 @@ impl Library {
                 store.insert(0, playlist);
             }
         }
+        self.index_playlists();
 
         self.save_cache(
             &config::cache_path(CACHE_PLAYLISTS),
@@ -978,6 +1022,13 @@ impl Library {
     pub fn trigger_redraw(&self) {
         self.ev.trigger();
     }
+}
+
+/// See [Library::saved_ids].
+#[derive(Default)]
+struct SavedIds {
+    tracks: HashSet<String>,
+    playlists: HashSet<String>,
 }
 
 /// New saves are listed first, so any change shows in the first page or the total.
