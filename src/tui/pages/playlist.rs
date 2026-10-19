@@ -54,6 +54,8 @@ impl PlaylistPage {
         };
         self.playlist.tracks = Some(tracks);
         self.sort_as_saved(ctx);
+        // The header, with the number of songs, was drawn before they arrived.
+        crate::tui::request_redraw();
     }
 
     /// Sort the tracks in the order saved for this playlist with `sort`, if any, and show them.

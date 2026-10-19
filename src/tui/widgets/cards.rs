@@ -721,7 +721,7 @@ impl Page for CardGrid {
                     return Outcome::Consumed;
                 };
                 return match mode {
-                    GotoMode::Album => match item.album(&ctx.queue) {
+                    GotoMode::Album => match item.album() {
                         Some(album) => {
                             Outcome::Open(nav::open_target(OpenTarget::Album(album), ctx))
                         }

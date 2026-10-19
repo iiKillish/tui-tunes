@@ -970,7 +970,7 @@ impl Page for HomePage {
                 };
                 let item = item.as_listitem();
                 return match mode {
-                    GotoMode::Album => match item.album(&ctx.queue) {
+                    GotoMode::Album => match item.album() {
                         Some(album) => {
                             Outcome::Open(nav::open_target(OpenTarget::Album(album), ctx))
                         }

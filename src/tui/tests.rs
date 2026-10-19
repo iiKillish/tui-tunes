@@ -956,3 +956,19 @@ fn test_saved_checks_dont_lock_the_library_lists() {
     assert!(!library.is_saved_track_id(Some("unknown")));
     assert!(library.is_saved_playlist(&playlist()));
 }
+
+#[test]
+fn test_go_to_album_opens_without_waiting_for_spotify() {
+    let mut app = full_app();
+    let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
+    let mut song = track(1);
+    song.album_id = Some("album1".into());
+    let album = crate::traits::ListItem::album(&song).expect("the song's album");
+    assert_eq!(album.title, "An Album Title");
+    assert!(album.tracks.is_none());
+    let ctx = app.ctx.clone();
+    app.open_page(Box::new(pages::album::AlbumPage::new(album, &ctx)));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let text = screen_text(&terminal);
+    assert!(text.contains("An Album Title"), "no header:\n{text}");
+}

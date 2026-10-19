@@ -455,7 +455,7 @@ impl<I: ListItem + Clone> ItemList<I> {
                     return Outcome::Consumed;
                 };
                 return match mode {
-                    GotoMode::Album => match item.album(&ctx.queue) {
+                    GotoMode::Album => match item.album() {
                         Some(album) => Outcome::Open(nav::open_target(
                             crate::traits::OpenTarget::Album(album),
                             ctx,

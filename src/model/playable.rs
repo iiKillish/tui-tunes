@@ -235,8 +235,8 @@ impl ListItem for Playable {
         self.inner().share_url()
     }
 
-    fn album(&self, queue: &Queue) -> Option<Album> {
-        self.inner().album(queue)
+    fn album(&self) -> Option<Album> {
+        self.inner().album()
     }
 
     fn artists(&self) -> Option<Vec<Artist>> {

@@ -45,14 +45,50 @@ impl Album {
         }
     }
 
+    /// An album known only from one of its tracks; [Self::load_all_tracks] fills in the rest.
+    pub fn stub(
+        id: String,
+        title: String,
+        artists: Vec<String>,
+        cover_url: Option<String>,
+    ) -> Self {
+        Self {
+            url: Some(format!("https://open.spotify.com/album/{id}")),
+            id: Some(id),
+            title,
+            artists,
+            artist_ids: Vec::new(),
+            year: String::new(),
+            cover_url,
+            tracks: None,
+            added_at: None,
+            total_tracks: None,
+        }
+    }
+
+    /// Whether all the album's tracks are here, so [Self::load_all_tracks] has nothing to do.
+    pub fn has_all_tracks(&self) -> bool {
+        self.tracks.is_some() && self.tracks.as_ref().map(|t| t.len()) == self.total_tracks
+    }
+
+    /// Load the album's tracks from Spotify, and its details if it's a [Self::stub].
     pub fn load_all_tracks(&mut self, spotify: Spotify) {
-        if self.tracks.is_some() && self.tracks.as_ref().map(|t| t.len()) == self.total_tracks {
+        if self.has_all_tracks() {
             return;
         }
 
-        if let Some(ref album_id) = self.id {
+        if let Some(album_id) = self.id.clone() {
+            let album_id = &album_id;
             let mut collected_tracks = Vec::new();
             if let Ok(full_album) = spotify.api.album(album_id) {
+                if self.year.is_empty() {
+                    let full = Self::from(&full_album);
+                    self.title = full.title;
+                    self.artists = full.artists;
+                    self.artist_ids = full.artist_ids;
+                    self.year = full.year;
+                    self.cover_url = self.cover_url.take().or(full.cover_url);
+                }
                 let mut tracks_result = Some(full_album.tracks.clone());
                 while let Some(ref tracks) = tracks_result {
                     for t in &tracks.items {

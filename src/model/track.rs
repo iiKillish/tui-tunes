@@ -268,13 +268,14 @@ impl ListItem for Track {
             .map(|id| format!("https://open.spotify.com/track/{id}"))
     }
 
-    fn album(&self, queue: &Queue) -> Option<Album> {
-        let spotify = queue.get_spotify();
-
-        match self.album_id {
-            Some(ref album_id) => spotify.api.album(album_id).map(|ref fa| fa.into()).ok(),
-            None => None,
-        }
+    fn album(&self) -> Option<Album> {
+        let id = self.album_id.clone().filter(|id| !id.is_empty())?;
+        Some(Album::stub(
+            id,
+            self.album.clone().unwrap_or_default(),
+            self.album_artists.clone(),
+            self.cover_url.clone(),
+        ))
     }
 
     fn artists(&self) -> Option<Vec<Artist>> {
