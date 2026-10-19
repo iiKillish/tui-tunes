@@ -643,6 +643,13 @@ impl App {
         if let Some(error) = crate::tui::take_background_error() {
             self.set_message(Err(error));
         }
+        if let Some(item) = crate::tui::take_background_open() {
+            let outcome = match item.target() {
+                Some(target) => Outcome::Open(crate::tui::nav::open_target(target, &self.ctx)),
+                None => Outcome::Overlay(crate::tui::nav::context_menu(item, &self.ctx)),
+            };
+            self.apply(outcome, false);
+        }
         hints::clear();
         images::begin_frame();
         let ctx = self.ctx.clone();
