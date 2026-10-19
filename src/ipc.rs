@@ -13,6 +13,9 @@ use crate::events::{Event, EventManager};
 use crate::model::playable::Playable;
 use crate::spotify::PlayerEvent;
 
+/// The longest command line, in bytes, read from an IPC client.
+const MAX_LINE_LENGTH: usize = 64 * 1024;
+
 pub struct IpcSocket {
     tx: Sender<Status>,
     path: PathBuf,
@@ -95,7 +98,9 @@ impl IpcSocket {
         mut rx: WatchStream<Status>,
     ) -> Result<(), String> {
         let (reader, writer) = stream.split();
-        let mut framed_reader = FramedRead::new(reader, LinesCodec::new());
+        // Bounded, so a client that never sends a newline can't use up memory.
+        let mut framed_reader =
+            FramedRead::new(reader, LinesCodec::new_with_max_length(MAX_LINE_LENGTH));
         let mut framed_writer = FramedWrite::new(writer, LinesCodec::new());
 
         loop {

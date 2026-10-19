@@ -292,6 +292,10 @@ impl Application {
             Event::IpcInput(input) => match command::parse(&input) {
                 Ok(commands) => {
                     for cmd in commands {
+                        if !cmd.allowed_over_ipc() {
+                            error!("Refusing command from IPC: {cmd}");
+                            continue;
+                        }
                         info!("Executing command from IPC: {cmd}");
                         app.run(&cmd);
                     }
