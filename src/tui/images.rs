@@ -24,7 +24,7 @@ use std::io::Write;
 use std::num::NonZeroU16;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Mutex, OnceLock, RwLock};
 
 use log::{debug, error};
 use ratatui::buffer::{Buffer, CellDiffOption};
@@ -462,6 +462,7 @@ fn load(source: &Source, size: Size) -> Option<image::RgbaImage> {
                 ),
                 Err(e) => {
                     error!("Failed to load cover {}: {e}", path.display());
+                    forget_cover(url, &path);
                     None
                 }
             }
@@ -584,32 +585,102 @@ pub fn square_width(rows: u16) -> u16 {
     (rows * font.height).div_ceil(font.width.max(1))
 }
 
+type Job = Box<dyn FnOnce() + Send>;
+
+/// Start `threads` threads called `name` that run the jobs sent to the returned channel, any
+/// thread taking the next job, so at most `threads` run at once.
+fn start_pool(name: &str, threads: usize) -> crossbeam_channel::Sender<Job> {
+    let (tx, rx) = crossbeam_channel::unbounded::<Job>();
+    for _ in 0..threads {
+        let rx = rx.clone();
+        std::thread::Builder::new()
+            .name(name.into())
+            .spawn(move || rx.into_iter().for_each(|job| job()))
+            .expect("could not start a background thread");
+    }
+    tx
+}
+
+/// Covers downloaded at once: a page of thumbnails would otherwise start dozens of connections.
+const DOWNLOAD_THREADS: usize = 4;
+
+/// How long a cover that couldn't be downloaded (or read) is left before it's tried again, so
+/// being offline doesn't start a download for every cover on every frame.
+const RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Covers being downloaded (or waiting to be), and when ones that failed last were tried.
+#[derive(Default)]
+struct Downloads {
+    pending: HashSet<String>,
+    failed: HashMap<String, std::time::Instant>,
+}
+
+impl Downloads {
+    /// Whether to start downloading `url` (not on disk) now: not if it's already on its way, or
+    /// failed less than [RETRY_AFTER] ago. Counts it as pending if so.
+    fn start(&mut self, url: &str, now: std::time::Instant) -> bool {
+        if self.pending.contains(url)
+            || self
+                .failed
+                .get(url)
+                .is_some_and(|&at| now.duration_since(at) < RETRY_AFTER)
+        {
+            return false;
+        }
+        self.failed.remove(url);
+        self.pending.insert(url.to_string())
+    }
+
+    /// `url` is done downloading, or failed (`ok` false) at `now`.
+    fn finish(&mut self, url: &str, ok: bool, now: std::time::Instant) {
+        self.pending.remove(url);
+        if !ok {
+            self.failed.insert(url.to_string(), now);
+        }
+    }
+}
+
+fn downloads() -> std::sync::MutexGuard<'static, Downloads> {
+    static DOWNLOADS: OnceLock<Mutex<Downloads>> = OnceLock::new();
+    DOWNLOADS.get_or_init(Default::default).lock().unwrap()
+}
+
 /// Local path of the cover image at `url`, or `None` while it's still being downloaded (a
 /// download is started in the background the first time). Each cover is downloaded once.
 pub fn cached_cover_path(url: &str) -> Option<PathBuf> {
-    static LOADING: OnceLock<Arc<RwLock<HashSet<String>>>> = OnceLock::new();
-    let loading = LOADING.get_or_init(Default::default).clone();
+    static POOL: OnceLock<crossbeam_channel::Sender<Job>> = OnceLock::new();
 
     let path = crate::utils::cache_path_for_url(url.to_string());
-    let mut in_progress = loading.write().unwrap();
-    if in_progress.contains(url) {
-        return None;
-    }
+    // Files only appear there once complete (see utils::download).
     if path.exists() {
         return Some(path);
     }
-    in_progress.insert(url.to_string());
-    drop(in_progress);
-
+    if !downloads().start(url, std::time::Instant::now()) {
+        return None;
+    }
     let url = url.to_string();
-    std::thread::spawn(move || {
-        if let Err(e) = crate::utils::download(url.clone(), path) {
-            error!("Failed to download cover: {e}");
+    let job = move || {
+        let result = crate::utils::download(url.clone(), path);
+        if let Err(e) = &result {
+            error!("Failed to download cover {url}: {e}");
         }
-        loading.write().unwrap().remove(&url);
+        downloads().finish(&url, result.is_ok(), std::time::Instant::now());
         crate::tui::request_redraw();
-    });
+    };
+    let pool = POOL.get_or_init(|| start_pool("cover download", DOWNLOAD_THREADS));
+    let _ = pool.send(Box::new(job));
     None
+}
+
+/// The cached cover for `url`, at `path`, couldn't be read: delete it so it's downloaded again,
+/// after [RETRY_AFTER] so a server sending something unreadable isn't asked again every frame.
+fn forget_cover(url: &str, path: &std::path::Path) {
+    let _ = std::fs::remove_file(path);
+    let mut downloads = downloads();
+    downloads.pending.remove(url);
+    downloads
+        .failed
+        .insert(url.to_string(), std::time::Instant::now());
 }
 
 /// The main color of the cover at `url` (its average, skipping near-black and near-white pixels),
@@ -846,6 +917,21 @@ mod tests {
             sequence,
             "\x1b7\x1b[2;3H   \x1b[3;3H   \x1b[2;3HIMAGE\x1b8\x1b[1C"
         );
+    }
+
+    #[test]
+    fn test_downloads_wait_before_retrying() {
+        let mut downloads = Downloads::default();
+        let start = std::time::Instant::now();
+        assert!(downloads.start("a", start));
+        // Already on its way.
+        assert!(!downloads.start("a", start));
+        downloads.finish("a", false, start);
+        // Failed: left alone for a while, then tried again.
+        assert!(!downloads.start("a", start + RETRY_AFTER / 2));
+        assert!(downloads.start("a", start + RETRY_AFTER));
+        downloads.finish("a", true, start + RETRY_AFTER);
+        assert!(downloads.start("a", start + RETRY_AFTER));
     }
 
     #[test]
