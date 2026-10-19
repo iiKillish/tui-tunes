@@ -48,6 +48,11 @@ pub trait ListItem: Sync + Send + 'static {
         None
     }
 
+    /// [Self::track] without the copy, e.g. for drawing a row.
+    fn track_ref(&self) -> Option<&Track> {
+        None
+    }
+
     /// Cover to show next to the item in lists, if it has one.
     fn thumbnail_url(&self) -> Option<String> {
         None

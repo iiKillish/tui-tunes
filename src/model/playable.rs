@@ -247,6 +247,13 @@ impl ListItem for Playable {
         self.inner().track()
     }
 
+    fn track_ref(&self) -> Option<&Track> {
+        match self {
+            Self::Track(track) => Some(track),
+            Self::Episode(_) => None,
+        }
+    }
+
     fn as_listitem(&self) -> Box<dyn ListItem> {
         self.as_listitem()
     }
