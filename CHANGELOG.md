@@ -7,8 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- The debug log (`-d`) no longer contains the Spotify login token or proxy
+  passwords, and only you can read it
+- The saved Spotify login, the cache and the configuration folders can only
+  be read by you; ones made by older versions are tightened on start
+- Logging out also forgets the Web API login
+- Commands sent to the IPC socket can't run shell commands (`exec`)
+- Releases are built without access to the repository, and the actions CI
+  uses are pinned
+
+### Changed
+
+- Opening a song's menu, an album, a podcast, a category or a link, and
+  playing an album, playlist or artist, no longer freeze the interface while
+  Spotify answers
+- Covers are decoded in the background, thumbnails download a small size, at
+  most four download at once, and failed downloads wait a minute before
+  trying again instead of retrying many times a second
+- ttunes redraws only as often as something changes, instead of four times a
+  second when idle
+- Fewer requests to Spotify, so it rate limits less: one per search instead of
+  six, none for autoplay's songs, artist pictures remembered between runs,
+  Home reusing what it saved, and followed artists loaded in full only when
+  they changed
+- The login token is renewed before it expires, once, and requests wait for it
+- Library caches are written whole and only when they change
+- Smaller release binaries, and a faster build without a second TLS library
+
 ### Fixed
 
+- A rare freeze when liking a song while a list was being drawn
 - A song's menu (<kbd>o</kbd>) covered the player's buttons; menus and prompts
   open over the page when there's room
 - Pressing <kbd>o</kbd> again in a song's menu played the song instead of
