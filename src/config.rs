@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::error::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{RwLock, RwLockReadGuard};
 use std::{fs, process};
 
@@ -387,7 +387,10 @@ pub fn preload_environment(filename: Option<String>) {
         .map(str::trim)
         .filter(|proxy| !proxy.is_empty());
     if let Some(proxy) = proxy {
-        log::info!("Setting proxy {proxy}");
+        log::info!(
+            "Setting proxy {}",
+            crate::utils::redact_proxy_password(proxy)
+        );
         let ureq_proxy = match proxy.split_once("://") {
             Some(("socks5h", rest)) => format!("socks5://{rest}"),
             _ => proxy.to_owned(),
@@ -459,7 +462,7 @@ pub fn config_path(file: &str) -> PathBuf {
         fs::remove_file(&cfg_dir).expect("unable to remove old config file");
     }
     if !cfg_dir.exists() {
-        fs::create_dir_all(&cfg_dir).expect("can't create config folder");
+        create_private_dir_all(&cfg_dir).expect("can't create config folder");
     }
     let mut cfg = cfg_dir.to_path_buf();
     cfg.push(file);
@@ -473,11 +476,58 @@ pub fn config_path(file: &str) -> PathBuf {
 pub fn cache_path(file: &str) -> PathBuf {
     let cache_dir = user_cache_directory().unwrap();
     if !cache_dir.exists() {
-        fs::create_dir_all(&cache_dir).expect("can't create cache folder");
+        create_private_dir_all(&cache_dir).expect("can't create cache folder");
     }
     let mut pb = cache_dir.to_path_buf();
     pb.push(file);
     pb
+}
+
+/// Create `path` and any missing parents. On unix the directories created are only accessible
+/// by the current user, as the cache and configuration hold login credentials and tokens.
+fn create_private_dir_all(path: &Path) -> std::io::Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    builder.create(path)
+}
+
+/// Make the saved librespot login, which can be used to log in to the account, readable only
+/// by the current user. librespot writes it with the default permissions, usually readable by
+/// everyone, so this runs after every connection that may have saved it.
+pub fn restrict_librespot_credentials() {
+    restrict_permissions(&cache_path("librespot").join("credentials.json"), 0o600);
+}
+
+/// Tighten what an older ttunes left accessible to other users: the cache directory, which
+/// holds the Web API token and the librespot login, and the librespot login itself.
+pub fn restrict_cache_permissions() {
+    if let Some(cache_dir) = user_cache_directory() {
+        restrict_permissions(&cache_dir, 0o700);
+        restrict_permissions(&cache_dir.join("librespot").join("credentials.json"), 0o600);
+    }
+}
+
+/// Take away the permissions not in `mode` from `path` if it exists. Does nothing outside unix.
+#[cfg_attr(not(unix), allow(unused_variables))]
+fn restrict_permissions(path: &Path, mode: u32) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let Ok(metadata) = fs::metadata(path) else {
+            return;
+        };
+        let current = metadata.permissions().mode() & 0o777;
+        if current & !mode != 0
+            && let Err(e) = fs::set_permissions(path, fs::Permissions::from_mode(current & mode))
+        {
+            log::warn!(
+                "Couldn't restrict the permissions of {}: {e}",
+                path.display()
+            );
+        }
+    }
 }
 
 /// Set the configuration base path. All configuration files are read/written relative to this path.
@@ -501,5 +551,40 @@ mod queue_state_tests {
             "track_progress":{"secs":0,"nanos":0},"queue":[]}"#;
         let state: QueueState = serde_json::from_str(old).unwrap();
         assert!(state.sources.is_empty());
+    }
+}
+
+#[cfg(all(test, unix))]
+mod permission_tests {
+    use super::{create_private_dir_all, restrict_permissions};
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    fn mode(path: &std::path::Path) -> u32 {
+        fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    #[test]
+    fn private_directories_and_restricted_files() {
+        let base = std::env::temp_dir().join(format!("ttunes-perm-test-{}", std::process::id()));
+        let dir = base.join("a/b");
+        create_private_dir_all(&dir).unwrap();
+        assert_eq!(mode(&base.join("a")), 0o700);
+        assert_eq!(mode(&dir), 0o700);
+
+        let file = dir.join("credentials.json");
+        fs::write(&file, "{}").unwrap();
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).unwrap();
+        restrict_permissions(&file, 0o600);
+        assert_eq!(mode(&file), 0o600);
+
+        // Permissions already tighter than asked for are kept.
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o400)).unwrap();
+        restrict_permissions(&file, 0o600);
+        assert_eq!(mode(&file), 0o400);
+
+        // Missing files are ignored.
+        restrict_permissions(&dir.join("missing"), 0o600);
+        fs::remove_dir_all(&base).unwrap();
     }
 }

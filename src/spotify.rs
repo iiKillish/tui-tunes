@@ -212,7 +212,10 @@ impl Spotify {
             .or_else(|| env::var("http_proxy").ok())
         {
             Some(proxy) if !proxy.is_empty() => {
-                info!("Setting proxy {proxy}");
+                info!(
+                    "Setting proxy {}",
+                    crate::utils::redact_proxy_password(&proxy)
+                );
                 session_config.proxy = Url::parse(&proxy).ok();
             }
             _ => debug!("No proxy set"),
@@ -260,7 +263,10 @@ impl Spotify {
         debug!("opening spotify session");
         let session_config = Self::session_config(cfg);
         let session = Session::new(session_config, Some(cache));
-        session.connect(credentials, true).await.map(|_| session)
+        let connected = session.connect(credentials, true).await;
+        // Connecting saves the login, which librespot leaves readable by other users.
+        config::restrict_librespot_credentials();
+        connected.map(|_| session)
     }
 
     /// Create and initialize the requested audio backend.

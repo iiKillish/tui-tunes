@@ -40,11 +40,43 @@ pub fn setup_logging(filename: &Path) -> Result<(), fern::InitError> {
         .level(log::LevelFilter::Debug)
         // Set runtime log level for modules
         .level_for("ttunes", log::LevelFilter::Trace)
+        // rspotify logs the request headers, including the Web API bearer
+        // token, at debug (and rspotify-http the whole request at info), so
+        // keep them to what doesn't carry the token.
+        .level_for("rspotify", log::LevelFilter::Info)
+        .level_for("rspotify_http", log::LevelFilter::Warn)
+        .level_for("ureq", log::LevelFilter::Info)
+        // librespot-oauth logs the access token and authorization code at
+        // trace; keep it from ever reaching them.
+        .level_for("librespot_oauth", log::LevelFilter::Info)
+        // librespot logs the proxy URL, with any user name and password in
+        // it, at info when connecting.
+        .level_for("librespot_core::socket", log::LevelFilter::Warn)
         // Output to stdout, files, and other Dispatch configurations
-        .chain(fern::log_file(filename)?)
+        .chain(open_log_file(filename)?)
         // Apply globally
         .apply()?;
     Ok(())
+}
+
+/// Open the log file at `filename` for appending, creating it if needed.
+///
+/// On unix the file is only readable by the current user, as it holds account
+/// details like the user name and what was played. A log file created by an
+/// older version is restricted the same way.
+fn open_log_file(filename: &Path) -> std::io::Result<std::fs::File> {
+    let mut options = std::fs::OpenOptions::new();
+    options.create(true).append(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        options.mode(0o600);
+        let file = options.open(filename)?;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+        Ok(file)
+    }
+    #[cfg(not(unix))]
+    options.open(filename)
 }
 
 /// The global Tokio runtime for running asynchronous tasks.
@@ -260,6 +292,10 @@ impl Application {
             Event::IpcInput(input) => match command::parse(&input) {
                 Ok(commands) => {
                     for cmd in commands {
+                        if !cmd.allowed_over_ipc() {
+                            error!("Refusing command from IPC: {cmd}");
+                            continue;
+                        }
                         info!("Executing command from IPC: {cmd}");
                         app.run(&cmd);
                     }

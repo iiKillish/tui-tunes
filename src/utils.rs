@@ -115,30 +115,54 @@ pub fn download(url: String, path: std::path::PathBuf) -> Result<(), std::io::Er
 /// reboots. Stored files should be small since they could reside in memory (like on a tmpfs mount).
 #[cfg(unix)]
 pub fn create_runtime_directory() -> Result<PathBuf, Box<dyn std::error::Error>> {
-    use std::{
-        fs::{self, Permissions},
-        os::unix::prelude::PermissionsExt,
-    };
-
     let user_runtime_directory = user_runtime_directory().ok_or("no runtime directory found")?;
+    create_private_directory(&user_runtime_directory)?;
+    Ok(user_runtime_directory)
+}
 
-    let creation_result = fs::create_dir(&user_runtime_directory);
+/// Create the directory `user_runtime_directory` if it doesn't exist, and make sure it is one of
+/// the current user's that only they can access.
+#[cfg(unix)]
+fn create_private_directory(
+    user_runtime_directory: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::fs::{self, Permissions};
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt, OpenOptionsExt, PermissionsExt};
 
-    if creation_result.is_ok()
-        || matches!(
-            creation_result.as_ref().unwrap_err().kind(),
-            std::io::ErrorKind::AlreadyExists
-        )
+    match fs::DirBuilder::new()
+        .mode(0o700)
+        .create(user_runtime_directory)
     {
-        // Needed when created inside a world readable directory, to prevent unauthorized access.
-        // Doesn't hurt otherwise.
-        fs::set_permissions(&user_runtime_directory, Permissions::from_mode(0o700))?;
-
-        Ok(user_runtime_directory)
-    } else {
-        #[allow(clippy::unnecessary_unwrap)]
-        Err(Box::new(creation_result.unwrap_err()))
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
+        Err(e) => return Err(Box::new(e)),
     }
+
+    // In a directory everyone can write to, like /tmp, another user could have put a directory
+    // or a symlink to one of theirs here first. Open it without following symlinks and check
+    // and change what was opened, so it can't be swapped in between.
+    let directory = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_DIRECTORY)
+        .open(user_runtime_directory)
+        .map_err(|e| {
+            format!(
+                "{} isn't a usable directory: {e}",
+                user_runtime_directory.display()
+            )
+        })?;
+    if directory.metadata()?.uid() != unsafe { libc::getuid() } {
+        return Err(format!(
+            "{} belongs to another user",
+            user_runtime_directory.display()
+        )
+        .into());
+    }
+    // Needed when created inside a world readable directory, to prevent unauthorized access.
+    // Doesn't hurt otherwise.
+    directory.set_permissions(Permissions::from_mode(0o700))?;
+
+    Ok(())
 }
 
 /// Lowercase `text` and take the accents off its letters, for searches where "beyonce" finds
@@ -149,6 +173,23 @@ pub fn search_text(text: &str) -> String {
         .nfd()
         .filter(|c| !is_combining_mark(*c))
         .collect()
+}
+
+/// Hide the password in a proxy URL like `http://user:password@host:8080`, for logging it.
+///
+/// Anything that doesn't look like it holds a password is returned unchanged.
+pub fn redact_proxy_password(proxy: &str) -> String {
+    let (scheme, rest) = match proxy.split_once("://") {
+        Some((scheme, rest)) => (format!("{scheme}://"), rest),
+        None => (String::new(), proxy),
+    };
+    let authority = &rest[..rest.find(['/', '?', '#']).unwrap_or(rest.len())];
+    if let Some(at) = authority.rfind('@')
+        && let Some((user, _)) = authority[..at].split_once(':')
+    {
+        return format!("{scheme}{user}:***{}", &rest[at..]);
+    }
+    proxy.to_owned()
 }
 
 /// Return the path to the current user's runtime directory, or None if it couldn't be found.
@@ -177,7 +218,7 @@ fn xdg_runtime_directory() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_duration, search_text};
+    use super::{parse_duration, redact_proxy_password, search_text};
     use std::time::Duration;
 
     #[test]
@@ -202,6 +243,60 @@ mod tests {
     fn huge_durations_are_an_error_not_a_hang() {
         assert!(parse_duration(&format!("{}h", "9".repeat(400))).is_err());
         assert!(parse_duration("1e1000000000s").is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn runtime_directories_must_be_real_directories() {
+        use super::create_private_directory;
+        use std::fs;
+        use std::os::unix::fs::PermissionsExt;
+
+        let base = std::env::temp_dir().join(format!("ttunes-runtime-test-{}", std::process::id()));
+        fs::create_dir_all(&base).unwrap();
+
+        let dir = base.join("ttunes");
+        create_private_directory(&dir).unwrap();
+        // An existing directory is fine, and is made private again.
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+        create_private_directory(&dir).unwrap();
+        let mode = fs::metadata(&dir).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o700);
+
+        // A symlink to a directory is refused, and the directory is left alone.
+        let target = base.join("elsewhere");
+        fs::create_dir(&target).unwrap();
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o755)).unwrap();
+        let link = base.join("link");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+        assert!(create_private_directory(&link).is_err());
+        let mode = fs::metadata(&target).unwrap().permissions().mode();
+        assert_eq!(mode & 0o777, 0o755);
+
+        // So is a file.
+        let file = base.join("file");
+        fs::write(&file, "").unwrap();
+        assert!(create_private_directory(&file).is_err());
+
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn proxy_passwords_are_hidden() {
+        assert_eq!(
+            redact_proxy_password("http://me:secret@proxy:8080/path"),
+            "http://me:***@proxy:8080/path"
+        );
+        assert_eq!(
+            redact_proxy_password("socks5h://me:p@ss@proxy"),
+            "socks5h://me:***@proxy"
+        );
+        assert_eq!(redact_proxy_password("me:secret@proxy"), "me:***@proxy");
+        assert_eq!(redact_proxy_password("http://me@proxy"), "http://me@proxy");
+        assert_eq!(
+            redact_proxy_password("http://proxy:8080/a:b@c"),
+            "http://proxy:8080/a:b@c"
+        );
     }
 
     #[test]

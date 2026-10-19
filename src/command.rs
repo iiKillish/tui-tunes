@@ -487,6 +487,12 @@ impl Command {
         }
     }
 
+    /// Whether this command may come from the IPC socket. Commands that run shell commands
+    /// aren't, so something that can only write to the socket can't run programs as the user.
+    pub fn allowed_over_ipc(&self) -> bool {
+        !matches!(self, Self::Execute(_))
+    }
+
     /// Whether a vim-style count prefix (e.g. `10j`) may repeat this command.
     /// True for movement, seeking, volume, track skipping and search-jumps. A
     /// binding accepts a count only if all of its commands do.
@@ -1106,6 +1112,13 @@ pub fn parse(input: &str) -> Result<Vec<Command>, CommandParseError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shell_commands_are_refused_over_ipc() {
+        let commands = parse("exec touch /tmp/x; next").unwrap();
+        let allowed: Vec<bool> = commands.iter().map(Command::allowed_over_ipc).collect();
+        assert_eq!(allowed, [false, true]);
+    }
 
     #[test]
     fn focus_takes_a_screen() {
