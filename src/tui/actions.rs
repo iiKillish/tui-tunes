@@ -153,9 +153,7 @@ pub fn run(cmd: &Command, ctx: &Ctx) -> Outcome {
         },
         Command::Logout => {
             spotify.shutdown();
-            let mut credentials = crate::config::cache_path("librespot");
-            credentials.push("credentials.json");
-            let _ = std::fs::remove_file(credentials);
+            crate::authentication::forget_saved_logins();
             return Outcome::Run(vec![Command::Quit]);
         }
         Command::Execute(command) => {

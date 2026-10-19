@@ -206,8 +206,8 @@ pub fn create_rspotify_token() -> Result<rspotify::Token, String> {
         .map_err(|e| e.to_string())
 }
 
-/// Write `token` to `path`, logging (rather than silently discarding) any failure, and
-/// restricting file permissions since the file holds a long-lived credential.
+/// Write `token` to `path`, logging (rather than silently discarding) any failure. The file
+/// holds a long-lived credential, see [write_private_file].
 fn write_token(path: &Path, token: &rspotify::Token) {
     let json = match serde_json::to_string_pretty(token) {
         Ok(json) => json,
@@ -217,16 +217,57 @@ fn write_token(path: &Path, token: &rspotify::Token) {
         }
     };
 
-    if let Err(e) = fs::write(path, json) {
+    if let Err(e) = write_private_file(path, json.as_bytes()) {
         error!("Failed to write rspotify token cache: {e}");
-        return;
     }
+}
 
+/// Replace `path` with `contents`, readable only by the current user on unix.
+///
+/// The contents go to a temporary file in the same directory, created with those permissions
+/// from the start so no other user can open it in between, and then take the place of `path`,
+/// so a crash can't leave a truncated file behind.
+fn write_private_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let mut temp_name = path.file_name().unwrap_or_default().to_os_string();
+    temp_name.push(format!(".{}.tmp", std::process::id()));
+    let temp_path = path.with_file_name(temp_name);
+    // A file left by a crash would keep its permissions, so start over.
+    let _ = fs::remove_file(&temp_path);
+
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if let Err(e) = fs::set_permissions(path, fs::Permissions::from_mode(0o600)) {
-            warn!("Failed to restrict permissions on rspotify token cache: {e}");
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let written = options.open(&temp_path).and_then(|mut file| {
+        file.write_all(contents)?;
+        file.sync_all()
+    });
+    let result = written.and_then(|()| fs::rename(&temp_path, path));
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    result
+}
+
+/// Forget the logins saved in the cache: librespot's, and the Web API tokens of every client ID.
+pub fn forget_saved_logins() {
+    let _ = fs::remove_file(config::cache_path("librespot").join("credentials.json"));
+    let Some(cache_dir) = config::user_cache_directory() else {
+        return;
+    };
+    let Ok(entries) = fs::read_dir(cache_dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.starts_with("rspotify_token_")
+            && name.ends_with(".json")
+            && let Err(e) = fs::remove_file(entry.path())
+        {
+            warn!("Couldn't remove {name}: {e}");
         }
     }
 }
@@ -289,6 +330,26 @@ mod test {
     fn map_token_falls_back_to_previous_refresh_token_when_omitted() {
         let mapped = map_token(oauth_token(""), Some("old-refresh-token"));
         assert_eq!(mapped.refresh_token, Some("old-refresh-token".to_string()));
+    }
+
+    #[test]
+    fn private_files_replace_the_old_contents() {
+        let dir = std::env::temp_dir().join(format!("ttunes-token-test-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("token.json");
+        fs::write(&path, "old contents that are longer").unwrap();
+
+        write_private_file(&path, b"new").unwrap();
+        assert_eq!(fs::read_to_string(&path).unwrap(), "new");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+        // Only the file itself is left, no temporary one.
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
