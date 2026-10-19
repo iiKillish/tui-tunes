@@ -324,6 +324,9 @@ fn load(spotify: &Spotify, library: &Library) -> Sections {
 
     // Jump back in: what recent tracks were played from, or their album when that's unknown or
     // can't be loaded (Spotify's own mixes, like Daily Mix playlists, come through the session).
+    // What's saved from earlier loads isn't asked for again.
+    let history = load_history();
+    let saved = saved_contexts(&history);
     let mut loaded: HashMap<(PlayContext, String), Option<HomeItem>> = HashMap::new();
     let mut shown = HashSet::new();
     let mut fresh = Vec::new();
@@ -334,7 +337,7 @@ fn load(spotify: &Spotify, library: &Library) -> Sections {
         let context_item = play.context.as_ref().and_then(|(kind, id)| {
             loaded
                 .entry((*kind, id.clone()))
-                .or_insert_with(|| load_context(api, library, play, *kind, id))
+                .or_insert_with(|| load_context(api, library, &saved, play, *kind, id))
                 .clone()
                 .map(|item| ((*kind, id.clone()), item))
         });
@@ -354,7 +357,7 @@ fn load(spotify: &Spotify, library: &Library) -> Sections {
             });
         }
     }
-    let history = remember(fresh, load_history());
+    let history = remember(fresh, history);
     // Without Spotify's list there's nothing new to save.
     if !failed {
         save_history(&history);
@@ -395,28 +398,52 @@ fn load(spotify: &Spotify, library: &Library) -> Sections {
     }
 }
 
-/// The album, playlist or artist `play` was played from, if it can be loaded.
+/// The albums, playlists and artists in `history`, by what they'd be played from.
+fn saved_contexts(history: &[Played]) -> HashMap<(PlayContext, String), HomeItem> {
+    history
+        .iter()
+        .filter_map(|played| {
+            let key = match &played.item {
+                HomeItem::Album(album) => (PlayContext::Album, album.id.clone()?),
+                HomeItem::Playlist(playlist) => (PlayContext::Playlist, playlist.id.clone()),
+                HomeItem::Artist(artist) => (PlayContext::Artist, artist.id.clone()?),
+                HomeItem::Song(_) => return None,
+            };
+            Some((key, played.item.clone()))
+        })
+        .collect()
+}
+
+/// The album, playlist or artist `play` was played from, if it can be loaded: from what's at
+/// hand (the play itself, the library, or `saved` from earlier loads), else from Spotify.
 fn load_context(
     api: &WebApi,
     library: &Library,
+    saved: &HashMap<(PlayContext, String), HomeItem>,
     play: &RecentPlay,
     kind: PlayContext,
     id: &str,
 ) -> Option<HomeItem> {
-    match kind {
-        PlayContext::Album if play.album.id.as_deref() == Some(id) => {
-            Some(HomeItem::Album(play.album.clone()))
-        }
-        PlayContext::Album => api.album(id).ok().map(|a| HomeItem::Album((&a).into())),
-        PlayContext::Playlist => library
+    if kind == PlayContext::Album && play.album.id.as_deref() == Some(id) {
+        return Some(HomeItem::Album(play.album.clone()));
+    }
+    if kind == PlayContext::Playlist
+        && let Some(playlist) = library
             .playlists
             .read()
             .unwrap()
             .iter()
             .find(|p| p.id == id)
-            .cloned()
-            .or_else(|| api.any_playlist(id))
-            .map(HomeItem::Playlist),
+            .map(Playlist::without_tracks)
+    {
+        return Some(HomeItem::Playlist(playlist));
+    }
+    if let Some(item) = saved.get(&(kind, id.to_string())) {
+        return Some(item.clone());
+    }
+    match kind {
+        PlayContext::Album => api.album(id).ok().map(|a| HomeItem::Album((&a).into())),
+        PlayContext::Playlist => api.any_playlist(id).map(HomeItem::Playlist),
         PlayContext::Artist => api.artist(id).ok().map(|a| HomeItem::Artist((&a).into())),
     }
 }
@@ -1107,6 +1134,21 @@ mod tests {
         let items: Vec<HomeItem> = history.iter().map(|p| p.item.clone()).collect();
         assert_eq!(titles(&items), ["a3", "a1", "x", "a2"]);
         assert_eq!(history[1].at, 400, "a1 as Spotify lists it now");
+    }
+
+    #[test]
+    fn saved_contexts_are_found_by_what_they_were_played_from() {
+        let history = vec![
+            played(3, album("a1")),
+            played(2, HomeItem::Artist(artist("x"))),
+            played(1, HomeItem::Song(track("t1"))),
+        ];
+        let saved = saved_contexts(&history);
+        assert_eq!(saved.len(), 2, "songs aren't played from");
+        let found = |kind, id: &str| saved.get(&(kind, id.to_string())).map(HomeItem::title);
+        assert_eq!(found(PlayContext::Album, "a1").as_deref(), Some("a1"));
+        assert_eq!(found(PlayContext::Artist, "x").as_deref(), Some("x"));
+        assert_eq!(found(PlayContext::Artist, "a1"), None);
     }
 
     #[test]

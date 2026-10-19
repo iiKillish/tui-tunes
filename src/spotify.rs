@@ -27,7 +27,6 @@ use crate::authentication::SPOTIFY_CLIENT_ID;
 use crate::config;
 use crate::events::{Event, EventManager};
 use crate::model::playable::Playable;
-use crate::model::track::Track;
 #[cfg(feature = "mpris")]
 use crate::mpris::{MprisCommand, MprisManager};
 use crate::queue::QueueEvent;
@@ -594,7 +593,6 @@ impl Spotify {
         self.send_worker(WorkerCommand::Preload(track.clone()));
     }
 
-    /// Shut down the worker thread.
     /// Ask Spotify's autoplay for tracks to follow the track `after`, seeded with `context_uri`
     /// (its album) and leaving out the `recent` track URIs. Runs in the background: the tracks
     /// arrive as [QueueEvent::Autoplay]. Uses the same private endpoint as Spotify's own apps, as
@@ -611,17 +609,19 @@ impl Spotify {
         let events = self.events.clone();
         std::thread::spawn(move || {
             let mut uris = futures::executor::block_on(uris).unwrap_or_default();
-            // Each is a request of its own; more are asked for when these run out.
+            // More are asked for when these run out. They're loaded through the session, like
+            // the tracks of the playlists Spotify makes, so autoplay needs no Web API requests.
             uris.truncate(AUTOPLAY_TRACKS);
             let tracks = api
-                .tracks_by_uri(&uris)
-                .iter()
-                .map(|track| Playable::Track(Track::from(track)))
+                .session_tracks_by_uri(&uris)
+                .into_iter()
+                .map(Playable::Track)
                 .collect();
             events.send(Event::Queue(QueueEvent::Autoplay { after, tracks }));
         });
     }
 
+    /// Shut down the worker thread.
     pub fn shutdown(&self) {
         self.send_worker(WorkerCommand::Shutdown);
     }

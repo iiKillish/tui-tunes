@@ -1,16 +1,15 @@
 //! Search results: an "All" tab like Spotify's (the top result, then rows of songs, artists,
 //! albums and playlists), then a list per kind of item, loading more as they're scrolled.
-//! Each kind is searched for on its own thread, so tabs fill in as their results arrive.
+//! The first results of every kind come from one request; more are searched for per kind.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread;
 
-use rspotify::model::SearchType;
-use rspotify::model::search::SearchResult;
+use rspotify::model::search::{SearchMultipleResult, SearchResult};
+use rspotify::model::{Page, SearchType};
+use serde::de::DeserializeOwned;
 
-use crate::application::ASYNC_RUNTIME;
-use crate::events::EventManager;
 use crate::model::album::Album;
 use crate::model::artist::Artist;
 use crate::model::episode::Episode;
@@ -32,7 +31,7 @@ const PAGE_SIZE: u32 = 10;
 /// Cards in each row of the All tab.
 const PER_ROW: usize = 10;
 
-/// Pulls one kind of item and the total number found out of a search result.
+/// Pulls one kind of item and the total number found out of a search for that kind.
 type Extract<I> = fn(SearchResult) -> Option<(Vec<I>, u32)>;
 
 /// One kind of result: the items found so far, and whether the first page has arrived.
@@ -70,44 +69,47 @@ impl<I: ListItem + Clone> Results<I> {
             .empty_message("No results")
     }
 
-    /// Search for `query` on a thread, filling the results and setting `pagination` up to load
-    /// the rest as the list is scrolled.
-    fn search(
+    /// Fill in the first page of results (`None` if the search failed), setting `pagination`
+    /// up to search for the rest of this kind as the list is scrolled.
+    fn fill(
         &self,
+        first: Option<(Vec<I>, u32)>,
         api: WebApi,
         query: String,
         kind: SearchType,
         extract: Extract<I>,
         pagination: Pagination<I>,
-        events: EventManager,
     ) {
-        let results = self.clone();
-        thread::spawn(move || {
-            let fetch = move |offset: usize| {
-                api.search(kind, &query, PAGE_SIZE, offset as u32)
-                    .ok()
-                    .and_then(extract)
-            };
-            if let Some((items, total)) = fetch(0) {
-                let loaded = items.len();
-                *results.items.write().unwrap() = items;
-                if total as usize > loaded {
-                    pagination.set(
-                        loaded,
-                        total as usize,
-                        Box::new(move |content| {
-                            let offset = content.read().unwrap().len();
-                            if let Some((items, _)) = fetch(offset) {
-                                content.write().unwrap().extend(items);
-                            }
-                        }),
-                    );
-                }
+        if let Some((items, total)) = first {
+            let loaded = items.len();
+            *self.items.write().unwrap() = items;
+            if total as usize > loaded {
+                pagination.set(
+                    loaded,
+                    total as usize,
+                    Box::new(move |content| {
+                        let offset = content.read().unwrap().len();
+                        if let Some((items, _)) = api
+                            .search(kind, &query, PAGE_SIZE, offset as u32)
+                            .ok()
+                            .and_then(extract)
+                        {
+                            content.write().unwrap().extend(items);
+                        }
+                    }),
+                );
             }
-            results.done.store(true, Ordering::Relaxed);
-            events.trigger();
-        });
+        }
+        self.done.store(true, Ordering::Relaxed);
     }
+}
+
+/// The items on a page of search results and the total number found.
+fn first_page<T: DeserializeOwned, I>(page: Option<Page<T>>) -> Option<(Vec<I>, u32)>
+where
+    for<'a> &'a T: Into<I>,
+{
+    page.map(|page| (page.items.iter().map(Into::into).collect(), page.total))
 }
 
 /// What the All tab's top result is, by index into the results of its kind.
@@ -161,8 +163,8 @@ pub fn new(query: &str, ctx: &Ctx) -> Tabbed {
     let show_list = ItemList::new(shows.items.clone());
     let episode_list = ItemList::new(episodes.items.clone());
 
-    // Searches run on a thread of their own: the token is refreshed first, so the parallel
-    // requests don't all try to refresh it at once.
+    // The first page of every kind is asked for in one request, on a thread of its own; later
+    // pages are searched for per kind as their lists are scrolled.
     {
         let api = ctx.spotify.api.clone();
         let events = ctx.events.clone();
@@ -184,61 +186,85 @@ pub fn new(query: &str, ctx: &Ctx) -> Tabbed {
             episode_list.pagination().clone(),
         );
         thread::spawn(move || {
-            if let Some(refresh) = api.update_token()
-                && let Some(runtime) = ASYNC_RUNTIME.get()
-            {
-                let _ = runtime.block_on(refresh);
-            }
+            let result = api
+                .search_multiple(
+                    &[
+                        SearchType::Track,
+                        SearchType::Artist,
+                        SearchType::Album,
+                        SearchType::Playlist,
+                        SearchType::Show,
+                        SearchType::Episode,
+                    ],
+                    &query,
+                    PAGE_SIZE,
+                )
+                .ok();
+            let SearchMultipleResult {
+                tracks: track_page,
+                artists: artist_page,
+                albums: album_page,
+                playlists: playlist_page,
+                shows: show_page,
+                episodes: episode_page,
+            } = result.unwrap_or(SearchMultipleResult {
+                tracks: None,
+                artists: None,
+                albums: None,
+                playlists: None,
+                shows: None,
+                episodes: None,
+            });
             let q = || query.clone();
-            let e = || events.clone();
-            tracks.search(
+            tracks.fill(
+                first_page(track_page),
                 api.clone(),
                 q(),
                 SearchType::Track,
                 extract_tracks,
                 paginations.0,
-                e(),
             );
-            artists.search(
+            artists.fill(
+                first_page(artist_page),
                 api.clone(),
                 q(),
                 SearchType::Artist,
                 extract_artists,
                 paginations.1,
-                e(),
             );
-            albums.search(
+            albums.fill(
+                first_page(album_page),
                 api.clone(),
                 q(),
                 SearchType::Album,
                 extract_albums,
                 paginations.2,
-                e(),
             );
-            playlists.search(
+            playlists.fill(
+                first_page(playlist_page),
                 api.clone(),
                 q(),
                 SearchType::Playlist,
                 extract_playlists,
                 paginations.3,
-                e(),
             );
-            shows.search(
+            shows.fill(
+                first_page(show_page),
                 api.clone(),
                 q(),
                 SearchType::Show,
                 extract_shows,
                 paginations.4,
-                e(),
             );
-            episodes.search(
+            episodes.fill(
+                first_page(episode_page),
                 api,
                 q(),
                 SearchType::Episode,
                 extract_episodes,
                 paginations.5,
-                e(),
             );
+            events.trigger();
         });
     }
 
@@ -407,6 +433,24 @@ mod tests {
             top_result("daft punk", ["Other"], ["Discovery"], playlists, 5, true),
             Some(TopResult::Playlist(0))
         );
+    }
+
+    #[test]
+    fn test_first_page_takes_items_and_total() {
+        let page = Page {
+            href: String::new(),
+            items: vec!["a".to_string(), "b".to_string()],
+            limit: 10,
+            next: None,
+            offset: 0,
+            previous: None,
+            total: 42,
+        };
+        assert_eq!(
+            first_page::<_, String>(Some(page)),
+            Some((vec!["a".to_string(), "b".to_string()], 42))
+        );
+        assert_eq!(first_page::<String, String>(None), None);
     }
 
     #[test]

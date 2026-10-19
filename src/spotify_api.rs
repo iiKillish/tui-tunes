@@ -7,10 +7,10 @@ use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use log::{debug, error, info, warn};
 use rspotify::http::HttpError;
 use rspotify::model::{
-    AlbumId, ArtistId, CursorBasedPage, EpisodeId, FullAlbum, FullArtist, FullEpisode,
-    FullPlaylist, FullShow, FullTrack, ItemPositions, LibraryId, Market, Page, PlayableId,
-    PlaylistId, PlaylistResult, PrivateUser, SavedAlbum, SavedTrack, SearchResult, SearchType,
-    Show, ShowId, SimplifiedTrack, TimeRange, TrackId, Type, UserId,
+    AlbumId, ArtistId, CursorBasedPage, EpisodeId, FullAlbum, FullArtist, FullEpisode, FullShow,
+    FullTrack, ItemPositions, LibraryId, Market, Page, PlayableId, PlaylistId, PlaylistResult,
+    PrivateUser, SavedAlbum, SavedTrack, SearchMultipleResult, SearchResult, SearchType, Show,
+    ShowId, SimplifiedTrack, TimeRange, TrackId, Type, UserId,
 };
 use rspotify::{AuthCodeSpotify, ClientError, ClientResult, Config, prelude::*};
 use tokio::sync::mpsc;
@@ -41,6 +41,58 @@ pub enum PlayContext {
     Album,
     Playlist,
     Artist,
+}
+
+/// What [WebApi::playlist_details] asks for: everything a [Playlist] has but its tracks. The
+/// number of tracks is under `items` since Spotify's 2026 API changes, `tracks` before.
+const PLAYLIST_DETAILS_FIELDS: &str =
+    "id,name,owner(id,display_name),snapshot_id,collaborative,images,items(total),tracks(total)";
+
+/// A playlist as [WebApi::playlist_details] gets it.
+#[derive(Debug, serde::Deserialize)]
+struct PlaylistDetails {
+    id: String,
+    name: String,
+    owner: PlaylistOwner,
+    snapshot_id: String,
+    #[serde(default)]
+    collaborative: bool,
+    #[serde(default)]
+    images: Option<Vec<rspotify::model::Image>>,
+    #[serde(default)]
+    items: Option<PlaylistTotal>,
+    #[serde(default)]
+    tracks: Option<PlaylistTotal>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct PlaylistOwner {
+    id: String,
+    display_name: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct PlaylistTotal {
+    total: usize,
+}
+
+impl From<PlaylistDetails> for Playlist {
+    fn from(details: PlaylistDetails) -> Self {
+        Self {
+            id: details.id,
+            name: details.name,
+            owner_id: details.owner.id,
+            owner_name: details.owner.display_name,
+            snapshot_id: details.snapshot_id,
+            num_tracks: details.items.or(details.tracks).map_or(0, |t| t.total),
+            tracks: None,
+            collaborative: details.collaborative,
+            cover_url: details
+                .images
+                .and_then(|images| images.into_iter().next())
+                .map(|image| image.url),
+        }
+    }
 }
 
 /// Longest rate-limit wait (seconds) honoured on the UI thread; see [WebApi::api_with_retry].
@@ -553,8 +605,8 @@ impl WebApi {
         if crate::model::playlist::is_made_by_spotify(id) {
             return self.session_playlist(id, false);
         }
-        match self.playlist(id) {
-            Ok(playlist) => Some((&playlist).into()),
+        match self.playlist_details(id) {
+            Ok(playlist) => Some(playlist),
             Err(()) => self.session_playlist(id, false),
         }
     }
@@ -601,11 +653,18 @@ impl WebApi {
         self.api_with_retry(|api| api.artist(aid.clone())).ok_or(())
     }
 
-    /// Fetch the playlist with the given `playlist_id`.
-    pub fn playlist(&self, playlist_id: &str) -> Result<FullPlaylist, ()> {
+    /// Fetch the playlist with the given `playlist_id`, without its tracks: Spotify otherwise
+    /// sends its first 100 tracks along, which aren't needed for showing it.
+    pub fn playlist_details(&self, playlist_id: &str) -> Result<Playlist, ()> {
         let pid = PlaylistId::from_id(playlist_id).map_err(|_| ())?;
-        self.api_with_retry(|api| api.playlist(pid.clone(), None, Some(Market::FromToken)))
-            .ok_or(())
+        let url = format!("playlists/{}", pid.id());
+        let query = std::collections::HashMap::from([("fields", PLAYLIST_DETAILS_FIELDS)]);
+        self.api_with_retry(|api| {
+            let json = api.api_get(&url, &query)?;
+            Ok(serde_json::from_str::<PlaylistDetails>(&json)?)
+        })
+        .map(Playlist::from)
+        .ok_or(())
     }
 
     /// Fetch the track with the given `track_id`.
@@ -615,15 +674,18 @@ impl WebApi {
             .ok_or(())
     }
 
-    /// Fetch the tracks with these `spotify:track:` URIs, leaving out ones that can't be found.
-    /// One request each: Spotify removed the endpoint for several at once.
-    pub fn tracks_by_uri(&self, uris: &[String]) -> Vec<FullTrack> {
-        uris.iter()
-            .filter_map(|uri| TrackId::from_uri(uri).ok())
-            .filter_map(|id| {
-                self.api_with_retry(|api| api.track(id.clone(), Some(Market::FromToken)))
-            })
-            .collect()
+    /// The tracks with these `spotify:track:` URIs, leaving out ones that can't be found, loaded
+    /// through the session (see [crate::spotify_worker::session_tracks]) rather than one Web API
+    /// request each.
+    pub fn session_tracks_by_uri(&self, uris: &[String]) -> Vec<Track> {
+        let uris = uris
+            .iter()
+            .filter_map(|uri| librespot_core::SpotifyUri::from_uri(uri).ok())
+            .filter(|uri| matches!(uri, librespot_core::SpotifyUri::Track { .. }))
+            .collect();
+        self.ask_worker(|reply| WorkerCommand::SessionTracks(uris, reply))
+            .map(|tracks| tracks.iter().map(Track::from).collect())
+            .unwrap_or_default()
     }
 
     /// Fetch the show with the given `show_id`.
@@ -657,6 +719,27 @@ impl WebApi {
                 None,
                 Some(limit),
                 Some(offset),
+            )
+        })
+        .ok_or(())
+    }
+
+    /// Search for several kinds of item at once: one request, with the first `limit` results of
+    /// each kind.
+    pub fn search_multiple(
+        &self,
+        searchtypes: &[SearchType],
+        query: &str,
+        limit: u32,
+    ) -> Result<SearchMultipleResult, ()> {
+        self.api_with_retry(|api| {
+            api.search_multiple(
+                query,
+                searchtypes.iter().copied(),
+                Some(Market::FromToken),
+                None,
+                Some(limit),
+                Some(0),
             )
         })
         .ok_or(())
@@ -927,6 +1010,23 @@ impl WebApi {
         Some(tracks.iter().map(Track::from).collect())
     }
 
+    /// The URLs of the pictures of the artists with these `ids`, in order, loaded through the
+    /// session (see [crate::spotify_worker::session_artist_pictures]): `None` where there's no
+    /// picture or the artist couldn't be loaded.
+    pub fn session_artist_pictures(&self, ids: &[String]) -> Vec<Option<String>> {
+        let uris: Vec<_> = ids
+            .iter()
+            .filter_map(|id| {
+                librespot_core::SpotifyUri::from_uri(&format!("spotify:artist:{id}")).ok()
+            })
+            .collect();
+        if uris.len() != ids.len() {
+            return vec![None; ids.len()];
+        }
+        self.ask_worker(|reply| WorkerCommand::SessionArtistPictures(uris, reply))
+            .unwrap_or_else(|| vec![None; ids.len()])
+    }
+
     /// Get artists related to the artist with the given `id`.
     pub fn artist_related_artists(&self, id: &str) -> Result<Vec<Artist>, ()> {
         #[allow(deprecated)]
@@ -1099,5 +1199,37 @@ mod tests {
         let api = WebApi::new();
         api.renew_token_if_expiring();
         assert!(!api.token_renewal.state.lock().unwrap().running);
+    }
+
+    fn details(json: serde_json::Value) -> Playlist {
+        serde_json::from_value::<PlaylistDetails>(json)
+            .unwrap()
+            .into()
+    }
+
+    #[test]
+    fn test_playlist_details_become_a_playlist_without_tracks() {
+        let playlist = details(serde_json::json!({
+            "id": "p1", "name": "Mix", "owner": {"id": "me", "display_name": "Me"},
+            "snapshot_id": "s1", "collaborative": true,
+            "images": [{"url": "https://cover", "width": null, "height": null}],
+            "items": {"total": 42},
+        }));
+        assert_eq!(playlist.id, "p1");
+        assert_eq!(playlist.owner_name.as_deref(), Some("Me"));
+        assert_eq!(playlist.num_tracks, 42);
+        assert_eq!(playlist.cover_url.as_deref(), Some("https://cover"));
+        assert!(playlist.collaborative);
+        assert!(playlist.tracks.is_none());
+    }
+
+    #[test]
+    fn test_playlist_details_from_before_the_2026_changes() {
+        let playlist = details(serde_json::json!({
+            "id": "p1", "name": "Mix", "owner": {"id": "me", "display_name": null},
+            "snapshot_id": "s1", "images": null, "tracks": {"total": 7},
+        }));
+        assert_eq!(playlist.num_tracks, 7);
+        assert_eq!(playlist.cover_url, None);
     }
 }
