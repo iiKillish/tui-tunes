@@ -5,4 +5,11 @@
 unmaintained = "workspace"
 ignore = [
     { id = "RUSTSEC-2021-0127", reason = "serde_cbor is unmaintained but has no known vulnerabilities; it only reads and writes the state file ttunes itself saves" },
+    # librespot-core 0.8 needs quick-xml 0.38. It only reads Spotify's ProductInfo message, from
+    # Spotify's own server after the encrypted handshake, with a plain Reader (not NsReader).
+    { id = "RUSTSEC-2026-0194", reason = "quick-xml 0.38 via librespot-core 0.8 only parses ProductInfo from Spotify's server over the encrypted session; drop once librespot updates" },
+    { id = "RUSTSEC-2026-0195", reason = "affects NsReader, which librespot-core 0.8 doesn't use (it uses quick_xml::Reader)" },
+    # librespot only verifies Spotify's server signature with a public key; the Marvin attack is
+    # against decryption with a private key.
+    { id = "RUSTSEC-2023-0071", reason = "rsa is only used by librespot-core to verify a signature with a public key, which the timing attack doesn't affect" },
 ]
