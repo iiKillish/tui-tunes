@@ -212,7 +212,10 @@ impl Spotify {
             .or_else(|| env::var("http_proxy").ok())
         {
             Some(proxy) if !proxy.is_empty() => {
-                info!("Setting proxy {proxy}");
+                info!(
+                    "Setting proxy {}",
+                    crate::utils::redact_proxy_password(&proxy)
+                );
                 session_config.proxy = Url::parse(&proxy).ok();
             }
             _ => debug!("No proxy set"),

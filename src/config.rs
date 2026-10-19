@@ -387,7 +387,10 @@ pub fn preload_environment(filename: Option<String>) {
         .map(str::trim)
         .filter(|proxy| !proxy.is_empty());
     if let Some(proxy) = proxy {
-        log::info!("Setting proxy {proxy}");
+        log::info!(
+            "Setting proxy {}",
+            crate::utils::redact_proxy_password(proxy)
+        );
         let ureq_proxy = match proxy.split_once("://") {
             Some(("socks5h", rest)) => format!("socks5://{rest}"),
             _ => proxy.to_owned(),

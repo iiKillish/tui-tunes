@@ -151,6 +151,23 @@ pub fn search_text(text: &str) -> String {
         .collect()
 }
 
+/// Hide the password in a proxy URL like `http://user:password@host:8080`, for logging it.
+///
+/// Anything that doesn't look like it holds a password is returned unchanged.
+pub fn redact_proxy_password(proxy: &str) -> String {
+    let (scheme, rest) = match proxy.split_once("://") {
+        Some((scheme, rest)) => (format!("{scheme}://"), rest),
+        None => (String::new(), proxy),
+    };
+    let authority = &rest[..rest.find(['/', '?', '#']).unwrap_or(rest.len())];
+    if let Some(at) = authority.rfind('@')
+        && let Some((user, _)) = authority[..at].split_once(':')
+    {
+        return format!("{scheme}{user}:***{}", &rest[at..]);
+    }
+    proxy.to_owned()
+}
+
 /// Return the path to the current user's runtime directory, or None if it couldn't be found.
 /// This function does not guarantee correct ownership or permissions of the directory.
 #[cfg(unix)]
@@ -177,7 +194,7 @@ fn xdg_runtime_directory() -> Option<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_duration, search_text};
+    use super::{parse_duration, redact_proxy_password, search_text};
     use std::time::Duration;
 
     #[test]
@@ -202,6 +219,24 @@ mod tests {
     fn huge_durations_are_an_error_not_a_hang() {
         assert!(parse_duration(&format!("{}h", "9".repeat(400))).is_err());
         assert!(parse_duration("1e1000000000s").is_err());
+    }
+
+    #[test]
+    fn proxy_passwords_are_hidden() {
+        assert_eq!(
+            redact_proxy_password("http://me:secret@proxy:8080/path"),
+            "http://me:***@proxy:8080/path"
+        );
+        assert_eq!(
+            redact_proxy_password("socks5h://me:p@ss@proxy"),
+            "socks5h://me:***@proxy"
+        );
+        assert_eq!(redact_proxy_password("me:secret@proxy"), "me:***@proxy");
+        assert_eq!(redact_proxy_password("http://me@proxy"), "http://me@proxy");
+        assert_eq!(
+            redact_proxy_password("http://proxy:8080/a:b@c"),
+            "http://proxy:8080/a:b@c"
+        );
     }
 
     #[test]
