@@ -221,6 +221,8 @@ fn full_app() -> App {
     ctx.library.albums.write().unwrap().push(album());
     ctx.library.playlists.write().unwrap().push(playlist());
     ctx.library.artists.write().unwrap().push(artist());
+    ctx.library.index_tracks();
+    ctx.library.index_playlists();
     *ctx.library.is_done.write().unwrap() = true;
     for track in tracks(25) {
         ctx.queue.append(Playable::Track(track));
@@ -940,4 +942,44 @@ fn test_key_list_scrolls_back_to_its_titles() {
         terminal.draw(|frame| app.draw(frame)).unwrap();
     }
     assert!(screen_text(&terminal).contains("Library tabs"));
+}
+
+#[test]
+fn test_saved_checks_dont_lock_the_library_lists() {
+    // Liked Songs draws while holding the library's tracks, and asks the library whether each one
+    // is saved: that mustn't need the tracks (or a change waiting for them would block both).
+    let app = full_app();
+    let library = &app.ctx.library;
+    let _tracks = library.tracks.write().unwrap();
+    let _playlists = library.playlists.write().unwrap();
+    assert!(library.is_saved_track_id(Some("test1")));
+    assert!(!library.is_saved_track_id(Some("unknown")));
+    assert!(library.is_saved_playlist(&playlist()));
+}
+
+#[test]
+fn test_go_to_album_opens_without_waiting_for_spotify() {
+    let mut app = full_app();
+    let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
+    let mut song = track(1);
+    song.album_id = Some("album1".into());
+    let album = crate::traits::ListItem::album(&song).expect("the song's album");
+    assert_eq!(album.title, "An Album Title");
+    assert!(album.tracks.is_none());
+    let ctx = app.ctx.clone();
+    app.open_page(Box::new(pages::album::AlbumPage::new(album, &ctx)));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let text = screen_text(&terminal);
+    assert!(text.contains("An Album Title"), "no header:\n{text}");
+}
+
+#[test]
+fn test_idle_app_waits_for_events() {
+    use std::time::Duration;
+    let mut app = full_app();
+    // Nothing playing or counting down: no need to draw again for a good while.
+    assert!(app.redraw_after() >= Duration::from_secs(10));
+    // A message is drawn again when it's due to go.
+    app.set_message(Ok("Hello".into()));
+    assert!(app.redraw_after() <= Duration::from_secs(5));
 }

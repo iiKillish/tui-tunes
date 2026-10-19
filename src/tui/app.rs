@@ -215,6 +215,39 @@ impl App {
         self.message = Some((message, Instant::now()));
     }
 
+    /// How long to wait for something to happen before drawing again anyway: often while playing,
+    /// so the progress moves; until the message is due to go; every second while a countdown
+    /// or a "loading…" shows. Otherwise only now and then, for what's refreshed when drawn
+    /// (Home and Stats reload after a while, and Home retries soon after Spotify didn't answer).
+    pub fn redraw_after(&self) -> Duration {
+        const PLAYING: Duration = Duration::from_millis(250);
+        const COUNTDOWN: Duration = Duration::from_secs(1);
+        const IDLE: Duration = Duration::from_secs(30);
+        let ctx = &self.ctx;
+        if matches!(
+            ctx.spotify.get_current_status(),
+            crate::spotify::PlayerEvent::Playing(_)
+        ) {
+            return PLAYING;
+        }
+        let mut wait = IDLE;
+        if let Some(left) = self
+            .message
+            .as_ref()
+            .and_then(|(_, at)| MESSAGE_TIME.checked_sub(at.elapsed()))
+        {
+            wait = wait.min(left);
+        }
+        if ctx.queue.sleep_timer().is_some()
+            || ctx.spotify.loading().is_some()
+            || !*ctx.library.is_done.read().unwrap()
+            || crate::spotify_api::rate_limit_remaining().is_some()
+        {
+            wait = wait.min(COUNTDOWN);
+        }
+        wait
+    }
+
     /// Open `page` on top of the current screen, as if an item had been opened.
     #[cfg(test)]
     pub fn open_page(&mut self, page: Box<dyn crate::tui::page::Page>) {
@@ -642,6 +675,13 @@ impl App {
     pub fn draw(&mut self, frame: &mut Frame) {
         if let Some(error) = crate::tui::take_background_error() {
             self.set_message(Err(error));
+        }
+        if let Some(item) = crate::tui::take_background_open() {
+            let outcome = match item.target() {
+                Some(target) => Outcome::Open(crate::tui::nav::open_target(target, &self.ctx)),
+                None => Outcome::Overlay(crate::tui::nav::context_menu(item, &self.ctx)),
+            };
+            self.apply(outcome, false);
         }
         hints::clear();
         images::begin_frame();

@@ -58,6 +58,8 @@ pub struct Card {
     pub title: String,
     pub subtitle: String,
     pub image: Option<String>,
+    /// An artist from the library, made without their saved tracks; see [Self::resolved].
+    library_artist: bool,
 }
 
 impl Card {
@@ -67,6 +69,7 @@ impl Card {
             subtitle: format!("Album • {}", album.artists.join(", ")),
             image: album.cover_url.clone(),
             item: CardItem::Album(album),
+            library_artist: false,
         }
     }
 
@@ -79,6 +82,7 @@ impl Card {
             },
             image: playlist.cover_url.clone(),
             item: CardItem::Playlist(playlist),
+            library_artist: false,
         }
     }
 
@@ -89,6 +93,7 @@ impl Card {
             // Looked up when the card is drawn, so only for cards on screen.
             image: artist.known_image_url(),
             item: CardItem::Artist(artist),
+            library_artist: false,
         }
     }
 
@@ -98,6 +103,7 @@ impl Card {
             subtitle: track.artists.join(", "),
             image: track.cover_url.clone(),
             item: CardItem::Track(track),
+            library_artist: false,
         }
     }
 
@@ -107,7 +113,22 @@ impl Card {
             title: "Liked Songs".into(),
             subtitle: format!("Playlist • {count} songs"),
             image: None,
+            library_artist: false,
         }
+    }
+
+    /// An artist from the library, without the saved tracks it comes with: library grids make
+    /// their cards on every draw. They're put back by [Self::resolved].
+    pub fn library_artist(artist: &Artist) -> Self {
+        let mut card = Self::artist(Artist {
+            id: artist.id.clone(),
+            name: artist.name.clone(),
+            url: artist.url.clone(),
+            tracks: None,
+            is_followed: artist.is_followed,
+        });
+        card.library_artist = true;
+        card
     }
 
     fn as_listitem(&self) -> Option<Box<dyn ListItem>> {
@@ -120,9 +141,9 @@ impl Card {
         })
     }
 
-    /// The card with its album or playlist as stored in the library, tracks included: library
-    /// grids make their cards without them (see [crate::tui::pages::library]), so they're put
-    /// back before acting on the card instead of being loaded from Spotify again.
+    /// The card with its album, playlist or library artist as stored in the library, tracks
+    /// included: library grids make their cards without them (see [crate::tui::pages::library]),
+    /// so they're put back before acting on the card instead of being loaded from Spotify again.
     fn resolved(&self, library: &Library) -> Self {
         let mut card = self.clone();
         match &mut card.item {
@@ -130,6 +151,12 @@ impl Card {
                 let playlists = library.playlists.read().unwrap();
                 if let Some(full) = playlists.iter().find(|p| p.id == playlist.id) {
                     *playlist = full.clone();
+                }
+            }
+            CardItem::Artist(artist) if self.library_artist => {
+                let artists = library.artists.read().unwrap();
+                if let Some(full) = artists.iter().find(|a| a.id == artist.id) {
+                    *artist = full.clone();
                 }
             }
             CardItem::Album(album) if album.tracks.is_none() && album.id.is_some() => {
@@ -721,7 +748,7 @@ impl Page for CardGrid {
                     return Outcome::Consumed;
                 };
                 return match mode {
-                    GotoMode::Album => match item.album(&ctx.queue) {
+                    GotoMode::Album => match item.album() {
                         Some(album) => {
                             Outcome::Open(nav::open_target(OpenTarget::Album(album), ctx))
                         }

@@ -250,11 +250,8 @@ impl Application {
             }
             terminal.draw(&mut app).map_err(|e| e.to_string())?;
 
-            // Wait for something to happen; redraw at least a few times a second while playing
-            // so the progress moves.
-            let mut next = self
-                .event_manager
-                .recv_timeout(std::time::Duration::from_millis(250));
+            // Wait for something to happen, or until something on screen changes with time.
+            let mut next = self.event_manager.recv_timeout(app.redraw_after());
             while let Some(event) = next {
                 self.handle(event, &mut app, &mut terminal);
                 next = self.event_manager.msg_iter().next();

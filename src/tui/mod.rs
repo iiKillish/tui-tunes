@@ -64,6 +64,26 @@ pub fn report_error(message: String) {
     request_redraw();
 }
 
+/// An item found by work in the background, opened on the next frame.
+static BACKGROUND_OPEN: std::sync::Mutex<Option<Box<dyn crate::traits::ListItem>>> =
+    std::sync::Mutex::new(None);
+
+/// Open `item` (its page, or its menu for tracks and episodes) from any thread, e.g. once a link
+/// has been looked up.
+pub fn open_later(item: Box<dyn crate::traits::ListItem>) {
+    // As with errors: not in another test's screen.
+    if cfg!(test) {
+        return;
+    }
+    *BACKGROUND_OPEN.lock().unwrap() = Some(item);
+    request_redraw();
+}
+
+/// The item [open_later] left, if any.
+pub fn take_background_open() -> Option<Box<dyn crate::traits::ListItem>> {
+    BACKGROUND_OPEN.lock().unwrap().take()
+}
+
 /// The error [report_error] left, if any.
 pub fn take_background_error() -> Option<String> {
     BACKGROUND_ERROR.lock().unwrap().take()

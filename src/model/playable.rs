@@ -235,8 +235,8 @@ impl ListItem for Playable {
         self.inner().share_url()
     }
 
-    fn album(&self, queue: &Queue) -> Option<Album> {
-        self.inner().album(queue)
+    fn album(&self) -> Option<Album> {
+        self.inner().album()
     }
 
     fn artists(&self) -> Option<Vec<Artist>> {
@@ -245,6 +245,13 @@ impl ListItem for Playable {
 
     fn track(&self) -> Option<Track> {
         self.inner().track()
+    }
+
+    fn track_ref(&self) -> Option<&Track> {
+        match self {
+            Self::Track(track) => Some(track),
+            Self::Episode(_) => None,
+        }
     }
 
     fn as_listitem(&self) -> Box<dyn ListItem> {

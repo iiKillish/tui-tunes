@@ -45,7 +45,7 @@ pub fn context_menu(item: Box<dyn ListItem>, ctx: &Ctx) -> Box<dyn Overlay> {
             Outcome::Replace(nav::add_to_playlist(vec![t.clone()], ctx))
         }));
     }
-    if let Some(album) = item.album(&ctx.queue) {
+    if let Some(album) = item.album() {
         entries.push(Entry::new("Go to album", move |ctx| {
             Outcome::Open(nav::open_target(OpenTarget::Album(album.clone()), ctx))
         }));

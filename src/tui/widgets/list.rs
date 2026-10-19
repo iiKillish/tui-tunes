@@ -163,20 +163,26 @@ impl<I: ListItem + Clone> ItemList<I> {
     pub fn draw(&mut self, frame: &mut Frame, area: Rect, ctx: &Ctx, focused: bool) {
         self.area = area;
         let styles = Styles(&ctx.palette);
-        let content = self.content.read().unwrap();
-        let len = content.len();
-        self.selected = min(self.selected, len.saturating_sub(1));
         let rows = usize::from(area.height);
         let paginator = usize::from(self.can_paginate());
-        self.first = scroll_to(self.first, self.selected, rows);
-        self.first = min(self.first, (len + paginator).saturating_sub(rows));
+        // Only the rows on screen, copied so the list isn't locked while they're drawn: drawing
+        // asks the library things (is this saved?), and the list may be one of the library's.
+        let (len, thumb, visible) = {
+            let content = self.content.read().unwrap();
+            let len = content.len();
+            self.selected = min(self.selected, len.saturating_sub(1));
+            self.first = scroll_to(self.first, self.selected, rows);
+            self.first = min(self.first, (len + paginator).saturating_sub(rows));
+            let thumb = self.thumbnail_width(&content, area.width);
+            let end = min(len, self.first + rows);
+            (len, thumb, content[self.first.min(end)..end].to_vec())
+        };
 
         let number_width = if self.numbered {
             width(&len.to_string()).max(2) + 2
         } else {
             0
         };
-        let thumb = self.thumbnail_width(&content, area.width);
         let current = ctx.queue.get_current_index();
         let buf = frame.buffer_mut();
 
@@ -196,13 +202,13 @@ impl<I: ListItem + Clone> ItemList<I> {
                 );
                 continue;
             }
-            let Some(item) = content.get(index) else {
+            let Some(item) = visible.get(row) else {
                 break;
             };
             pointer::clickable(line);
             let playing = item.is_playing(&ctx.queue) && current.is_some();
             let unplayable = item
-                .track()
+                .track_ref()
                 .is_some_and(|t| t.is_local || t.is_playable == Some(false));
             let style = if index == self.selected {
                 if focused {
@@ -256,7 +262,7 @@ impl<I: ListItem + Clone> ItemList<I> {
 
             // Tracks (design R2): the title, then the artists dimmed, then the album in its own
             // column (left out on album pages). Other items use their own display text.
-            let (left, artists, center) = match item.track() {
+            let (left, artists, center) = match item.track_ref() {
                 Some(track) => (
                     track.title.clone(),
                     track.artists.join(", "),
@@ -334,22 +340,23 @@ impl<I: ListItem + Clone> ItemList<I> {
     /// Play from the selected item: for lists of tracks, the whole list from there (so the rest
     /// follows in the queue); otherwise the item itself (an album, a playlist…).
     fn play(&self, ctx: &Ctx) {
-        let content = self.content.read().unwrap();
-        let any = &*content as &dyn std::any::Any;
-        let tracks: Option<Vec<Playable>> =
+        let tracks: Option<Vec<Playable>> = {
+            let content = self.content.read().unwrap();
+            let any = &*content as &dyn std::any::Any;
             any.downcast_ref::<Vec<Playable>>().cloned().or_else(|| {
                 any.downcast_ref::<Vec<Track>>()
                     .map(|t| t.iter().cloned().map(Playable::Track).collect())
-            });
-        ctx.queue.clear();
+            })
+        };
         match tracks {
             Some(tracks) => {
+                ctx.queue.clear();
                 let index = ctx.queue.append_next_from(&tracks, self.source.as_deref());
                 ctx.queue.play(index + self.selected, true, false);
             }
             None => {
-                if let Some(item) = content.get(self.selected) {
-                    item.clone().play(&ctx.queue);
+                if let Some(item) = self.selected_item() {
+                    nav::play_item(item.as_listitem(), ctx);
                 }
             }
         }
@@ -449,7 +456,7 @@ impl<I: ListItem + Clone> ItemList<I> {
                     return Outcome::Consumed;
                 };
                 return match mode {
-                    GotoMode::Album => match item.album(&ctx.queue) {
+                    GotoMode::Album => match item.album() {
                         Some(album) => Outcome::Open(nav::open_target(
                             crate::traits::OpenTarget::Album(album),
                             ctx,

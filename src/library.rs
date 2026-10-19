@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet};
-use std::fs::File;
+use std::hash::{DefaultHasher, Hash, Hasher};
+use std::io::Write;
 use std::iter::Iterator;
-use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 
 use log::{debug, error, info};
@@ -48,6 +49,12 @@ pub struct Library {
     /// Tracks being saved (true) or removed (false) by [Self::toggle_saved_track_in_background],
     /// shown in their new state until Spotify has been told.
     pending_saves: Arc<RwLock<HashMap<String, bool>>>,
+    /// IDs of [Self::tracks] and [Self::playlists], kept up to date with them by
+    /// [Self::index_tracks] and [Self::index_playlists].
+    saved_ids: Arc<RwLock<SavedIds>>,
+    /// A hash of what [Self::save_cache] last wrote to each file, so it isn't written again
+    /// unchanged.
+    saved_caches: Arc<Mutex<HashMap<PathBuf, u64>>>,
     ev: EventManager,
     spotify: Spotify,
     pub cfg: Arc<Config>,
@@ -67,6 +74,8 @@ impl Library {
             user_id: None,
             display_name: None,
             pending_saves: Arc::default(),
+            saved_ids: Arc::default(),
+            saved_caches: Arc::default(),
             ev,
             spotify,
             cfg,
@@ -88,6 +97,8 @@ impl Library {
             user_id,
             display_name,
             pending_saves: Arc::default(),
+            saved_ids: Arc::default(),
+            saved_caches: Arc::default(),
             ev,
             spotify,
             cfg,
@@ -131,12 +142,36 @@ impl Library {
         }
     }
 
-    /// Save the items from `store` in the file at `cache_path`.
+    /// Save the items from `store` in the file at `cache_path`, unless that's what it holds
+    /// already. Written to a file beside it first, then moved over it, so a crash or a full disk
+    /// can't leave half a cache.
     fn save_cache<T: Serialize>(&self, cache_path: &Path, store: &[T]) {
-        let cache_file = File::create(cache_path).unwrap();
-        let serialize_result = serde_json::to_writer(cache_file, store);
-        if let Err(message) = serialize_result {
-            error!("could not write cache: {message:?}");
+        let json = match serde_json::to_vec(store) {
+            Ok(json) => json,
+            Err(e) => {
+                error!("could not write cache {}: {e}", cache_path.display());
+                return;
+            }
+        };
+        let mut hasher = DefaultHasher::new();
+        json.hash(&mut hasher);
+        let hash = hasher.finish();
+        let mut saved = self.saved_caches.lock().unwrap();
+        if saved.get(cache_path) == Some(&hash) {
+            return;
+        }
+        let temp = cache_path.with_extension("db.tmp");
+        let written = std::fs::File::create(&temp)
+            .and_then(|mut file| file.write_all(&json))
+            .and_then(|()| std::fs::rename(&temp, cache_path));
+        match written {
+            Ok(()) => {
+                saved.insert(cache_path.to_path_buf(), hash);
+            }
+            Err(e) => {
+                error!("could not write cache {}: {e}", cache_path.display());
+                let _ = std::fs::remove_file(&temp);
+            }
         }
     }
 
@@ -163,7 +198,10 @@ impl Library {
             }
         }
         store.push(updated);
-        store.len() - 1
+        let index = store.len() - 1;
+        drop(store);
+        self.index_playlists();
+        index
     }
 
     /// Delete the playlist with the given `id` if it exists.
@@ -183,6 +221,7 @@ impl Library {
             && self.spotify.api.delete_playlist(id).is_ok()
         {
             self.playlists.write().unwrap().remove(position);
+            self.index_playlists();
             self.save_cache(
                 &config::cache_path(CACHE_PLAYLISTS),
                 &self.playlists.read().unwrap(),
@@ -225,6 +264,7 @@ impl Library {
                         &config::cache_path(CACHE_TRACKS),
                         library.tracks.write().unwrap().as_mut(),
                     );
+                    library.index_tracks();
                     if library.fetch_tracks(force) {
                         library.save_cache(
                             &config::cache_path(CACHE_TRACKS),
@@ -268,6 +308,7 @@ impl Library {
                         &config::cache_path(CACHE_PLAYLISTS),
                         library.playlists.write().unwrap().as_mut(),
                     );
+                    library.index_playlists();
                     library.fetch_playlists();
                     library.save_cache(
                         &config::cache_path(CACHE_PLAYLISTS),
@@ -382,6 +423,7 @@ impl Library {
                 self.playlists.write().unwrap().remove(index);
             }
         }
+        self.index_playlists();
 
         // sort by remote order
         self.playlists.write().unwrap().sort_by(|a, b| {
@@ -543,6 +585,7 @@ impl Library {
         }
 
         *self.tracks.write().unwrap() = tracks;
+        self.index_tracks();
         true
     }
 
@@ -666,8 +709,33 @@ impl Library {
             return saved;
         }
 
-        let tracks = self.tracks.read().unwrap();
-        tracks.iter().any(|t| t.id.as_deref() == id)
+        // Not `self.tracks`: Liked Songs holds it while drawing, and taking it again would wait
+        // behind any change to it that's waiting for that.
+        id.is_some_and(|id| self.saved_ids.read().unwrap().tracks.contains(id))
+    }
+
+    /// Bring the IDs [Self::is_saved_track] looks up in line with [Self::tracks].
+    pub(crate) fn index_tracks(&self) {
+        let ids = self
+            .tracks
+            .read()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t.id.clone())
+            .collect();
+        self.saved_ids.write().unwrap().tracks = ids;
+    }
+
+    /// Bring the IDs [Self::is_saved_playlist] looks up in line with [Self::playlists].
+    pub(crate) fn index_playlists(&self) {
+        let ids = self
+            .playlists
+            .read()
+            .unwrap()
+            .iter()
+            .map(|p| p.id.clone())
+            .collect();
+        self.saved_ids.write().unwrap().playlists = ids;
     }
 
     /// Save `track` if it isn't saved, else remove it, without waiting for Spotify: the new state
@@ -711,28 +779,27 @@ impl Library {
             return;
         }
 
+        let mut added = Vec::new();
         {
             let mut store = self.tracks.write().unwrap();
-            let mut i = 0;
             for track in tracks {
                 if store.iter().any(|t| t.id == track.id) {
                     continue;
                 }
 
-                store.insert(i, (*track).clone());
-                i += 1;
+                store.insert(added.len(), (*track).clone());
+                added.push(*track);
             }
         }
+        self.index_tracks();
 
-        self.populate_artists();
+        // Just the artists of these tracks change. The artists cache isn't saved: what it holds
+        // about saved tracks is worked out from the tracks again on every start.
+        add_artist_tracks(&mut self.artists.write().unwrap(), &added);
 
         self.save_cache(
             &config::cache_path(CACHE_TRACKS),
             &self.tracks.read().unwrap(),
-        );
-        self.save_cache(
-            &config::cache_path(CACHE_ARTISTS),
-            &self.artists.read().unwrap(),
         );
     }
 
@@ -753,24 +820,18 @@ impl Library {
             return;
         }
 
-        {
-            let mut store = self.tracks.write().unwrap();
-            *store = store
-                .iter()
-                .filter(|t| !tracks.iter().any(|tt| t.id == tt.id))
-                .cloned()
-                .collect();
-        }
+        self.tracks
+            .write()
+            .unwrap()
+            .retain(|t| !tracks.iter().any(|tt| t.id == tt.id));
+        self.index_tracks();
 
-        self.populate_artists();
+        // As in [Self::save_tracks].
+        remove_artist_tracks(&mut self.artists.write().unwrap(), tracks);
 
         self.save_cache(
             &config::cache_path(CACHE_TRACKS),
             &self.tracks.read().unwrap(),
-        );
-        self.save_cache(
-            &config::cache_path(CACHE_ARTISTS),
-            &self.artists.read().unwrap(),
         );
     }
 
@@ -923,8 +984,11 @@ impl Library {
             return false;
         }
 
-        let playlists = self.playlists.read().unwrap();
-        playlists.iter().any(|p| p.id == playlist.id)
+        self.saved_ids
+            .read()
+            .unwrap()
+            .playlists
+            .contains(&playlist.id)
     }
 
     /// Check whether `playlist` is in the library but not created by the library's owner.
@@ -955,6 +1019,7 @@ impl Library {
                 store.insert(0, playlist);
             }
         }
+        self.index_playlists();
 
         self.save_cache(
             &config::cache_path(CACHE_PLAYLISTS),
@@ -992,6 +1057,56 @@ impl Library {
     pub fn trigger_redraw(&self) {
         self.ev.trigger();
     }
+}
+
+/// How [Library::populate_artists] orders artists: by name, ignoring a leading "The ".
+fn artist_sort_name(artist: &Artist) -> &str {
+    artist.name.strip_prefix("The ").unwrap_or(&artist.name)
+}
+
+/// [Library::populate_artists] after `added` were saved (newest first, before the tracks saved
+/// earlier), without going through every saved track: they're put first in their artists' saved
+/// tracks, and artists not in `artists` yet are added in order.
+fn add_artist_tracks(artists: &mut Vec<Artist>, added: &[&Track]) {
+    for track in added.iter().rev() {
+        for (id, name) in track.artist_ids.iter().zip(&track.artists) {
+            let artist = match artists.iter().position(|a| a.id.as_ref() == Some(id)) {
+                Some(index) => &mut artists[index],
+                None => {
+                    let artist = Artist::new(id.clone(), name.clone());
+                    let index = artists.partition_point(|a| {
+                        artist_sort_name(a)
+                            .partial_cmp(artist_sort_name(&artist))
+                            .is_some_and(|order| order.is_le())
+                    });
+                    artists.insert(index, artist);
+                    &mut artists[index]
+                }
+            };
+            let saved = artist.tracks.get_or_insert_default();
+            if !saved.iter().any(|t| t.id == track.id) {
+                saved.insert(0, (*track).clone());
+            }
+        }
+    }
+}
+
+/// [Library::populate_artists] after `removed` were unsaved: they're taken out of their artists'
+/// saved tracks, and artists left with none that aren't followed are taken out of `artists`.
+fn remove_artist_tracks(artists: &mut Vec<Artist>, removed: &[&Track]) {
+    for artist in artists.iter_mut() {
+        if let Some(saved) = &mut artist.tracks {
+            saved.retain(|t| !removed.iter().any(|r| r.id == t.id));
+        }
+    }
+    artists.retain(|a| a.is_followed || a.tracks.as_ref().is_some_and(|t| !t.is_empty()));
+}
+
+/// See [Library::saved_ids].
+#[derive(Default)]
+struct SavedIds {
+    tracks: HashSet<String>,
+    playlists: HashSet<String>,
 }
 
 /// New saves are listed first, so any change shows in the first page or the total.
@@ -1050,7 +1165,10 @@ fn album_sort_key(album: &Album) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{albums_unchanged, followed_unchanged, sort_albums, tracks_unchanged};
+    use super::{
+        add_artist_tracks, albums_unchanged, followed_unchanged, remove_artist_tracks, sort_albums,
+        tracks_unchanged,
+    };
     use crate::model::album::Album;
     use crate::model::artist::Artist;
     use crate::model::track::Track;
@@ -1206,5 +1324,32 @@ mod tests {
             &cached
         ));
         assert!(!followed_unchanged(None, &followed(&["b", "a"]), &cached));
+    }
+
+    #[test]
+    fn liking_and_unliking_updates_just_those_artists() {
+        let mut followed = Artist::new("f".into(), "The Followed".into());
+        followed.is_followed = true;
+        followed.tracks = Some(Vec::new());
+        let mut artists = vec![followed];
+        let mut song = tracks(&["s1"]).remove(0);
+        song.artist_ids = vec!["f".into(), "n".into()];
+        song.artists = vec!["The Followed".into(), "Abba".into()];
+        add_artist_tracks(&mut artists, &[&song]);
+        let names: Vec<_> = artists.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, ["Abba", "The Followed"]);
+        assert!(
+            artists
+                .iter()
+                .all(|a| a.tracks.as_ref().unwrap().len() == 1)
+        );
+        // Liked again: not twice.
+        add_artist_tracks(&mut artists, &[&song]);
+        assert_eq!(artists[0].tracks.as_ref().unwrap().len(), 1);
+
+        remove_artist_tracks(&mut artists, &[&song]);
+        let names: Vec<_> = artists.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(names, ["The Followed"]);
+        assert!(artists[0].tracks.as_ref().unwrap().is_empty());
     }
 }

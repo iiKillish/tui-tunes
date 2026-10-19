@@ -61,7 +61,7 @@ pub fn new(ctx: &Ctx) -> Tabbed {
                 Box::new(grid("Artists", library, |library| {
                     let artists = library.artists.read().unwrap();
                     (!artists.is_empty() || !is_loading(library))
-                        .then(|| artists.iter().cloned().map(Card::artist).collect())
+                        .then(|| artists.iter().map(Card::library_artist).collect())
                 })),
             ),
             LibraryTab::Tracks => {
@@ -98,8 +98,8 @@ fn is_loading(library: &Library) -> bool {
 }
 
 /// A grid of the cards `cards` makes from the library (`None` while loading), kept up to date as
-/// the library changes. The cards are made on every draw, so they leave out the tracks of albums
-/// and playlists (slow to clone); see [Card::resolved].
+/// the library changes. The cards are made on every draw, so they leave out the tracks of albums,
+/// playlists and artists (slow to clone); see [Card::resolved].
 fn grid(
     title: &str,
     library: &Arc<Library>,

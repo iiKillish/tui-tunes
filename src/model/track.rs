@@ -216,60 +216,33 @@ impl ListItem for Track {
     }
 
     fn display_left(&self, library: &Library) -> String {
-        let formatting = library
-            .cfg
-            .values()
-            .track_format
-            .clone()
-            .unwrap_or_default();
-        let default = config::TrackFormat::default().left.unwrap();
-        let left = formatting.left.unwrap_or_else(|| default.clone());
-        if left != default {
-            Playable::format(&Playable::Track(self.clone()), &left, library)
-        } else {
-            format!("{self}")
+        match custom_format(library, |f| &f.left) {
+            Some(left) => Playable::format(&Playable::Track(self.clone()), &left, library),
+            None => format!("{self}"),
         }
     }
 
     fn display_center(&self, library: &Library) -> String {
-        let formatting = library
-            .cfg
-            .values()
-            .track_format
-            .clone()
-            .unwrap_or_default();
-        let default = config::TrackFormat::default().center.unwrap();
-        let center = formatting.center.unwrap_or_else(|| default.clone());
-        if center != default {
-            Playable::format(&Playable::Track(self.clone()), &center, library)
-        } else {
-            self.album.clone().unwrap_or_default()
+        match custom_format(library, |f| &f.center) {
+            Some(center) => Playable::format(&Playable::Track(self.clone()), &center, library),
+            None => self.album.clone().unwrap_or_default(),
         }
     }
 
     fn display_right(&self, library: &Library) -> String {
-        let formatting = library
-            .cfg
-            .values()
-            .track_format
-            .clone()
-            .unwrap_or_default();
-        let default = config::TrackFormat::default().right.unwrap();
-        let right = formatting.right.unwrap_or_else(|| default.clone());
-        if right != default {
-            Playable::format(&Playable::Track(self.clone()), &right, library)
-        } else {
-            let saved = if library.is_saved_track(&Playable::Track(self.clone())) {
-                if library.cfg.values().use_nerdfont.unwrap_or(false) {
-                    "\u{f012c}"
-                } else {
-                    "✓"
-                }
-            } else {
-                ""
-            };
-            format!("{} {}", saved, self.duration_str())
+        if let Some(right) = custom_format(library, |f| &f.right) {
+            return Playable::format(&Playable::Track(self.clone()), &right, library);
         }
+        let saved = if library.is_saved_track_id(self.id.as_deref()) {
+            if library.cfg.values().use_nerdfont.unwrap_or(false) {
+                "\u{f012c}"
+            } else {
+                "✓"
+            }
+        } else {
+            ""
+        };
+        format!("{} {}", saved, self.duration_str())
     }
 
     fn play(&mut self, queue: &Queue) {
@@ -295,13 +268,14 @@ impl ListItem for Track {
             .map(|id| format!("https://open.spotify.com/track/{id}"))
     }
 
-    fn album(&self, queue: &Queue) -> Option<Album> {
-        let spotify = queue.get_spotify();
-
-        match self.album_id {
-            Some(ref album_id) => spotify.api.album(album_id).map(|ref fa| fa.into()).ok(),
-            None => None,
-        }
+    fn album(&self) -> Option<Album> {
+        let id = self.album_id.clone().filter(|id| !id.is_empty())?;
+        Some(Album::stub(
+            id,
+            self.album.clone().unwrap_or_default(),
+            self.album_artists.clone(),
+            self.cover_url.clone(),
+        ))
     }
 
     fn artists(&self) -> Option<Vec<Artist>> {
@@ -318,6 +292,10 @@ impl ListItem for Track {
         Some(self.clone())
     }
 
+    fn track_ref(&self) -> Option<&Track> {
+        Some(self)
+    }
+
     #[inline]
     fn is_playable(&self) -> bool {
         self.is_playable == Some(true)
@@ -326,4 +304,15 @@ impl ListItem for Track {
     fn as_listitem(&self) -> Box<dyn ListItem> {
         Box::new(self.clone())
     }
+}
+
+/// The user's `track_format` for one part of a track's row, if they set one other than the
+/// default. Track rows are drawn often, so the usual case copies nothing.
+fn custom_format(
+    library: &Library,
+    part: fn(&config::TrackFormat) -> &Option<String>,
+) -> Option<String> {
+    let values = library.cfg.values();
+    let custom = part(values.track_format.as_ref()?).as_ref()?;
+    (Some(custom) != part(&config::TrackFormat::default()).as_ref()).then(|| custom.clone())
 }

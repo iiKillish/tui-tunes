@@ -3,7 +3,7 @@
 //! way down. Scrolling by hand (keys or the wheel) holds the view for [MANUAL_SCROLL]; clicking a
 //! line seeks to it. Used by the Lyrics screen; reusable wherever lyrics are shown.
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use ratatui::Frame;
@@ -118,7 +118,19 @@ fn max_top(rows: usize, visible: usize) -> usize {
     rows.saturating_sub(visible)
 }
 
+/// Lyrics as laid out for a track: kept while they can't change (they've loaded, or there are
+/// none), so they're only laid out again for another track or width.
+struct LaidOut {
+    /// The track's ID, or its URI without one.
+    track: String,
+    width: usize,
+    spacious: bool,
+    lyrics: Lyrics,
+    rows: Arc<Vec<Row>>,
+}
+
 pub struct LyricsView {
+    laid_out: Option<LaidOut>,
     /// Lines centered with a blank row between them, rather than left-aligned and packed.
     spacious: bool,
     /// First row shown last.
@@ -140,6 +152,7 @@ impl Default for LyricsView {
 impl LyricsView {
     pub fn new() -> Self {
         Self {
+            laid_out: None,
             spacious: false,
             top: 0,
             manual_scroll: None,
@@ -207,18 +220,34 @@ impl LyricsView {
     }
 
     /// The rows to show for what's playing, and the line being sung.
-    fn rows(&self, width: usize, ctx: &Ctx) -> (Vec<Row>, Option<usize>) {
+    fn rows(&mut self, width: usize, ctx: &Ctx) -> (Arc<Vec<Row>>, Option<usize>) {
         let track = match ctx.queue.get_current() {
             Some(Playable::Track(track)) => track,
-            Some(Playable::Episode(_)) => return (message("No lyrics for podcasts", width), None),
-            None => return (message("Nothing playing", width), None),
+            Some(Playable::Episode(_)) => {
+                return (Arc::new(message("No lyrics for podcasts", width)), None);
+            }
+            None => return (Arc::new(message("Nothing playing", width)), None),
         };
-        let lyrics = store().get(&track, crate::tui::request_redraw);
+        let key = track.id.clone().unwrap_or_else(|| track.uri.clone());
         let progress = ctx.spotify.get_current_progress().as_millis() as u32;
-        (
-            layout(&lyrics, width, self.spacious),
-            lyrics.current_line(progress),
-        )
+        if let Some(laid) = &self.laid_out
+            && laid.track == key
+            && laid.width == width
+            && laid.spacious == self.spacious
+        {
+            return (laid.rows.clone(), laid.lyrics.current_line(progress));
+        }
+        let lyrics = store().get(&track, crate::tui::request_redraw);
+        let rows = Arc::new(layout(&lyrics, width, self.spacious));
+        let current = lyrics.current_line(progress);
+        self.laid_out = (!matches!(lyrics, Lyrics::Loading | Lyrics::Failed(_))).then(|| LaidOut {
+            track: key,
+            width,
+            spacious: self.spacious,
+            lyrics,
+            rows: rows.clone(),
+        });
+        (rows, current)
     }
 
     /// Draw the lyrics filling `area`, `margin` columns in from either side.

@@ -45,10 +45,21 @@ pub fn help(app: &App) -> Box<dyn Overlay> {
     Box::new(Help::new(&app.binding_list))
 }
 
-/// An item from a Spotify link or URI: open its page, or its menu for tracks and episodes.
+/// An item from a Spotify link or URI: open its page, or its menu for tracks and episodes. It's
+/// looked up on a thread of its own and opened when found (see [crate::tui::open_later]).
 fn open_link(url: &SpotifyUrl, ctx: &Ctx) -> Outcome {
-    let api = &ctx.spotify.api;
-    let item: Option<Box<dyn ListItem>> = match url.uri_type {
+    let url = url.clone();
+    let spotify = ctx.spotify.clone();
+    std::thread::spawn(move || match find_link(&url, &spotify) {
+        Some(item) => crate::tui::open_later(item),
+        None => crate::tui::report_error("Couldn't find that on Spotify".into()),
+    });
+    Outcome::Message("Opening the link…".into())
+}
+
+fn find_link(url: &SpotifyUrl, spotify: &crate::spotify::Spotify) -> Option<Box<dyn ListItem>> {
+    let api = &spotify.api;
+    match url.uri_type {
         UriType::Track => api
             .track(&url.id)
             .ok()
@@ -67,13 +78,6 @@ fn open_link(url: &SpotifyUrl, ctx: &Ctx) -> Outcome {
             .ok()
             .map(|e| Episode::from(&e).as_listitem()),
         UriType::Show => api.show(&url.id).ok().map(|s| Show::from(&s).as_listitem()),
-    };
-    match item {
-        Some(item) => match item.target() {
-            Some(target) => Outcome::Open(nav::open_target(target, ctx)),
-            None => Outcome::Overlay(nav::context_menu(item, ctx)),
-        },
-        None => Outcome::Error("Couldn't find that on Spotify".into()),
     }
 }
 

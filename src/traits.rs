@@ -35,8 +35,9 @@ pub trait ListItem: Sync + Send + 'static {
     }
     fn share_url(&self) -> Option<String>;
 
-    /// Get the album that contains this [ListItem].
-    fn album(&self, _queue: &Queue) -> Option<Album> {
+    /// The album that contains this [ListItem], from what the item knows of it: without its
+    /// tracks or release year, which its page loads.
+    fn album(&self) -> Option<Album> {
         None
     }
 
@@ -45,6 +46,11 @@ pub trait ListItem: Sync + Send + 'static {
     }
 
     fn track(&self) -> Option<Track> {
+        None
+    }
+
+    /// [Self::track] without the copy, e.g. for drawing a row.
+    fn track_ref(&self) -> Option<&Track> {
         None
     }
 
