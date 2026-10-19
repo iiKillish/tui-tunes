@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main ]
 
+# Nothing here writes to the repository; pull requests run their own build scripts.
+permissions:
+  contents: read
+
 env:
   TERM: xterm
   # Nobody debugs CI builds; without debug info they link faster and cache smaller.
@@ -37,7 +41,9 @@ jobs:
             target: x86_64-pc-windows-msvc
             features: '--no-default-features --features rodio_backend,share_clipboard,notify'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install rustup
         if: runner.os != 'Windows'
         shell: bash
@@ -50,7 +56,7 @@ jobs:
         run: rustup component add clippy rustfmt
       # Caches dependencies by Rust version, falling back to the newest cache when Cargo.lock
       # changes. Only main saves, so pull requests don't push main's cache out.
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: ${{ matrix.target }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -73,7 +79,9 @@ jobs:
     name: Building with the oldest supported Rust
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install rustup
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       - name: Install Linux dependencies
@@ -87,19 +95,25 @@ jobs:
           rustup toolchain install "$version" --profile minimal
           echo "version=$version" >> "$GITHUB_OUTPUT"
       # The cache's own key has rust-toolchain.toml's Rust, not this one.
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: msrv-${{ steps.msrv.outputs.version }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The version comes from a pull request's Cargo.toml, so it goes in as a variable rather
+      # than being pasted into the script.
       - name: cargo check with rust-version
-        run: cargo +"${{ steps.msrv.outputs.version }}" check --locked --all-targets
+        run: cargo +"$MSRV" check --locked --all-targets
+        env:
+          MSRV: ${{ steps.msrv.outputs.version }}
 
   # Check Rust code formatting.
   fmt:
     name: Running `cargo fmt`
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install rustup
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       - name: Install clippy + rustfmt
@@ -113,12 +127,14 @@ jobs:
     name: Running `cargo clippy`
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install rustup
         run: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
       - name: Install clippy + rustfmt
         run: rustup component add clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           key: clippy
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -128,3 +144,16 @@ jobs:
           sudo apt install -y pkg-config libssl-dev libpulse-dev libasound2-dev portaudio19-dev
       - name: cargo clippy
         run: cargo clippy --locked --no-deps --workspace --all-targets --all-features --verbose -- -D warnings
+
+  # Fail when a crate in Cargo.lock has a security advisory against it. Which advisories count
+  # is set in deny.toml.
+  advisories:
+    name: Checking dependencies for security advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check advisories

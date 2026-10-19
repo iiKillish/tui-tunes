@@ -11,20 +11,24 @@ on:
         description: "Tag to build and release, e.g. v0.1.1"
         required: true
 
-# Creating the GitHub release needs write access; the default token is read-only.
+# Read-only by default. Only the release job, which runs none of the dependencies' build
+# scripts, gets write access.
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
   TERM: xterm
+  # Shell scripts read the tag from here as "$TAG" rather than having it pasted into them,
+  # so a dispatched tag name can't inject commands.
+  TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
-  publish:
-    name: Publishing ${{ matrix.build_target }}
+  build:
+    name: Building ${{ matrix.build_target }}
     runs-on: ${{ matrix.os }}
     strategy:
-      # One platform failing shouldn't cancel the others' builds.
+      # One platform failing shouldn't cancel the others' builds, so the logs show every failure.
       fail-fast: false
       matrix:
         include:
@@ -52,10 +56,12 @@ jobs:
             target: x86_64-pc-windows-msvc
             features: '--no-default-features --features rodio_backend,share_clipboard,notify'
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         name: Checkout src
         with:
           ref: ${{ inputs.tag || github.ref }}
+          # Build scripts run next; don't leave the token in .git/config for them.
+          persist-credentials: false
       - name: Install rustup
         if: runner.os != 'Windows'
         shell: bash
@@ -74,7 +80,7 @@ jobs:
         run: |
           sudo apt update
           sudo apt install -y ${{ matrix.dependencies }}
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry/index/
@@ -83,28 +89,49 @@ jobs:
           key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Running cargo build
         run: cargo build --release --target ${{ matrix.target }} ${{ matrix.features }}
-      - name: Extract git tag
-        shell: bash
-        run: echo "tag=${{ inputs.tag || github.ref_name }}" >> $GITHUB_OUTPUT
-        id: extract_tag
       - name: Packaging assets
         shell: bash
         run: |
           cd target/${{ matrix.target }}/release
+          name="ttunes-$TAG-${{ matrix.build_target }}"
           case ${{ matrix.target }} in
           *-pc-windows-*)
-            7z -y a ttunes-${{ steps.extract_tag.outputs.tag }}-${{ matrix.build_target }}.zip ttunes.exe
-            sha256sum ttunes-${{ steps.extract_tag.outputs.tag }}-${{ matrix.build_target }}.zip > ttunes-${{ steps.extract_tag.outputs.tag }}-${{ matrix.build_target }}.sha256
+            7z -y a "$name.zip" ttunes.exe
+            sha256sum "$name.zip" > "$name.sha256"
             ;;
           *)
-            tar czvf ttunes-${{ steps.extract_tag.outputs.tag }}-${{ matrix.build_target }}.tar.gz ttunes
-            shasum -a 256 ttunes-${{ steps.extract_tag.outputs.tag }}-${{ matrix.build_target }}.tar.gz > ttunes-${{ steps.extract_tag.outputs.tag }}-${{ matrix.build_target }}.sha256
+            tar czvf "$name.tar.gz" ttunes
+            shasum -a 256 "$name.tar.gz" > "$name.sha256"
             ;;
           esac;
-      - name: Releasing assets
-        uses: softprops/action-gh-release@v3
+      # Hand the packages to the release job instead of releasing from here, so this job never
+      # holds a token that can write to the repository.
+      - name: Uploading assets
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          tag_name: ${{ steps.extract_tag.outputs.tag }}
-          files: target/${{ matrix.target }}/release/ttunes-*
+          name: ttunes-${{ matrix.build_target }}
+          path: target/${{ matrix.target }}/release/ttunes-*
+          if-no-files-found: error
+
+  release:
+    name: Releasing
+    # Only once every platform has built, so a release never goes out missing one.
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # creating the GitHub release
+    steps:
+      - name: Downloading assets
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: ttunes-*
+          path: dist
+          merge-multiple: true
+      - name: Releasing assets
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ env.TAG }}
+          files: dist/ttunes-*
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

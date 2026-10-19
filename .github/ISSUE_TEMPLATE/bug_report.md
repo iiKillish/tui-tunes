@@ -35,6 +35,9 @@ Please attach a debug log and backtrace if ttunes has crashed.
 Instructions on how to capture debug logs can be found in the [developers
 manual](https://github.com/iiKillish/tui-tunes/blob/main/doc/developers.md#debugging).
 
+The debug log can contain account details, such as your username or a proxy password.
+Read through it and remove anything private before posting it here.
+
 For backtraces, make sure you run a debug build of ttunes, e.g. by running the
 command mentioned in the [compilation
 instructions](https://github.com/iiKillish/tui-tunes/blob/main/doc/developers.md#compiling).  You can find the

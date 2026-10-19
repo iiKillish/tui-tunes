@@ -18,6 +18,10 @@ on:
       - Cargo.lock
       - .github/workflows/latest-deps.yml
 
+# Only reads the code; the newest dependencies' build scripts get no write access.
+permissions:
+  contents: read
+
 env:
   TERM: xterm
 
@@ -26,7 +30,9 @@ jobs:
     name: Building with the latest dependencies
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install rustup
         run: |
           if ! command -v rustup &>/dev/null; then
