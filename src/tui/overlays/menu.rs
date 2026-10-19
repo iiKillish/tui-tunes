@@ -118,8 +118,9 @@ impl Overlay for Menu {
             .max(24)
             .min(screen.width.saturating_sub(4).max(10))
             .min(screen.width);
-        let filter_rows = u16::from(self.filter.is_some());
-        let h = (self.entries.len() as u16 + 2 + filter_rows)
+        let h = self
+            .rows()
+            .unwrap_or_default()
             .min(screen.height.saturating_sub(4).max(3))
             .min(screen.height);
         let area = Rect::new(
@@ -228,10 +229,17 @@ impl Overlay for Menu {
                     _ => (self.selected + 1).min(last),
                 };
             }
-            Command::Play | Command::Open(_) => return self.pick(ctx),
+            Command::Play => return self.pick(ctx),
+            // The key that opened the menu closes it again.
+            Command::Open(_) => return Outcome::Close,
             _ => return Outcome::Ignored,
         }
         Outcome::Consumed
+    }
+
+    fn rows(&self) -> Option<u16> {
+        // Entries, the border, and the filter field.
+        Some(self.entries.len() as u16 + 2 + u16::from(self.filter.is_some()))
     }
 
     fn captures_text(&self) -> bool {

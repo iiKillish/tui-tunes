@@ -819,7 +819,13 @@ impl App {
         self.overlay_areas.clear();
         for overlay in &mut self.overlays {
             pointer::clear();
-            let area = overlay.draw(frame, full, &ctx);
+            // Small ones keep clear of the player (its buttons are images in some terminals,
+            // which a menu would cut off) when the page has room for them, with a margin.
+            let screen = match overlay.rows() {
+                Some(rows) if content.height >= rows + 4 => content,
+                _ => full,
+            };
+            let area = overlay.draw(frame, screen, &ctx);
             self.overlay_areas.push(area);
         }
         if self.hints_showing() {
@@ -833,6 +839,12 @@ impl App {
             );
         }
         images::draw_into_buffer(frame.buffer_mut(), &self.overlay_areas);
+    }
+
+    /// Where the player was drawn last.
+    #[cfg(test)]
+    pub fn player_area(&self) -> Rect {
+        self.regions.player
     }
 
     /// Where overlays were drawn, so images under them are left out.

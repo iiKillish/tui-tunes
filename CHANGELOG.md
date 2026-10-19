@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- A song's menu (<kbd>o</kbd>) covered the player's buttons; menus and prompts
+  open over the page when there's room
+- Pressing <kbd>o</kbd> again in a song's menu played the song instead of
+  closing the menu
+
 ## [0.4.4]
 
 ### Changed

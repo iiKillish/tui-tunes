@@ -537,6 +537,30 @@ fn test_overlays_at_any_size() {
 }
 
 #[test]
+fn test_menus_keep_clear_of_the_player_and_o_closes_them() {
+    let mut app = full_app();
+    app.run(&Command::Focus(ScreenId::Library));
+    // The player above the page, and beside it.
+    for (width, height) in [(100, 40), (160, 40)] {
+        let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+        app.run(&Command::Open(TargetMode::Selected));
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        let areas = app.overlay_areas().to_vec();
+        assert_eq!(areas.len(), 1, "no menu at {width}x{height}");
+        assert!(
+            !areas[0].intersects(app.player_area()),
+            "the menu {:?} covers the player {:?} at {width}x{height}",
+            areas[0],
+            app.player_area()
+        );
+
+        app.run(&Command::Open(TargetMode::Selected));
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        assert!(app.overlay_areas().is_empty(), "o didn't close the menu");
+    }
+}
+
+#[test]
 fn test_clicks_in_small_windows_dont_panic() {
     for images_on in [false, true] {
         images::force_supported(images_on);
