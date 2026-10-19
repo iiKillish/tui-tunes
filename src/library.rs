@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::iter::Iterator;
 use std::path::Path;
@@ -257,7 +257,7 @@ impl Library {
                         &config::cache_path(CACHE_ARTISTS),
                         library.artists.write().unwrap().as_mut(),
                     );
-                    library.fetch_artists();
+                    library.fetch_artists(force);
                 })
             };
 
@@ -394,8 +394,9 @@ impl Library {
         self.trigger_redraw();
     }
 
-    /// Fetch the artists from the web API and save them to the local library.
-    fn fetch_artists(&self) {
+    /// Fetch the followed artists from the web API and save them to the local library. Stops
+    /// after the first page if it looks unchanged from the cache, unless `force`.
+    fn fetch_artists(&self, force: bool) {
         let mut artists: Vec<Artist> = Vec::new();
         let mut last: Option<&str> = None;
         let mut i = 0u32;
@@ -409,8 +410,21 @@ impl Library {
                 return;
             }
             let page = page.unwrap();
+            let items: Vec<Artist> = page.items.iter().map(|fa| fa.into()).collect();
 
-            artists.extend(page.items.iter().map(|fa| fa.into()));
+            // Spotify offers no cheaper way to tell whether they changed.
+            let total = page
+                .total
+                .or_else(|| page.next.is_none().then_some(items.len() as u32));
+            if !force
+                && last.is_none()
+                && followed_unchanged(total, &items, &self.artists.read().unwrap())
+            {
+                debug!("followed artists unchanged");
+                return;
+            }
+
+            artists.extend(items);
 
             if page.next.is_some() {
                 last = artists.last().unwrap().id.as_deref();
@@ -989,6 +1003,20 @@ fn tracks_unchanged(total: u32, first_page: &[Track], cached: &[Track]) -> bool 
             .all(|(new, old)| new.id == old.id)
 }
 
+/// Whether the followed artists in the cache look the same as Spotify's: as many (`total`, if
+/// known) and including those on the first page.
+fn followed_unchanged(total: Option<u32>, first_page: &[Artist], cached: &[Artist]) -> bool {
+    let followed: HashSet<&str> = cached
+        .iter()
+        .filter(|a| a.is_followed)
+        .filter_map(|a| a.id.as_deref())
+        .collect();
+    total.is_some_and(|total| total as usize == followed.len())
+        && first_page
+            .iter()
+            .all(|new| new.id.as_deref().is_some_and(|id| followed.contains(id)))
+}
+
 /// Albums saved in ttunes have no `added_at`, so they force a refetch.
 fn albums_unchanged(total: u32, first_page: &[Album], cached: &[Album]) -> bool {
     total as usize == cached.len()
@@ -1022,8 +1050,9 @@ fn album_sort_key(album: &Album) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{albums_unchanged, sort_albums, tracks_unchanged};
+    use super::{albums_unchanged, followed_unchanged, sort_albums, tracks_unchanged};
     use crate::model::album::Album;
+    use crate::model::artist::Artist;
     use crate::model::track::Track;
 
     fn tracks(ids: &[&str]) -> Vec<Track> {
@@ -1149,5 +1178,33 @@ mod tests {
         let ids: Vec<_> = list.iter().map(|a| a.id.clone().unwrap()).collect();
         assert_eq!(ids, ["2", "1", "3"]);
         assert!(!sort_albums(&mut list));
+    }
+
+    fn followed(ids: &[&str]) -> Vec<Artist> {
+        ids.iter()
+            .map(|id| Artist {
+                is_followed: true,
+                ..Artist::new(id.to_string(), id.to_string())
+            })
+            .collect()
+    }
+
+    #[test]
+    fn followed_artists_unchanged_when_count_and_first_page_match() {
+        let mut cached = followed(&["a", "b", "c"]);
+        // Artists with saved tracks but not followed don't count.
+        cached.push(Artist::new("d".into(), "d".into()));
+        assert!(followed_unchanged(Some(3), &followed(&["b", "a"]), &cached));
+        assert!(!followed_unchanged(
+            Some(4),
+            &followed(&["b", "a"]),
+            &cached
+        ));
+        assert!(!followed_unchanged(
+            Some(3),
+            &followed(&["b", "x"]),
+            &cached
+        ));
+        assert!(!followed_unchanged(None, &followed(&["b", "a"]), &cached));
     }
 }
