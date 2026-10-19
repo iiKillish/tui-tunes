@@ -63,6 +63,9 @@ fn main() -> Result<(), String> {
         Some(("info", _subcommand_matches)) => cli::info(),
         Some((_, _)) => unreachable!(),
         None => {
+            // An older ttunes left the cache, and the login saved in it, readable by other users.
+            config::restrict_cache_permissions();
+
             // Export the environment variables derived from the configuration
             // file (proxy, PulseAudio stream properties). This must happen
             // while the process is still single-threaded, i.e. before the
