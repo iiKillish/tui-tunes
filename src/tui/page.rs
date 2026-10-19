@@ -120,9 +120,16 @@ pub trait Page {
 }
 
 pub trait Overlay {
-    /// Draw over `screen` (the whole terminal) and return the area covered, so covers under it
-    /// can be hidden (terminal images are always drawn over text).
+    /// Draw over `screen` (the whole terminal, or the page for [Overlay::rows]) and return the
+    /// area covered, so covers under it can be hidden (terminal images are always drawn over
+    /// text).
     fn draw(&mut self, frame: &mut Frame, screen: Rect, ctx: &Ctx) -> Rect;
+
+    /// Rows a small overlay needs, to be drawn over the page rather than the player when they fit
+    /// there. `None` (the default) for overlays drawn over the whole terminal.
+    fn rows(&self) -> Option<u16> {
+        None
+    }
 
     /// Handle a command. `Command::Back` should close it.
     fn command(&mut self, cmd: &Command, ctx: &Ctx) -> Outcome;

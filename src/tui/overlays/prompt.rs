@@ -43,6 +43,10 @@ impl Prompt {
 }
 
 impl Overlay for Prompt {
+    fn rows(&self) -> Option<u16> {
+        Some(5)
+    }
+
     fn draw(&mut self, frame: &mut Frame, screen: Rect, ctx: &Ctx) -> Rect {
         let styles = Styles(&ctx.palette);
         let w = (width(&self.title) as u16 + 8)
