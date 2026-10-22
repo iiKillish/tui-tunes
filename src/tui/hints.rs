@@ -54,6 +54,16 @@ pub enum Group {
 }
 
 impl Group {
+    pub const ALL: [Self; 4] = [Self::Playback, Self::Navigation, Self::Library, Self::Other];
+
+    /// The name on the key list's tab.
+    pub fn short_title(self) -> &'static str {
+        match self {
+            Self::Library => "Library",
+            group => group.title(),
+        }
+    }
+
     pub fn title(self) -> &'static str {
         match self {
             Self::Playback => "Playback",
@@ -289,13 +299,36 @@ pub fn actions(bindings: &[(String, Vec<Command>)]) -> Vec<Action> {
     actions
 }
 
-/// Where an action goes in its group: by what it does, except going to the screens, which go in
-/// the order of the screens (F1, F2, …).
-fn sort_key(action: &Action) -> String {
-    match main_command(&action.commands) {
-        Some(Command::Focus(screen)) => format!("Go to {:02}", *screen as usize),
+/// Where an action goes in its group: the most used first, related ones together (up, down,
+/// left, right; the screens in their order, F1, F2, …), then by what it does.
+fn sort_key(action: &Action) -> (u8, String) {
+    let Some(command) = main_command(&action.commands) else {
+        return (u8::MAX, action.label.clone());
+    };
+    let rank = match command {
+        Command::TogglePlay | Command::Play => 0,
+        Command::Next | Command::Queue => 1,
+        Command::Previous | Command::PlayNext => 2,
+        Command::Stop => 3,
+        Command::Seek(_) => 4,
+        Command::VolumeUp(_) | Command::VolumeDown(_) => 5,
+        Command::Move(MoveMode::Up | MoveMode::Down, MoveAmount::Integer(_)) => 0,
+        Command::Move(MoveMode::Left | MoveMode::Right, _) => 1,
+        Command::Move(..) => 2,
+        Command::Back | Command::Open(_) => 3,
+        Command::Focus(_) => 4,
+        Command::Screen(_) | Command::Tab(_) | Command::Panel(_) => 5,
+        Command::Goto(_) => 6,
+        Command::Search(_) | Command::Jump(_) => 7,
+        Command::Help | Command::Hints | Command::Settings => 8,
+        _ => 10,
+    };
+    let order = match command {
+        Command::Focus(screen) => format!("{:02}", *screen as usize),
+        Command::Move(mode, _) => format!("{} {}", mode.clone() as u8, action.label),
         _ => action.label.clone(),
-    }
+    };
+    (rank, order)
 }
 
 /// The keys bound to `command` (alone, or first followed by moves), shortest first.

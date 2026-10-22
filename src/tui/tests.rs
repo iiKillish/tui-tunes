@@ -872,7 +872,7 @@ fn test_help_groups_keys_and_filters() {
 }
 
 #[test]
-fn test_settings_change_tabs_home_and_keys() {
+fn test_settings_change_tabs_home_and_colors() {
     use crate::config::LibraryTab;
 
     let mut app = app();
@@ -882,15 +882,21 @@ fn test_settings_change_tabs_home_and_keys() {
     let text = screen_text(&terminal);
     for expected in [
         "Settings",
+        "General",
+        "Appearance",
         "Library tabs",
         "[✓] Podcasts",
         "Pick up where you left off",
     ] {
         assert!(text.contains(expected), "{expected:?} missing:\n{text}");
     }
+    assert!(
+        !text.contains("Keys:"),
+        "keys are in the key list now:\n{text}"
+    );
 
-    // Podcasts is the fifth tab: turn it off.
-    for _ in 0..4 {
+    // Start on, then the library's tabs: Podcasts is the fifth, turn it off.
+    for _ in 0..5 {
         key(&mut app, KeyCode::Down);
     }
     key(&mut app, KeyCode::Enter);
@@ -908,15 +914,72 @@ fn test_settings_change_tabs_home_and_keys() {
         Some(false)
     );
 
-    // Rebind the first key (in Playback): Enter, then the new key.
-    key(&mut app, KeyCode::Down);
+    // A choice goes through its values with the arrows: Start on, at the top.
+    for _ in 0..10 {
+        key(&mut app, KeyCode::Up);
+    }
+    key(&mut app, KeyCode::Right);
+    assert_eq!(
+        app.ctx.config.values().initial_screen.as_deref(),
+        Some("search")
+    );
+
+    // Appearance: a theme, then a color typed in.
+    key(&mut app, KeyCode::BackTab);
+    key(&mut app, KeyCode::Right);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(screen_text(&terminal).contains("‹ Catppuccin Mocha ›"));
+    assert_eq!(
+        app.ctx.palette.background,
+        ratatui::style::Color::Rgb(0x1e, 0x1e, 0x2e)
+    );
     key(&mut app, KeyCode::Down);
     key(&mut app, KeyCode::Enter);
+    for _ in 0..10 {
+        key(&mut app, KeyCode::Backspace);
+    }
+    for c in "#ff0000".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    key(&mut app, KeyCode::Enter);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert_eq!(app.ctx.palette.title, ratatui::style::Color::Rgb(255, 0, 0));
+    assert!(screen_text(&terminal).contains("‹ Custom ›"));
+    // Not a color: said so, and nothing changes.
+    key(&mut app, KeyCode::Enter);
+    for c in "nope".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    key(&mut app, KeyCode::Enter);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(screen_text(&terminal).contains("isn't a color"));
+    assert_eq!(app.ctx.palette.title, ratatui::style::Color::Rgb(255, 0, 0));
+}
+
+#[test]
+fn test_key_list_changes_and_resets_keys() {
+    let mut app = app();
+    let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
+    app.run(&Command::Help);
+    // Play / pause, the first key: Ctrl+E, then the new key.
+    app.key(KeyEvent::new(KeyCode::Char('e'), KeyModifiers::CONTROL));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(screen_text(&terminal).contains("press a key…"));
     key(&mut app, KeyCode::Char('y'));
     terminal.draw(|frame| app.draw(frame)).unwrap();
     let bindings = app.ctx.config.values().keybindings.clone().unwrap();
-    assert!(bindings.contains_key("y"), "{bindings:?}");
-    assert!(screen_text(&terminal).contains("y now does this"));
+    assert_eq!(bindings.get("y").map(String::as_str), Some("playpause"));
+    let text = screen_text(&terminal);
+    assert!(text.contains("y now does this"), "{text}");
+    assert!(
+        text.contains("Help") || text.contains("Keys and commands"),
+        "{text}"
+    );
+
+    // Back to its own keys.
+    app.key(KeyEvent::new(KeyCode::Char('r'), KeyModifiers::CONTROL));
+    let bindings = app.ctx.config.values().keybindings.clone().unwrap();
+    assert!(!bindings.contains_key("y"), "{bindings:?}");
 }
 
 #[test]
@@ -942,17 +1005,21 @@ fn test_stats_screen_shows_listening_and_tabs() {
 fn test_key_list_scrolls_back_to_its_titles() {
     let mut app = app();
     let mut terminal = Terminal::new(TestBackend::new(90, 20)).unwrap();
+    // The commands, the section with titles (Playback first, which is also a section's name).
     app.run(&Command::Help);
-    for _ in 0..30 {
+    key(&mut app, KeyCode::BackTab);
+    let playbacks =
+        |terminal: &Terminal<TestBackend>| screen_text(terminal).matches("Playback").count();
+    for _ in 0..60 {
         key(&mut app, KeyCode::Down);
         terminal.draw(|frame| app.draw(frame)).unwrap();
     }
-    assert!(!screen_text(&terminal).contains("Playback"));
-    for _ in 0..30 {
+    assert_eq!(playbacks(&terminal), 1);
+    for _ in 0..60 {
         key(&mut app, KeyCode::Up);
         terminal.draw(|frame| app.draw(frame)).unwrap();
     }
-    assert!(screen_text(&terminal).contains("Playback"));
+    assert_eq!(playbacks(&terminal), 2);
 
     // The same in the settings, back to the first title.
     app.run(&Command::Back);
@@ -1006,4 +1073,79 @@ fn test_idle_app_waits_for_events() {
     // A message is drawn again when it's due to go.
     app.set_message(Ok("Hello".into()));
     assert!(app.redraw_after() <= Duration::from_secs(5));
+}
+
+#[test]
+fn test_key_list_goes_through_sections_and_commands() {
+    let mut app = app();
+    let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
+    app.run(&Command::Help);
+    key(&mut app, KeyCode::Right);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let text = screen_text(&terminal);
+    assert!(
+        text.contains("Go to Home") && !text.contains("Play / pause"),
+        "{text}"
+    );
+
+    // The commands, the last section: a command that needs more goes on the command line.
+    key(&mut app, KeyCode::BackTab);
+    key(&mut app, KeyCode::BackTab);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(screen_text(&terminal).contains(":seek <[+|-]time>"));
+    for c in "focus".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let text = screen_text(&terminal);
+    assert!(text.contains("Commands 1"), "{text}");
+    // From the keys to the commands.
+    key(&mut app, KeyCode::Right);
+    key(&mut app, KeyCode::Enter);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let text = screen_text(&terminal);
+    assert!(text.contains(":focus "), "{text}");
+    assert!(text.contains("Tab completes"), "{text}");
+}
+
+#[test]
+fn test_command_line_suggests_and_completes() {
+    let mut app = app();
+    let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
+    key(&mut app, KeyCode::Char(':'));
+    for c in "shuf".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let text = screen_text(&terminal);
+    assert!(text.contains("shuffle [on|off]"), "{text}");
+    key(&mut app, KeyCode::Tab);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let text = screen_text(&terminal);
+    assert!(text.contains(":shuffle "), "{text}");
+    assert!(text.contains("Shuffle: toggle, or set"), "{text}");
+    // A click takes a value: on, then off, above the tip.
+    let tip = find(&terminal, "Tab completes").expect("the tip");
+    app.mouse(click(3, tip.y - 2));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(screen_text(&terminal).contains(":shuffle on"));
+}
+
+#[test]
+fn test_ctrl_c_quits_even_while_typing() {
+    let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
+    let mut app = app();
+    app.key(ctrl_c);
+    assert!(app.quit);
+    // From the command line and the key list's filter too.
+    let mut app = self::app();
+    key(&mut app, KeyCode::Char(':'));
+    key(&mut app, KeyCode::Char('n'));
+    app.key(ctrl_c);
+    assert!(app.quit);
+    let mut app = self::app();
+    app.run(&Command::Help);
+    key(&mut app, KeyCode::Char('x'));
+    app.key(ctrl_c);
+    assert!(app.quit);
 }

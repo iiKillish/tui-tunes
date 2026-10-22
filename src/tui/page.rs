@@ -55,6 +55,8 @@ pub enum Outcome {
     Error(String),
     /// Run these commands as if their keys were pressed (e.g. a menu entry).
     Run(Vec<Command>),
+    /// Open the command line with this typed (a command that needs arguments).
+    CommandLine(String),
     /// The settings changed (and were loaded): use them (keys, library tabs, colors), and say
     /// what changed, if anything.
     SettingsChanged(Option<String>),

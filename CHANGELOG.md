@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- The command line lists the commands that fit what's typed, with their
+  arguments and what they do, then the values a command takes (with their
+  keys); Tab completes and goes through them, as do the arrows and clicks
+- The key list (`?`) shows one section at a time (←/→ or Tab for the next),
+  lists the most used keys first, and has a Commands section with every command;
+  typing still searches all of them, with how many match in each section
+- Ctrl+C quits, like `q`, even while typing in the command line or a search
+  field (rebindable as `Ctrl+c`)
+- Keys are changed in the key list (Ctrl+E on one, Ctrl+R for its default
+  keys) instead of the settings
+- The settings are in sections (General, Playback, Appearance) and have more in
+  them: the screen to start on, notifications, sound quality, gapless playback,
+  loudness, volume steps, the audio cache, Nerd Font icons, how covers are
+  drawn, a theme to pick (Catppuccin, Gruvbox, Nord, Dracula, Tokyo Night, Rosé
+  Pine) and every color
+
+### Fixed
+
+- Covers no longer flicker when a menu opens or closes over them: with Kitty
+  graphics they're sent once and moved or cut in place, and with sixel and
+  iTerm2 they're no longer blanked before being drawn again
+
 ## [0.5.1]
 
 ### Fixed

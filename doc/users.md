@@ -55,9 +55,11 @@ built `ttunes` with MPRIS support, you may be able to use media keys to control
 playback depending on your desktop environment settings. Have a look at the
 [configuration section](#configuration) if you want to set custom bindings.
 
-<kbd>?</kbd> lists every key, grouped (playback, getting around, queue and library, other) and
-saying what each does. Type to find a key or what it does, and press <kbd>Return</kbd> to run the
-selected one.
+<kbd>?</kbd> lists every key and command in sections (playback, getting around, library, other,
+commands), saying what each does. <kbd>←</kbd>/<kbd>→</kbd> or <kbd>Tab</kbd> go from section to
+section. Type to find a key or command in all of them, and press <kbd>Return</kbd> to run the
+selected one; a command that needs more (like `focus <screen>`) goes on the command line for you to
+finish.
 
 To learn the keys, hold <kbd>Ctrl</kbd>+<kbd>Shift</kbd>: everything on screen that has a key
 gets a label with it, like Vimium's link hints (the tabs, the player's buttons, the selected row or
@@ -100,7 +102,7 @@ playlist, an artist) stack on top of it; the `‹ name` link above them goes bac
 | <kbd>Escape</kbd> / <kbd>Backspace</kbd>                    | Back to the previous page.                                                    |
 | <kbd>/</kbd>                                                | Find in the current page (See [specific commands](#vim-like-search-bar)).     |
 | <kbd>:</kbd>                                                | Open a Vim-like command prompt (See [specific commands](#vim-like-commands)). |
-| <kbd>Q</kbd>                                                | Quit `ttunes`.                                                                |
+| <kbd>Q</kbd> / <kbd>Ctrl</kbd>+<kbd>C</kbd>                 | Quit `ttunes` (<kbd>Ctrl</kbd>+<kbd>C</kbd> even while typing).               |
 | <kbd>g</kbd> / <kbd>G</kbd>                                 | Go to the top / bottom of the current page.                                   |
 
 Everything can be clicked: tabs, cards, rows, the player's buttons, progress bar and volume (drag
@@ -154,11 +156,25 @@ things you can click, and a text cursor over text fields.
   listened to for 30 seconds or more in `listening.jsonl` in the data directory.
 
 ### Settings
-<kbd>,</kbd> (or `:settings`) opens the settings over the page, like the key list: which tabs the Library shows (turn off
-Podcasts or Browse, say), the "Pick up where you left off" card on Home, autoplay, and the keys.
-<kbd>Return</kbd> changes the selected setting; on a key, <kbd>Return</kbd> then the new key
-rebinds it (its old keys stop doing it), and <kbd>D</kbd> gives it its default keys back. Changes
-are saved to `config.toml`, keeping what's in it, and work at once.
+<kbd>,</kbd> (or `:settings`) opens the settings over the page, like the key list, in three
+sections (<kbd>Tab</kbd> goes to the next):
+
+- **General**: the screen to start on, which tabs the Library shows (turn off Podcasts or Browse,
+  say), the "Pick up where you left off" card on Home, and hiding playlist owners' names.
+- **Playback**: autoplay, notifications, sound quality, gapless playback, evening out loudness,
+  how the volume steps and the audio cache.
+- **Appearance**: a theme (the terminal's own colors, Catppuccin, Gruvbox, Nord, Dracula, Tokyo
+  Night, Rosé Pine), the accent color, Nerd Font icons, how covers are drawn, and every color of
+  the [theme](#theming) one by one.
+
+<kbd>Return</kbd> turns a switch over; <kbd>←</kbd>/<kbd>→</kbd> go through a choice's values or
+the named colors; <kbd>Return</kbd> on a color lets you type one (`#rrggbb`, `#rgb` or a name)
+and <kbd>D</kbd> puts it back to the default. Changes are saved to `config.toml`, keeping what's
+in it, and work at once, except the few marked "after restart".
+
+Keys are changed in the key list (<kbd>?</kbd>): select one, press <kbd>Ctrl</kbd>+<kbd>E</kbd>
+then the new key (its old keys stop doing it), or <kbd>Ctrl</kbd>+<kbd>R</kbd> to give it its
+default keys back.
 
 ### Context Menus
 | Key                           | Command                                                                                                   |
@@ -216,9 +232,11 @@ On one of your playlists' pages, <kbd>D</kbd> removes the selected track and
 | <kbd>N</kbd> | Next search occurrence.     |
 
 ### Vim-Like Commands
-You can open a Vim-style command prompt using <kbd>:</kbd>,
-trigger command completion by pressing <kbd>Tab</kbd>
-and close it at any time with <kbd>Escape</kbd>.
+You can open a Vim-style command prompt using <kbd>:</kbd>
+and close it at any time with <kbd>Escape</kbd>. While you type, the commands that fit are listed
+above it with their arguments and what they do (and once a command is typed, the values it takes,
+with their keys). <kbd>Tab</kbd> completes, and pressed again goes through the list, like
+<kbd>↑</kbd>/<kbd>↓</kbd>; a click takes one.
 
 Every command is listed below, grouped by what it does.
 
@@ -280,9 +298,9 @@ Note: \<FOO\> - mandatory arg; [BAR] - optional arg
 
 | Command | Action |
 |---------|--------|
-| `help` | Show the keys, grouped and in words; type to find one, and press <kbd>Return</kbd> to run it. |
+| `help` | Show the keys and commands, in sections; type to find one, <kbd>Return</kbd> runs it, <kbd>Ctrl</kbd>+<kbd>E</kbd> changes a key. |
 | `hints` | Show the keys of what's on screen next to it, until the next key (like holding <kbd>Ctrl</kbd>+<kbd>Shift</kbd>). |
-| `settings` | Open the settings: library tabs, the Home card, autoplay and keys. |
+| `settings` | Open the settings: the library's tabs, playback, the theme and colors. |
 | `quit`<br/>Aliases: `q`, `x` | Quit `ttunes`. |
 | `logout` | Remove any cached credentials from disk and quit `ttunes`. |
 | `reload` | Reload the configuration from disk. See [Configuration](#configuration). |

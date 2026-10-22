@@ -20,6 +20,7 @@ use ratatui::style::Modifier;
 
 use crate::command::{self, Command, JumpMode, PanelAction, ScreenId};
 use crate::tui::actions;
+use crate::tui::completion::{self, Suggestion};
 use crate::tui::header::{self, HEADER_ROWS, HeaderAction};
 use crate::tui::hints;
 use crate::tui::images;
@@ -27,7 +28,7 @@ use crate::tui::keys::{self, Key, MAX_COUNT, accumulate_count};
 use crate::tui::page::{Ctx, Outcome, Overlay, Page};
 use crate::tui::pages;
 use crate::tui::pointer;
-use crate::tui::style::{Styles, bold, fill, put, truncate, width};
+use crate::tui::style::{SELECTION_MARKER, Styles, bold, fill, put, scroll_to, truncate, width};
 use crate::tui::widgets::player::{BAR_ROWS, HERO_MIN_ROWS, Player};
 use crate::tui::widgets::tabs::draw_tab_row;
 
@@ -37,6 +38,8 @@ const MESSAGE_TIME: Duration = Duration::from_secs(5);
 const MIN_PAGE_ROWS: u16 = 10;
 /// Fewest rows to keep for a page below its header; with less room the header isn't shown.
 const MIN_ROWS_BELOW_HEADER: u16 = 6;
+/// Most suggestions shown over the command line at once.
+const MAX_SUGGESTIONS: usize = 8;
 
 struct Screen {
     id: ScreenId,
@@ -62,6 +65,64 @@ struct CommandLine {
     text: String,
     /// Cursor position in characters.
     cursor: usize,
+    /// Suggestions being gone through with Tab or the arrows, and the one taken.
+    cycle: Option<(Vec<Suggestion>, usize)>,
+}
+
+impl CommandLine {
+    fn set(&mut self, text: String) {
+        self.cursor = text.chars().count();
+        self.text = text;
+    }
+
+    /// Take the next (or previous) suggestion. Tab (`extend`) first completes what all the
+    /// suggestions start with, if that's more than what's typed, or takes the only one.
+    fn choose(&mut self, forward: bool, extend: bool) {
+        if let Some((list, i)) = &mut self.cycle {
+            let len = list.len();
+            *i = if forward {
+                (*i + 1) % len
+            } else {
+                (*i + len - 1) % len
+            };
+            let line = list[*i].line.clone();
+            self.set(line);
+            return;
+        }
+        let found = completion::complete(&self.text).suggestions;
+        if found.is_empty() {
+            return;
+        }
+        if extend {
+            // Of those that go on from what's typed (not the ones only mentioning it).
+            let going_on: Vec<&str> = found
+                .iter()
+                .map(|s| s.line.as_str())
+                .filter(|line| line.starts_with(&self.text))
+                .collect();
+            let common = common_prefix(going_on.iter().copied());
+            if going_on.len() == 1 || common.len() > self.text.len() {
+                self.set(common);
+                return;
+            }
+        }
+        let i = if forward { 0 } else { found.len() - 1 };
+        self.set(found[i].line.clone());
+        self.cycle = Some((found, i));
+    }
+
+    /// What to show over the line: the command being typed (if its name is), the suggestions and
+    /// the one taken.
+    fn suggestions(&self) -> (completion::Completion, Option<usize>) {
+        let mut completion = completion::complete(&self.text);
+        match &self.cycle {
+            Some((list, i)) => {
+                completion.suggestions = list.clone();
+                (completion, Some(*i))
+            }
+            None => (completion, None),
+        }
+    }
 }
 
 /// Where things were drawn last, for the mouse.
@@ -72,6 +133,8 @@ struct Regions {
     back: Option<Rect>,
     header_buttons: Vec<(Rect, HeaderAction)>,
     page: Rect,
+    /// The command line's suggestions, and the line each one makes.
+    suggestions: Vec<(Rect, String)>,
 }
 
 pub struct App {
@@ -317,6 +380,13 @@ impl App {
                     self.run(&cmd);
                 }
             }
+            Outcome::CommandLine(text) => {
+                if from_overlay {
+                    self.overlays.pop();
+                }
+                let prefix = self.command_key();
+                self.open_cmdline(prefix, text);
+            }
         }
     }
 
@@ -383,7 +453,7 @@ impl App {
             Command::Hints => self.hints_on = !self.hints_on,
             Command::Settings => {
                 self.hints_on = false;
-                let settings = crate::tui::overlays::settings::Settings::new(&self.binding_list);
+                let settings = crate::tui::overlays::settings::Settings::new();
                 self.overlays.push(Box::new(settings));
             }
             Command::Redraw => self.clear = true,
@@ -451,6 +521,15 @@ impl App {
 
     pub fn key(&mut self, event: KeyEvent) {
         let ctx = self.ctx.clone();
+        // Ctrl+C does what it's bound to (quit) even while typing, as in other programs.
+        if event.code == KeyCode::Char('c')
+            && event.modifiers == KeyModifiers::CONTROL
+            && let Some(commands) = Key::from_event(&event).and_then(|k| self.bindings.get(&k))
+            && commands.iter().any(|c| matches!(c, Command::Quit))
+        {
+            self.run(&Command::Quit);
+            return;
+        }
         if self.cmdline.is_some() {
             self.cmdline_key(event);
             return;
@@ -491,11 +570,7 @@ impl App {
         {
             if c == self.command_key() || c == '/' {
                 self.count = 0;
-                self.cmdline = Some(CommandLine {
-                    prefix: c,
-                    text: String::new(),
-                    cursor: 0,
-                });
+                self.open_cmdline(c, String::new());
                 return;
             }
             if let Some(digit) = c.to_digit(10)
@@ -515,10 +590,30 @@ impl App {
         }
     }
 
+    /// Open the command line (`prefix` is `:` or `/`) with `text` typed.
+    fn open_cmdline(&mut self, prefix: char, text: String) {
+        self.count = 0;
+        let mut line = CommandLine {
+            prefix,
+            text: String::new(),
+            cursor: 0,
+            cycle: None,
+        };
+        line.set(text);
+        self.cmdline = Some(line);
+    }
+
     fn cmdline_key(&mut self, event: KeyEvent) {
         let Some(line) = self.cmdline.as_mut() else {
             return;
         };
+        let choosing = matches!(
+            event.code,
+            KeyCode::Tab | KeyCode::BackTab | KeyCode::Up | KeyCode::Down
+        );
+        if !choosing {
+            line.cycle = None;
+        }
         let chars: Vec<char> = line.text.chars().collect();
         match event.code {
             KeyCode::Esc => self.cmdline = None,
@@ -544,10 +639,10 @@ impl App {
             KeyCode::Right => line.cursor = (line.cursor + 1).min(chars.len()),
             KeyCode::Home => line.cursor = 0,
             KeyCode::End => line.cursor = chars.len(),
-            KeyCode::Tab if line.prefix != '/' => {
-                line.text = word_completion(&line.text, command::ALL_COMMANDS);
-                line.cursor = line.text.chars().count();
+            KeyCode::Tab | KeyCode::Down if line.prefix != '/' => {
+                line.choose(true, event.code == KeyCode::Tab);
             }
+            KeyCode::BackTab | KeyCode::Up if line.prefix != '/' => line.choose(false, false),
             KeyCode::Char(c) if !event.modifiers.contains(KeyModifiers::CONTROL) => {
                 line.text = chars[..line.cursor]
                     .iter()
@@ -579,6 +674,18 @@ impl App {
     pub fn mouse(&mut self, event: MouseEvent) {
         let ctx = self.ctx.clone();
         let at = Position::new(event.column, event.row);
+        if let Some(line) = self.cmdline.as_mut()
+            && matches!(event.kind, MouseEventKind::Down(MouseButton::Left))
+            && let Some((_, text)) = self
+                .regions
+                .suggestions
+                .iter()
+                .find(|(r, _)| r.contains(at))
+        {
+            line.cycle = None;
+            line.set(text.clone());
+            return;
+        }
         if let Some(overlay) = self.overlays.last_mut() {
             let outcome = overlay.mouse(event, &ctx);
             self.apply(outcome, true);
@@ -671,6 +778,176 @@ impl App {
         self.overlays.is_empty()
             && self.cmdline.is_none()
             && (self.hints_on || (self.ctrl_held && self.shift_held))
+    }
+
+    /// Draw the command line's suggestions at the bottom of `above`: the command being typed and
+    /// what it takes, the commands or values that fit, and the keys to use them. Returns where.
+    fn draw_suggestions(&mut self, frame: &mut Frame, above: Rect, ctx: &Ctx) -> Option<Rect> {
+        let line = self.cmdline.as_ref()?;
+        let (completion, chosen) = line.suggestions();
+        let typed = completion::find_line(&line.text);
+        let title = completion.command.map(|c| {
+            let keys = typed
+                .as_ref()
+                .map(|cmd| hints::keys_for(&self.binding_list, cmd))
+                .unwrap_or_default();
+            (c, keys)
+        });
+        let items = &completion.suggestions;
+        // Not over a list of commands, which say what they are.
+        let title = title.filter(|_| items.iter().all(|s| s.about.is_empty()));
+        if title.is_none() && items.is_empty() {
+            return None;
+        }
+        // Room for the title, the suggestions and the tip at the bottom.
+        let shown = items
+            .len()
+            .min(MAX_SUGGESTIONS)
+            .min(usize::from(above.height.saturating_sub(3)));
+        let rows = shown as u16 + 1 + u16::from(title.is_some());
+        if above.height < rows + 1 {
+            return None;
+        }
+        let w = above.width.min(80);
+        let area = Rect::new(above.x, above.bottom() - rows, w, rows);
+        let styles = Styles(&ctx.palette);
+        let panel = styles.panel();
+        let dim = panel.fg(ctx.palette.secondary);
+        let buf = frame.buffer_mut();
+        fill(buf, area, panel);
+        let room = usize::from(w.saturating_sub(2));
+        let mut y = area.y;
+
+        // The command and what it takes.
+        if let Some((command, keys)) = &title {
+            let x = area.x + 1;
+            let mut used = put(
+                buf,
+                x,
+                y,
+                command.name,
+                room,
+                bold(panel.fg(ctx.palette.title)),
+            );
+            if !command.args.is_empty() {
+                used += put(
+                    buf,
+                    x + used as u16 + 1,
+                    y,
+                    command.args,
+                    room.saturating_sub(used + 1),
+                    panel,
+                ) + 1;
+            }
+            let about = match keys.first() {
+                Some(key) => format!("{} · key {key}", command.about),
+                None => command.about.to_string(),
+            };
+            put(
+                buf,
+                x + used as u16 + 3,
+                y,
+                &about,
+                room.saturating_sub(used + 3),
+                dim,
+            );
+            y += 1;
+        }
+
+        // The suggestions, scrolled to the one taken.
+        let first = scroll_to(0, chosen.unwrap_or(0), shown);
+        let word_width = items
+            .iter()
+            .skip(first)
+            .take(shown)
+            .map(|s| {
+                width(&s.word)
+                    + if s.args.is_empty() {
+                        0
+                    } else {
+                        width(s.args) + 1
+                    }
+            })
+            .max()
+            .unwrap_or(0)
+            .min(room / 2);
+        for (i, item) in items.iter().enumerate().skip(first).take(shown) {
+            let row = Rect::new(area.x, y, w, 1);
+            let selected = chosen == Some(i);
+            let style = if selected {
+                styles.selected().bg(ctx.palette.highlight_inactive_bg)
+            } else {
+                panel
+            };
+            fill(buf, row, style);
+            if selected {
+                put(
+                    buf,
+                    area.x,
+                    y,
+                    SELECTION_MARKER,
+                    1,
+                    styles.marker().bg(ctx.palette.highlight_inactive_bg),
+                );
+            }
+            pointer::clickable(row);
+            self.regions.suggestions.push((row, item.line.clone()));
+            let x = area.x + 2;
+            let used = put(
+                buf,
+                x,
+                y,
+                &item.word,
+                word_width,
+                bold(style.fg(ctx.palette.title)),
+            );
+            if !item.args.is_empty() && used < word_width {
+                put(
+                    buf,
+                    x + used as u16 + 1,
+                    y,
+                    item.args,
+                    word_width - used - 1,
+                    style.fg(ctx.palette.secondary),
+                );
+            }
+            let about_x = x + word_width as u16 + 3;
+            // Values say which key does the same, if one does.
+            let about = if item.about.is_empty() {
+                completion::find_line(&item.line)
+                    .and_then(|cmd| hints::keys_for(&self.binding_list, &cmd).into_iter().next())
+                    .map(|key| format!("key {key}"))
+                    .unwrap_or_default()
+            } else {
+                item.about.clone()
+            };
+            put(
+                buf,
+                about_x,
+                y,
+                &about,
+                usize::from(area.right().saturating_sub(about_x + 1)),
+                style.fg(ctx.palette.secondary),
+            );
+            y += 1;
+        }
+
+        // How to use them, and how many there are.
+        let tip = if items.is_empty() {
+            "Enter runs it · Esc cancels"
+        } else {
+            "Tab completes · ↑↓ choose · Enter runs · Esc cancels"
+        };
+        put(buf, area.x + 1, y, tip, room, dim);
+        if items.len() > shown {
+            let count = match chosen {
+                Some(i) => format!("{}/{}", i + 1, items.len()),
+                None => format!("{} more", items.len() - shown),
+            };
+            let cx = area.right().saturating_sub(width(&count) as u16 + 1);
+            put(buf, cx, y, &count, usize::MAX, dim);
+        }
+        Some(area)
     }
 
     pub fn draw(&mut self, frame: &mut Frame) {
@@ -869,6 +1146,14 @@ impl App {
             let area = overlay.draw(frame, screen, &ctx);
             self.overlay_areas.push(area);
         }
+        if let Some(line) = &self.cmdline
+            && line.prefix != '/'
+        {
+            let above = Rect::new(full.x, full.y, full.width, main.height);
+            if let Some(area) = self.draw_suggestions(frame, above, &ctx) {
+                self.overlay_areas.push(area);
+            }
+        }
         if self.hints_showing() {
             let held = self.ctrl_held && self.shift_held;
             hints::draw(
@@ -894,18 +1179,16 @@ impl App {
     }
 }
 
-/// Complete `input` with the words from `dictionary` that start with it: the word if there's
-/// one, else their common prefix, else `input` unchanged.
-fn word_completion(input: &str, dictionary: &[&str]) -> String {
-    let matching: Vec<&&str> = dictionary.iter().filter(|w| w.starts_with(input)).collect();
-    let Some(first) = matching.first() else {
-        return input.into();
+/// What all of `lines` start with.
+fn common_prefix<'a>(mut lines: impl Iterator<Item = &'a str>) -> String {
+    let Some(first) = lines.next() else {
+        return String::new();
     };
     let mut prefix: Vec<char> = first.chars().collect();
-    for word in matching {
+    for line in lines {
         let common = prefix
             .iter()
-            .zip(word.chars())
+            .zip(line.chars())
             .take_while(|(a, b)| **a == *b)
             .count();
         prefix.truncate(common);
@@ -917,13 +1200,47 @@ fn word_completion(input: &str, dictionary: &[&str]) -> String {
 mod tests {
     use super::*;
 
-    const WORDS: &[&str] = &["test1", "test2", "tset"];
+    #[test]
+    fn test_common_prefix() {
+        let prefix = |lines: &[&str]| common_prefix(lines.iter().copied());
+        assert_eq!(prefix(&["test1", "test2"]), "test");
+        assert_eq!(prefix(&["tset"]), "tset");
+        assert_eq!(prefix(&["test1", "tset"]), "t");
+        assert_eq!(prefix(&[]), "");
+    }
+
+    fn line(text: &str) -> CommandLine {
+        let mut line = CommandLine {
+            prefix: ':',
+            text: String::new(),
+            cursor: 0,
+            cycle: None,
+        };
+        line.set(text.into());
+        line
+    }
 
     #[test]
-    fn test_word_completion() {
-        assert_eq!(word_completion("ts", WORDS), "tset");
-        assert_eq!(word_completion("Luna", WORDS), "Luna");
-        assert_eq!(word_completion("te", WORDS), "test");
-        assert_eq!(word_completion("t", WORDS), "t");
+    fn test_tab_completes_then_goes_through_suggestions() {
+        // The only command, with a space for its arguments.
+        let mut cmdline = line("foc");
+        cmdline.choose(true, true);
+        assert_eq!(cmdline.text, "focus ");
+        // Then its values, one after the other.
+        cmdline.choose(true, true);
+        assert_eq!(cmdline.text, "focus home");
+        cmdline.choose(true, true);
+        assert_eq!(cmdline.text, "focus search");
+        cmdline.choose(false, false);
+        assert_eq!(cmdline.text, "focus home");
+        assert_eq!(cmdline.cursor, "focus home".len());
+        // What they start with first, then each of them.
+        let mut cmdline = line("vo");
+        cmdline.choose(true, true);
+        assert_eq!(cmdline.text, "vol");
+        cmdline.choose(true, true);
+        assert_eq!(cmdline.text, "volup ");
+        cmdline.choose(true, true);
+        assert_eq!(cmdline.text, "voldown ");
     }
 }

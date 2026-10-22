@@ -196,6 +196,7 @@ pub fn default_keybindings() -> HashMap<String, Vec<Command>> {
     let mut kb = HashMap::new();
 
     kb.insert("q".into(), vec![Command::Quit]);
+    kb.insert("Ctrl+c".into(), vec![Command::Quit]);
     kb.insert("Ctrl+l".into(), vec![Command::Redraw]);
     kb.insert("Shift+h".into(), vec![Command::Like]);
     kb.insert("Shift+t".into(), vec![Command::Sleep(SleepMode::Toggle)]);

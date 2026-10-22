@@ -3,6 +3,7 @@
 
 pub mod actions;
 pub mod app;
+pub mod completion;
 pub mod header;
 pub mod hints;
 #[cfg(feature = "cover")]

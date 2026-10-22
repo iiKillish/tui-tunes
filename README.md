@@ -55,7 +55,7 @@ Spotify logins in your browser, one for playback and one for your app.
 
 <kbd>?</kbd> shows the keys. <kbd>Tab</kbd> and <kbd>F1</kbd>–<kbd>F5</kbd> switch screens,
 <kbd>Enter</kbd> plays, <kbd>Shift</kbd>+<kbd>P</kbd> pauses, <kbd>:</kbd> opens the command line
-and <kbd>q</kbd> quits.
+and <kbd>q</kbd> or <kbd>Ctrl</kbd>+<kbd>C</kbd> quits.
 
 Everything works without a configuration file. The optional `~/.config/ttunes/config.toml` changes
 keys, colors and behavior; the full key list and every option are in

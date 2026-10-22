@@ -7,7 +7,9 @@
 //! protocol:
 //!
 //! - Kitty images are a layer above the text: after ratatui has drawn the frame, [render] places
-//!   them, touching only images that changed, and deletes the ones no longer wanted by ID.
+//!   them, touching only images that changed, and deletes the ones no longer wanted by ID. Each
+//!   picture is sent once and then placed: a placement that moves or is cut down (a menu opened
+//!   over it) is replaced in place, so it doesn't vanish while the picture is sent again.
 //! - Sixel and iTerm2 images are painted into the cells like text, and text drawn over them
 //!   erases them. [draw_into_buffer] puts each image's escape sequence in its top-left cell of
 //!   ratatui's buffer and marks the rest of its cells as skipped, so ratatui's diff redraws an
@@ -65,9 +67,15 @@ struct Request {
 #[cfg(feature = "cover")]
 #[derive(Clone, PartialEq, Debug)]
 struct Placed {
-    id: u32,
+    /// The picture sent to the terminal, and this placement of it.
+    image: u32,
+    placement: u32,
     request: Request,
 }
+
+/// A picture at a size in pixels.
+#[cfg(feature = "cover")]
+type PixelsKey = (Source, u32, u32);
 
 /// First Kitty image ID used; IDs are handed out per frame.
 #[cfg(feature = "cover")]
@@ -79,11 +87,14 @@ struct Layer {
     frame: Vec<Request>,
     frame_drawn: bool,
     placed: Vec<Placed>,
+    /// Kitty: the pictures the terminal has, by ID, kept while they're asked for (even if a menu
+    /// covers them) so they come back at once.
+    sent: HashMap<PixelsKey, u32>,
     next_id: u32,
     /// [GENERATION] when the images were last placed; see [reset].
     generation: u64,
     /// Scaled pixels per source and pixel size.
-    cache: HashMap<(Source, u32, u32), image::RgbaImage>,
+    cache: HashMap<PixelsKey, image::RgbaImage>,
     /// The same, as sixel or iTerm2 escape sequences, for the part shown (the cells it starts
     /// at, across and down, and their number across and down).
     encoded: HashMap<EncodedKey, String>,
@@ -100,6 +111,7 @@ impl Layer {
             frame: Vec::new(),
             frame_drawn: false,
             placed: Vec::new(),
+            sent: HashMap::new(),
             next_id: FIRST_IMAGE_ID,
             generation: 0,
             cache: HashMap::new(),
@@ -279,7 +291,9 @@ fn draw_cells(
                 }
             };
         }
-        let symbol = cell_sequence(&layer.encoded[&key], shown);
+        // Covers fill their cells: blanking them first only makes them flash when redrawn.
+        let opaque = matches!(request.source, Source::Url(_));
+        let symbol = cell_sequence(&layer.encoded[&key], shown, !opaque);
         for position in shown.positions() {
             buf[position].set_diff_option(CellDiffOption::Skip);
         }
@@ -296,15 +310,15 @@ fn draw_cells(
 }
 
 /// What to print in the top-left cell of `area` to show `image` (a sixel or iTerm2 sequence)
-/// over it. The area is cleared first, in the cell's colors, so transparent pixels show the
-/// right background and nothing of an older image is left. The cursor and colors are saved and
+/// over it. With `clear`, for images with transparent pixels, the area is cleared first, in the
+/// cell's colors, so they show the right background and nothing of an older image is left. The cursor and colors are saved and
 /// restored around it (DECSC/DECRC), then the cursor steps one cell right, as ratatui expects
 /// after printing a cell.
 #[cfg(feature = "cover")]
-fn cell_sequence(image: &str, area: Rect) -> String {
+fn cell_sequence(image: &str, area: Rect, clear: bool) -> String {
     let mut out = String::with_capacity(image.len() + area.area() as usize + 64);
     out.push_str("\x1b7");
-    for y in area.top()..area.bottom() {
+    for y in (area.top()..area.bottom()).filter(|_| clear) {
         out.push_str(&format!("\x1b[{};{}H", y + 1, area.x + 1));
         out.extend(std::iter::repeat_n(' ', usize::from(area.width)));
     }
@@ -347,66 +361,131 @@ fn encode(protocol: Protocol, pixels: &image::RgbaImage) -> Result<String, Strin
 #[cfg(feature = "cover")]
 fn render_images(overlays: &[Rect]) {
     let font = font_size();
-    with_layer(|layer| {
+    let out = with_layer(|layer| {
         let generation = GENERATION.load(Ordering::Relaxed);
         if layer.generation != generation {
             // Everything was deleted (see reset).
             layer.placed.clear();
+            layer.sent.clear();
             layer.generation = generation;
         }
-        let desired: Vec<Request> = layer
-            .frame
-            .iter()
-            .filter_map(|r| {
-                let shown = visible_part(r.area, overlays)?;
-                Some(Request { shown, ..r.clone() })
-            })
-            .collect();
-
-        // Keep what's already placed and still wanted; remove the rest.
-        let mut kept = Vec::new();
-        for placed in std::mem::take(&mut layer.placed) {
-            if desired.contains(&placed.request)
-                && !kept.iter().any(|k: &Placed| k.request == placed.request)
-            {
-                kept.push(placed);
-            } else {
-                let _ = delete(placed.id);
-            }
-        }
-        for request in desired {
-            if kept.iter().any(|k| k.request == request) {
-                continue;
-            }
-            let pixels = Size::new(
-                request.area.width * font.width,
-                request.area.height * font.height,
-            );
-            let key = (
-                request.source.clone(),
-                u32::from(pixels.width),
-                u32::from(pixels.height),
-            );
-            if !layer.cache.contains_key(&key) {
-                let Some(image) = load(&request.source, pixels) else {
-                    continue;
-                };
-                layer.cache.insert(key.clone(), image);
-            }
-            let id = layer.next_id;
-            layer.next_id = layer.next_id.wrapping_add(1).max(FIRST_IMAGE_ID);
-            match place(&layer.cache[&key], &request, font, id) {
-                Ok(()) => kept.push(Placed { id, request }),
-                Err(e) => error!("Failed to draw image: {e}"),
-            }
-        }
-        layer.placed = kept;
-        // Thumbnails of covers no longer shown can go; keep the cache from growing forever.
-        if layer.cache.len() > 400 {
-            layer.cache.clear();
-        }
-        layer.frame_drawn = false;
+        kitty_frame(layer, overlays, font)
     });
+    if out.is_empty() {
+        return;
+    }
+    // One write, as one synchronized update: the terminal shows the frame's changes together.
+    let mut stdout = std::io::stdout().lock();
+    let result = stdout
+        .write_all(b"\x1b[?2026h")
+        .and_then(|()| stdout.write_all(&out))
+        .and_then(|()| stdout.write_all(b"\x1b[?2026l"))
+        .and_then(|()| stdout.flush());
+    if let Err(e) = result {
+        error!("Failed to draw images: {e}");
+    }
+}
+
+/// What to send the terminal to show the frame's Kitty images: pictures not sent yet, placements
+/// that are new or changed (replacing the old placement of the same picture and area, so it never
+/// disappears), then deletions of placements and pictures no longer wanted.
+#[cfg(feature = "cover")]
+fn kitty_frame(layer: &mut Layer, overlays: &[Rect], font: Size) -> Vec<u8> {
+    let mut out = Vec::new();
+    let pixels_key = |r: &Request| {
+        (
+            r.source.clone(),
+            u32::from(r.area.width * font.width),
+            u32::from(r.area.height * font.height),
+        )
+    };
+    let desired: Vec<Request> = layer
+        .frame
+        .iter()
+        .filter_map(|r| {
+            let shown = visible_part(r.area, overlays)?;
+            Some(Request { shown, ..r.clone() })
+        })
+        .collect();
+
+    // Keep what's already placed and still wanted; the rest may be replaced or go.
+    let mut kept: Vec<Placed> = Vec::new();
+    let mut old: Vec<Placed> = Vec::new();
+    for placed in std::mem::take(&mut layer.placed) {
+        if desired.contains(&placed.request) && !kept.iter().any(|k| k.request == placed.request) {
+            kept.push(placed);
+        } else {
+            old.push(placed);
+        }
+    }
+    for request in desired {
+        if kept.iter().any(|k| k.request == request) {
+            continue;
+        }
+        let key = pixels_key(&request);
+        let image = match layer.sent.get(&key) {
+            Some(id) => *id,
+            None => {
+                if !layer.cache.contains_key(&key) {
+                    let size = Size::new(key.1 as u16, key.2 as u16);
+                    let Some(pixels) = load(&request.source, size) else {
+                        continue;
+                    };
+                    layer.cache.insert(key.clone(), pixels);
+                }
+                let id = take_id(&mut layer.next_id);
+                transmit(&mut out, &layer.cache[&key], id);
+                layer.sent.insert(key, id);
+                id
+            }
+        };
+        // The same picture where it was (now cut down or whole again): replace that placement.
+        let placement = match old
+            .iter()
+            .position(|p| p.image == image && p.request.area == request.area)
+        {
+            Some(i) => old.remove(i).placement,
+            None => take_id(&mut layer.next_id),
+        };
+        put(&mut out, &request, font, image, placement);
+        kept.push(Placed {
+            image,
+            placement,
+            request,
+        });
+    }
+    for placed in old {
+        // Lowercase: the placement only, the picture stays for later.
+        let _ = write!(
+            out,
+            "\x1b_Ga=d,d=i,i={},p={},q=2\x1b\\",
+            placed.image, placed.placement
+        );
+    }
+    layer.placed = kept;
+    // Pictures no longer asked for at all go from the terminal too.
+    let wanted: HashSet<PixelsKey> = layer.frame.iter().map(pixels_key).collect();
+    layer.sent.retain(|key, id| {
+        let keep = wanted.contains(key);
+        if !keep {
+            let _ = write!(out, "\x1b_Ga=d,d=I,i={id},q=2\x1b\\");
+        }
+        keep
+    });
+    // Thumbnails of covers no longer shown can go; keep the cache from growing forever.
+    if layer.cache.len() > 400 {
+        layer.cache.clear();
+    }
+    layer.frame_drawn = false;
+    out
+}
+
+/// The next image or placement ID.
+#[cfg(feature = "cover")]
+fn take_id(next: &mut u32) -> u32 {
+    let id = *next;
+    *next = next.wrapping_add(1).max(FIRST_IMAGE_ID);
+    id
 }
 
 /// Remove every Kitty image from the terminal and place them again on the next [render]. Needed
@@ -842,14 +921,34 @@ fn average_color(pixels: impl Iterator<Item = [u8; 3]>) -> Option<[u8; 3]> {
     (count > 0).then(|| sum.map(|c| (c / count) as u8))
 }
 
-/// Place `pixels` over `area` with the Kitty graphics protocol as image `id` (replacing any image
-/// with that ID), without moving the cursor (`C=1`) or asking the terminal for a reply (`q=2`).
+/// Send `pixels` to the terminal as Kitty image `id`, without showing it yet (`a=t`) or asking
+/// for a reply (`q=2`).
 #[cfg(feature = "cover")]
-fn place(pixels: &image::RgbaImage, request: &Request, font: Size, id: u32) -> std::io::Result<()> {
-    let (area, shown) = (request.area, request.shown);
+fn transmit(out: &mut Vec<u8>, pixels: &image::RgbaImage, id: u32) {
     let data = base64_encode(pixels.as_raw());
-    let mut out: Vec<u8> = Vec::with_capacity(data.len() + 256);
-    write!(out, "\x1b_Ga=d,d=I,i={id},q=2\x1b\\")?;
+    let chunks: Vec<&[u8]> = data.as_bytes().chunks(4096).collect();
+    for (i, chunk) in chunks.iter().enumerate() {
+        let more = u8::from(i + 1 < chunks.len());
+        if i == 0 {
+            let _ = write!(
+                out,
+                "\x1b_Ga=t,i={id},f=32,s={},v={},q=2,m={more};",
+                pixels.width(),
+                pixels.height(),
+            );
+        } else {
+            let _ = write!(out, "\x1b_Gm={more};");
+        }
+        out.extend_from_slice(chunk);
+        out.extend_from_slice(b"\x1b\\");
+    }
+}
+
+/// Show image `image` over the request's cells as placement `placement` (replacing that
+/// placement if it's there), without moving the cursor (`C=1`).
+#[cfg(feature = "cover")]
+fn put(out: &mut Vec<u8>, request: &Request, font: Size, image: u32, placement: u32) {
+    let (area, shown) = (request.area, request.shown);
     // Only part of it is shown: that part of the pixels (x, y, w, h), over its cells.
     let (crop, y_shift) = if shown == area {
         (String::new(), request.y_shift)
@@ -865,38 +964,14 @@ fn place(pixels: &image::RgbaImage, request: &Request, font: Size, id: u32) -> s
     };
     // Save the cursor, move to the top-left cell, and restore the cursor afterwards.
     let Position { x, y } = shown.as_position();
-    write!(out, "\x1b7\x1b[{};{}H", y + 1, x + 1)?;
-    let chunks: Vec<&[u8]> = data.as_bytes().chunks(4096).collect();
-    for (i, chunk) in chunks.iter().enumerate() {
-        let more = u8::from(i + 1 < chunks.len());
-        if i == 0 {
-            write!(
-                out,
-                "\x1b_Ga=T,i={id},f=32,s={},v={},{crop}c={},r={},Y={y_shift},C=1,q=2,m={more};",
-                pixels.width(),
-                pixels.height(),
-                shown.width,
-                shown.height
-            )?;
-        } else {
-            write!(out, "\x1b_Gm={more};")?;
-        }
-        out.extend_from_slice(chunk);
-        out.extend_from_slice(b"\x1b\\");
-    }
-    out.extend_from_slice(b"\x1b8");
-    let mut stdout = std::io::stdout().lock();
-    stdout.write_all(&out)?;
-    stdout.flush()
-}
-
-#[cfg(feature = "cover")]
-/// Delete image `id`. Images are deleted by ID: deleting "whatever covers this cell" removes
-/// neighbouring images too in some terminals (Ghostty).
-fn delete(id: u32) -> std::io::Result<()> {
-    let mut stdout = std::io::stdout().lock();
-    write!(stdout, "\x1b_Ga=d,d=I,i={id},q=2\x1b\\")?;
-    stdout.flush()
+    let _ = write!(
+        out,
+        "\x1b7\x1b[{};{}H\x1b_Ga=p,i={image},p={placement},{crop}c={},r={},Y={y_shift},C=1,q=2\x1b\\\x1b8",
+        y + 1,
+        x + 1,
+        shown.width,
+        shown.height
+    );
 }
 
 /// Standard base64 with padding.
@@ -1002,6 +1077,53 @@ mod tests {
 
     #[test]
     #[cfg(feature = "cover")]
+    fn test_kitty_sends_once_and_replaces_placements() {
+        let font = Size::new(8, 16);
+        let image = Rect::new(2, 1, 4, 2);
+        let mut layer = Layer::new();
+        let frame = |layer: &mut Layer, overlays: &[Rect]| {
+            layer.frame = vec![Request {
+                source: Source::Icon(Icon::Play, [255, 255, 255]),
+                area: image,
+                y_shift: 0,
+                shown: image,
+            }];
+            String::from_utf8_lossy(&kitty_frame(layer, overlays, font)).into_owned()
+        };
+        let first = frame(&mut layer, &[]);
+        assert!(first.contains("a=t,i=1000,"), "{first:?}");
+        assert!(first.contains("a=p,i=1000,p=1001,c=4,r=2"), "{first:?}");
+        // Unchanged: nothing to do.
+        assert!(frame(&mut layer, &[]).is_empty());
+
+        // A menu over part of it: the same placement, cut down, and nothing sent or deleted.
+        let covered = frame(&mut layer, &[Rect::new(5, 0, 5, 5)]);
+        assert!(
+            covered.contains("a=p,i=1000,p=1001,x=0,y=0,w=16,h=32,c=2,r=2"),
+            "{covered:?}"
+        );
+        assert!(
+            !covered.contains("a=t") && !covered.contains("a=d"),
+            "{covered:?}"
+        );
+
+        // All covered: the placement goes, the picture stays to come back at once.
+        let hidden = frame(&mut layer, &[Rect::new(0, 0, 10, 5)]);
+        assert_eq!(hidden, "\x1b_Ga=d,d=i,i=1000,p=1001,q=2\x1b\\");
+        let back = frame(&mut layer, &[]);
+        assert!(
+            back.contains("a=p,i=1000,") && !back.contains("a=t"),
+            "{back:?}"
+        );
+
+        // No longer asked for: the picture goes too.
+        layer.frame.clear();
+        let gone = String::from_utf8_lossy(&kitty_frame(&mut layer, &[], font)).into_owned();
+        assert!(gone.contains("a=d,d=I,i=1000"), "{gone:?}");
+    }
+
+    #[test]
+    #[cfg(feature = "cover")]
     fn test_visible_part() {
         let image = Rect::new(10, 0, 20, 10);
         assert_eq!(visible_part(image, &[]), Some(image));
@@ -1021,11 +1143,13 @@ mod tests {
     #[test]
     #[cfg(feature = "cover")]
     fn test_cell_sequence() {
-        let sequence = cell_sequence("IMAGE", Rect::new(2, 1, 3, 2));
+        let sequence = cell_sequence("IMAGE", Rect::new(2, 1, 3, 2), true);
         assert_eq!(
             sequence,
             "\x1b7\x1b[2;3H   \x1b[3;3H   \x1b[2;3HIMAGE\x1b8\x1b[1C"
         );
+        let cover = cell_sequence("IMAGE", Rect::new(2, 1, 3, 2), false);
+        assert_eq!(cover, "\x1b7\x1b[2;3HIMAGE\x1b8\x1b[1C");
     }
 
     #[test]

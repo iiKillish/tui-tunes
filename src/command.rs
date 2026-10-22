@@ -1,8 +1,6 @@
 use crate::queue::RepeatSetting;
 use crate::spotify_url::SpotifyUrl;
-use std::collections::HashMap;
 use std::fmt;
-use std::sync::OnceLock;
 
 use strum::VariantNames;
 use strum_macros::{Display, EnumString, IntoStaticStr};
@@ -59,58 +57,178 @@ const TAB_CMD: &str = "tab";
 const SCREEN_CMD: &str = "screen";
 const SLEEP_CMD: &str = "sleep";
 
-pub const ALL_COMMANDS: &[&str] = &[
-    QUIT_CMD,
-    TOGGLE_PLAY_CMD,
-    STOP_CMD,
-    PREVIOUS_CMD,
-    NEXT_CMD,
-    CLEAR_CMD,
-    QUEUE_CMD,
-    PLAY_NEXT_CMD,
-    PLAY,
-    UPDATE_LIBRARY_CMD,
-    SAVE_CMD,
-    SAVE_CURRENT_CMD,
-    SAVE_QUEUE_CMD,
-    ADD,
-    ADD_CURRENT_CMD,
-    DELETE_CMD,
-    FOCUS,
-    SEEK,
-    VOLUME_UP_CMD,
-    VOLUME_DOWN_CMD,
-    REPEAT_CMD,
-    SHUFFLE_CMD,
+/// A command as the command line and the key list describe it.
+#[derive(Debug)]
+pub struct CommandInfo {
+    pub name: &'static str,
+    /// Its arguments, `<required>` and `[optional]`; empty if it takes none.
+    pub args: &'static str,
+    /// What it does, in a few words.
+    pub about: &'static str,
+    /// Words its first argument can be, for completion.
+    pub values: &'static [&'static str],
+}
+
+const fn info(
+    name: &'static str,
+    args: &'static str,
+    about: &'static str,
+    values: &'static [&'static str],
+) -> CommandInfo {
+    CommandInfo {
+        name,
+        args,
+        about,
+        values,
+    }
+}
+
+/// Every command, by what it does, for the command line's suggestions and the key list.
+pub const COMMANDS: &[CommandInfo] = &[
+    // Playback
+    info(TOGGLE_PLAY_CMD, "", "Play / pause", &[]),
+    info(STOP_CMD, "", "Stop", &[]),
+    info(NEXT_CMD, "", "Next song", &[]),
+    info(PREVIOUS_CMD, "", "Previous song", &[]),
+    info(
+        SEEK,
+        "<[+|-]time>",
+        "Go to a time, or forward/back (+1m, -30s)",
+        &[],
+    ),
+    info(VOLUME_UP_CMD, "[percent]", "Volume up", &[]),
+    info(VOLUME_DOWN_CMD, "[percent]", "Volume down", &[]),
+    info(
+        REPEAT_CMD,
+        "[list|track|none]",
+        "Repeat: step through, or set",
+        &["list", "track", "none"],
+    ),
+    info(
+        SHUFFLE_CMD,
+        "[on|off]",
+        "Shuffle: toggle, or set",
+        &["on", "off"],
+    ),
+    info(LIKE_CMD, "", "Like the playing song (or unlike it)", &[]),
+    info(
+        SLEEP_CMD,
+        "[minutes|track|off]",
+        "Sleep timer: pause later",
+        &["track", "off", "15", "30", "60"],
+    ),
+    // Queue, library and playlists
+    info(PLAY, "", "Play the selected item", &[]),
+    info(QUEUE_CMD, "", "Add the selected item to the queue", &[]),
+    info(PLAY_NEXT_CMD, "", "Play the selected item next", &[]),
+    info(CLEAR_CMD, "", "Clear the queue", &[]),
+    info(
+        SAVE_CMD,
+        "[current|queue]",
+        "Save the selected item, the playing song or the queue",
+        &["current", "queue"],
+    ),
+    info(
+        ADD,
+        "[current]",
+        "Add the selected (or playing) song to a playlist",
+        &["current"],
+    ),
+    info(DELETE_CMD, "", "Remove the selected item", &[]),
+    info(
+        SHIFT_CMD,
+        "<up|down> [amount]",
+        "Move the selected song up or down",
+        &["up", "down"],
+    ),
+    info(NEW_PLAYLIST_CMD, "<name>", "Make a new playlist", &[]),
+    info(RENAME_CMD, "[name]", "Rename the playlist", &[]),
+    info(
+        SORT_CMD,
+        "<key> [asc|desc]",
+        "Sort the playlist",
+        &["title", "album", "artist", "duration", "added", "original"],
+    ),
+    info(INSERT_CMD, "[url]", "Open a Spotify link", &[]),
+    info(
+        UPDATE_LIBRARY_CMD,
+        "",
+        "Refresh the library from Spotify",
+        &[],
+    ),
     #[cfg(feature = "share_clipboard")]
-    SHARE_CMD,
-    BACK_CMD,
-    OPEN_CMD,
-    GOTO_CMD,
-    MOVE_CMD,
-    SHIFT_CMD,
-    SEARCH_CMD,
-    JUMP_PREVIOUS_CMD,
-    JUMP_NEXT_CMD,
-    JUMP_CMD,
-    HELP_CMD,
-    HINTS_CMD,
-    SETTINGS_CMD,
-    RELOAD_CONFIG_CMD,
-    NOOP_CMD,
-    INSERT_CMD,
-    NEW_PLAYLIST_CMD,
-    RENAME_CMD,
-    SORT_CMD,
-    LOGOUT_CMD,
-    REDRAW_CMD,
-    EXECUTE_CMD,
-    RECONNECT_CMD,
-    LIKE_CMD,
-    PANEL_CMD,
-    TAB_CMD,
-    SCREEN_CMD,
-    SLEEP_CMD,
+    info(
+        SHARE_CMD,
+        "<selected|current>",
+        "Copy a link to the selected or playing item",
+        &["selected", "current"],
+    ),
+    // Getting around
+    info(FOCUS, "<screen>", "Go to a screen", ScreenId::VARIANTS),
+    info(
+        SCREEN_CMD,
+        "[next|previous]",
+        "Next or previous screen",
+        &["next", "previous"],
+    ),
+    info(
+        TAB_CMD,
+        "[next|previous]",
+        "Next or previous tab",
+        &["next", "previous"],
+    ),
+    info(
+        PANEL_CMD,
+        "<queue|lyrics>",
+        "Show Up next or the lyrics",
+        &["queue", "lyrics"],
+    ),
+    info(
+        MOVE_CMD,
+        "<direction> [amount]",
+        "Move the selection",
+        &[
+            "up", "down", "left", "right", "top", "bottom", "pageup", "pagedown", "playing",
+        ],
+    ),
+    info(
+        OPEN_CMD,
+        "<selected|current>",
+        "Open the selected item, or the playing song's menu",
+        &["selected", "current"],
+    ),
+    info(
+        GOTO_CMD,
+        "<album|artist>",
+        "Go to the selected song's album or artist",
+        &["album", "artist"],
+    ),
+    info(BACK_CMD, "", "Back", &[]),
+    info(SEARCH_CMD, "<text>", "Search Spotify", &[]),
+    info(JUMP_CMD, "<text>", "Find in the list, like /", &[]),
+    info(JUMP_NEXT_CMD, "", "Next match", &[]),
+    info(JUMP_PREVIOUS_CMD, "", "Previous match", &[]),
+    info(HELP_CMD, "", "All keys and commands", &[]),
+    info(HINTS_CMD, "", "Show keys on screen", &[]),
+    info(SETTINGS_CMD, "", "Settings", &[]),
+    // Other
+    info(QUIT_CMD, "", "Quit", &[]),
+    info(LOGOUT_CMD, "", "Log out and quit", &[]),
+    info(RELOAD_CONFIG_CMD, "", "Reload the configuration", &[]),
+    info(RECONNECT_CMD, "", "Reconnect to Spotify", &[]),
+    info(REDRAW_CMD, "", "Redraw the screen", &[]),
+    info(EXECUTE_CMD, "<shell command>", "Run a shell command", &[]),
+    info(NOOP_CMD, "", "Nothing (to unbind a key)", &[]),
+];
+
+/// Other names for commands, as (alias, command).
+pub const ALIASES: &[(&str, &str)] = &[
+    ("q", QUIT_CMD),
+    ("x", QUIT_CMD),
+    ("pause", TOGGLE_PLAY_CMD),
+    ("toggleplay", TOGGLE_PLAY_CMD),
+    ("toggleplayback", TOGGLE_PLAY_CMD),
+    ("loop", REPEAT_CMD),
 ];
 
 /// What the `panel` command shows: the Up next or Lyrics screen.
@@ -537,34 +655,10 @@ impl Command {
     }
 }
 
-fn register_aliases(map: &mut HashMap<&str, &str>, cmd: &'static str, names: Vec<&'static str>) {
-    for a in names {
-        map.insert(a, cmd);
-    }
-}
-
 fn handle_aliases(input: &str) -> &str {
-    // NOTE: There is probably a better way to write this than a static HashMap. The HashMap doesn't
-    // improve performance as there's far too few keys, and the use of static doesn't seem good.
-    static ALIASES: OnceLock<HashMap<&'static str, &'static str>> = OnceLock::new();
-
-    let aliases = ALIASES.get_or_init(|| {
-        let mut m = HashMap::new();
-
-        register_aliases(&mut m, QUIT_CMD, vec!["q", "x"]);
-        register_aliases(
-            &mut m,
-            TOGGLE_PLAY_CMD,
-            vec!["pause", "toggleplay", "toggleplayback"],
-        );
-        register_aliases(&mut m, REPEAT_CMD, vec!["loop"]);
-        m
-    });
-
-    if let Some(cmd) = aliases.get(input) {
-        handle_aliases(cmd)
-    } else {
-        input
+    match ALIASES.iter().find(|(alias, _)| *alias == input) {
+        Some((_, command)) => command,
+        None => input,
     }
 }
 
@@ -1112,6 +1206,22 @@ pub fn parse(input: &str) -> Result<Vec<Command>, CommandParseError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_described_command_parses() {
+        for command in COMMANDS {
+            if !command.args.starts_with('<') {
+                assert!(parse(command.name).is_ok(), "{}", command.name);
+            }
+            for value in command.values {
+                let line = format!("{} {value}", command.name);
+                assert!(parse(&line).is_ok(), "{line}");
+            }
+        }
+        for (alias, _) in ALIASES {
+            assert!(parse(alias).is_ok(), "{alias}");
+        }
+    }
 
     #[test]
     fn shell_commands_are_refused_over_ipc() {
