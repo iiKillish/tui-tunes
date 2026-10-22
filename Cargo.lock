@@ -4647,6 +4647,8 @@ dependencies = [
  "icy_sixel",
  "image",
  "libc",
+ "libpulse-binding",
+ "libpulse-simple-binding",
  "librespot-core",
  "librespot-metadata",
  "librespot-oauth",

@@ -667,20 +667,20 @@ pub fn force_supported(supported: bool) {
 
 /// Size of a terminal cell in pixels (or at least its aspect ratio).
 pub fn font_size() -> Size {
+    // Windows' console doesn't say.
     #[cfg(feature = "cover")]
+    if let Ok(ratatui::crossterm::terminal::WindowSize {
+        rows,
+        columns: cols,
+        width: xpixels,
+        height: ypixels,
+    }) = ratatui::crossterm::terminal::window_size()
+        && cols > 0
+        && rows > 0
+        && xpixels > 0
+        && ypixels > 0
     {
-        // SAFETY: TIOCGWINSZ only writes a `winsize` to the pointer it's given.
-        let mut size: libc::winsize = unsafe { std::mem::zeroed() };
-        unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut size) };
-        let libc::winsize {
-            ws_row: rows,
-            ws_col: cols,
-            ws_xpixel: xpixels,
-            ws_ypixel: ypixels,
-        } = size;
-        if cols > 0 && rows > 0 && xpixels > 0 && ypixels > 0 {
-            return Size::new((xpixels / cols).max(1), (ypixels / rows).max(1));
-        }
+        return Size::new((xpixels / cols).max(1), (ypixels / rows).max(1));
     }
     Size::new(8, 16)
 }

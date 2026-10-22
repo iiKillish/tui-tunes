@@ -2,6 +2,7 @@
 //! foreground (OSC 10), the background (OSC 11) and the 16 ANSI colors (OSC 4).
 
 use std::sync::OnceLock;
+#[cfg(unix)]
 use std::time::Duration;
 
 /// An RGB color.
@@ -18,6 +19,7 @@ pub struct TerminalColors {
 
 /// How long to wait for the terminal's answers. Terminals answer in a few milliseconds; ones that
 /// don't support the queries (or tmux without passthrough) never do.
+#[cfg(unix)]
 const TIMEOUT: Duration = Duration::from_millis(100);
 
 static DETECTED: OnceLock<TerminalColors> = OnceLock::new();
@@ -106,6 +108,7 @@ fn query() -> Option<Vec<u8>> {
 }
 
 /// Whether `reply` contains a DA1 answer (`ESC [ ? … c`).
+#[cfg(any(unix, test))]
 fn has_device_attributes(reply: &[u8]) -> bool {
     reply
         .windows(3)

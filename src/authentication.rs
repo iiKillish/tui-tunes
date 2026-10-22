@@ -31,9 +31,9 @@ pub fn web_api_client_id() -> &'static str {
     WEB_API_CLIENT_ID.get().map_or("", String::as_str)
 }
 
-/// Tokens are tied to the client ID that issued them, so each client ID keeps its own cache file.
+/// Tokens are tied to the client ID that issued them, so each client ID keeps its own file.
 fn rspotify_token_path() -> PathBuf {
-    config::cache_path(&format!("rspotify_token_{}.json", web_api_client_id()))
+    config::data_path(&format!("rspotify_token_{}.json", web_api_client_id()))
 }
 
 static OAUTH_SCOPES: &[&str] = &[
@@ -98,7 +98,7 @@ fn spotify_redirect_uri() -> String {
 /// credentials are available it will initiate the OAuth2 login process.
 pub fn get_credentials(configuration: &Config) -> Result<RespotCredentials, String> {
     let mut credentials = {
-        let cache = Cache::new(Some(config::cache_path("librespot")), None, None, None)
+        let cache = Cache::new(Some(config::data_path("librespot")), None, None, None)
             .expect("Could not create librespot cache");
         let cached_credentials = cache.credentials();
         match cached_credentials {
@@ -264,13 +264,13 @@ fn write_private_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
     result
 }
 
-/// Forget the logins saved in the cache: librespot's, and the Web API tokens of every client ID.
+/// Forget the saved logins: librespot's, and the Web API tokens of every client ID.
 pub fn forget_saved_logins() {
-    let _ = fs::remove_file(config::cache_path("librespot").join("credentials.json"));
-    let Some(cache_dir) = config::user_cache_directory() else {
+    let _ = fs::remove_file(config::data_path("librespot").join("credentials.json"));
+    let Some(data_dir) = config::user_data_directory() else {
         return;
     };
-    let Ok(entries) = fs::read_dir(cache_dir) else {
+    let Ok(entries) = fs::read_dir(data_dir) else {
         return;
     };
     for entry in entries.flatten() {

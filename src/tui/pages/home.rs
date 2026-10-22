@@ -44,7 +44,7 @@ use crate::tui::style::{SELECTION_MARKER, Styles, bold, fill, put, scroll_to};
 
 /// Items per kind loaded at most.
 const MAX_ITEMS: usize = 20;
-/// Jump back in as of the last load, in the cache directory.
+/// Jump back in as of the last load, in the data directory.
 const HISTORY_FILE: &str = "home_history.json";
 /// Home is reloaded when shown again after this long.
 const REFRESH_AFTER: Duration = Duration::from_secs(10 * 60);
@@ -237,14 +237,14 @@ fn remember(fresh: Vec<Played>, saved: Vec<Played>) -> Vec<Played> {
 
 /// Jump back in as saved by the last load; empty if there's none or it can't be read.
 fn load_history() -> Vec<Played> {
-    std::fs::read_to_string(crate::config::cache_path(HISTORY_FILE))
+    std::fs::read_to_string(crate::config::data_path(HISTORY_FILE))
         .ok()
         .and_then(|text| serde_json::from_str(&text).ok())
         .unwrap_or_default()
 }
 
 fn save_history(history: &[Played]) {
-    let path = crate::config::cache_path(HISTORY_FILE);
+    let path = crate::config::data_path(HISTORY_FILE);
     // Tracks are loaded again when an item is opened; saving them would only bloat the file.
     let history: Vec<Played> = history
         .iter()

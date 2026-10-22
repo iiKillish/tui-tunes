@@ -451,6 +451,14 @@ pub fn user_cache_directory() -> Option<PathBuf> {
     Some(project_directories.cache_dir)
 }
 
+/// Return the path to the current user's data directory, for what ttunes keeps that isn't a cache
+/// (logins, listening history), or None if one couldn't be found. This function does not guarantee
+/// correct permissions or ownership of the directory!
+pub fn user_data_directory() -> Option<PathBuf> {
+    let project_directories = try_proj_dirs().ok()?;
+    Some(project_directories.data_dir)
+}
+
 /// Force create the configuration directory at the default project location, removing anything that
 /// isn't a directory but has the same name. Return the path to the configuration file inside the
 /// directory.
@@ -483,6 +491,55 @@ pub fn cache_path(file: &str) -> PathBuf {
     pb
 }
 
+/// Create the data directory at the default project location, preserving it if it already exists,
+/// and return the path to the data file inside the directory.
+///
+/// This doesn't create the file, only the containing directory.
+pub fn data_path(file: &str) -> PathBuf {
+    let data_dir = user_data_directory().unwrap();
+    if !data_dir.exists() {
+        create_private_dir_all(&data_dir).expect("can't create data folder");
+    }
+    data_dir.join(file)
+}
+
+/// Move what's kept in the data directory out of the cache directory, where ttunes kept it before
+/// (so clearing the cache logged out and lost the listening history).
+pub fn move_data_from_cache() {
+    let (Some(cache_dir), Some(data_dir)) = (user_cache_directory(), user_data_directory()) else {
+        return;
+    };
+    let Ok(entries) = fs::read_dir(&cache_dir) else {
+        return;
+    };
+    let tokens = entries
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.starts_with("rspotify_token_") && name.ends_with(".json"));
+    let files = [
+        "librespot/credentials.json",
+        "librespot/volume/volume",
+        "listening.jsonl",
+        "home_history.json",
+    ];
+    for file in files.into_iter().map(String::from).chain(tokens) {
+        let (from, to) = (cache_dir.join(&file), data_dir.join(&file));
+        if !from.exists() || to.exists() {
+            continue;
+        }
+        let moved = to
+            .parent()
+            .map_or(Ok(()), create_private_dir_all)
+            .and_then(|()| fs::rename(&from, &to))
+            // Across filesystems: copy, then remove.
+            .or_else(|_| fs::copy(&from, &to).and_then(|_| fs::remove_file(&from)));
+        match moved {
+            Ok(()) => log::info!("Moved {file} to {}", data_dir.display()),
+            Err(e) => log::warn!("Couldn't move {file} to {}: {e}", data_dir.display()),
+        }
+    }
+}
+
 /// Create `path` and any missing parents. On unix the directories created are only accessible
 /// by the current user, as the cache and configuration hold login credentials and tokens.
 fn create_private_dir_all(path: &Path) -> std::io::Result<()> {
@@ -497,15 +554,18 @@ fn create_private_dir_all(path: &Path) -> std::io::Result<()> {
 /// by the current user. librespot writes it with the default permissions, usually readable by
 /// everyone, so this runs after every connection that may have saved it.
 pub fn restrict_librespot_credentials() {
-    restrict_permissions(&cache_path("librespot").join("credentials.json"), 0o600);
+    restrict_permissions(&data_path("librespot").join("credentials.json"), 0o600);
 }
 
-/// Tighten what an older ttunes left accessible to other users: the cache directory, which
-/// holds the Web API token and the librespot login, and the librespot login itself.
+/// Tighten what an older ttunes left accessible to other users: the cache and data directories,
+/// and the librespot login.
 pub fn restrict_cache_permissions() {
     if let Some(cache_dir) = user_cache_directory() {
         restrict_permissions(&cache_dir, 0o700);
-        restrict_permissions(&cache_dir.join("librespot").join("credentials.json"), 0o600);
+    }
+    if let Some(data_dir) = user_data_directory() {
+        restrict_permissions(&data_dir, 0o700);
+        restrict_permissions(&data_dir.join("librespot").join("credentials.json"), 0o600);
     }
 }
 

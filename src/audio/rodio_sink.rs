@@ -1,8 +1,8 @@
 //! An audio sink for the Rodio backend (macOS's and Windows' audio) that pauses at once.
 //!
 //! librespot's own Rodio sink waits for its buffer (about half a second of audio) to play out
-//! before it pauses, so pausing lags. This one pauses right away and drops what's buffered, and
-//! keeps a smaller buffer so resuming skips no more than a tenth of a second or so.
+//! before it pauses, so pausing lags. This one pauses right away, keeping what's buffered to play
+//! on resuming (unless it's to be dropped; see [super::discard_buffered]).
 
 use std::thread;
 use std::time::Duration;
@@ -62,13 +62,16 @@ fn open(device: Option<String>, format: AudioFormat) -> Box<dyn Sink> {
 
 impl Sink for RodioSink {
     fn start(&mut self) -> SinkResult<()> {
+        if super::take_discard() {
+            self.sink.clear();
+        }
         self.sink.play();
         Ok(())
     }
 
     fn stop(&mut self) -> SinkResult<()> {
-        // Clearing pauses too; what was buffered is dropped rather than waited for.
-        self.sink.clear();
+        // What's buffered stays, to play on resuming, rather than being waited for.
+        self.sink.pause();
         Ok(())
     }
 

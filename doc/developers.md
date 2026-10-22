@@ -55,12 +55,9 @@ cd tui-tunes
 cargo build --release
 ```
 
-**You may need to manually set the audio backend on non-Linux OSes.** See [Audio
-Backends](#audio-backends).
-
 ## Audio Backends
 Each system gets its own sound with no features: PulseAudio on Linux and the BSDs (which PipeWire
-provides too), and Rodio (CoreAudio) on macOS. These come from target-specific dependencies in
+provides too), and Rodio on macOS (CoreAudio) and Windows (WASAPI). These come from target-specific dependencies in
 Cargo.toml, as features can't differ by system. Other backends are features, used besides those:
 the `backend` option picks one.
 
@@ -74,10 +71,13 @@ PortAudio for BSDs
 cargo build --no-default-features --features portaudio_backend,cover
 ```
 
-Rodio for Windows (without `cover`, which only builds on Unix-like systems)
+Rodio on Linux
 ```sh
-cargo build --no-default-features --features rodio_backend,share_clipboard,notify
+cargo build --features rodio_backend
 ```
+
+PulseAudio and Rodio play through ttunes' own sinks (`src/audio/`), which stop at once where
+librespot's play out what they have buffered.
 
 ## Other Features
 Here are some auxiliary features you may wish to enable:

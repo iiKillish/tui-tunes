@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Skipping to another song no longer plays a moment of the old one first,
+  pausing on Linux stops at once, and resuming picks up exactly where it
+  paused instead of skipping ahead a little
+
+### Changed
+
+- The logins, the listening history behind Stats, the home screen's history and
+  the volume are kept in the data directory (`~/.local/share/ttunes` on Linux)
+  instead of the cache, so clearing the cache no longer logs out or loses them;
+  they're moved there on start
+- Songs played again count as recently used in the audio cache across
+  restarts, so they aren't deleted first when it's full (filesystems mounted
+  `noatime` didn't record it)
+- The audio cache is limited to 5 GiB by default (`audio_cache_size`); it used
+  to grow without limit
+- Windows builds with a plain `cargo build` / `cargo install`, covers included,
+  like Linux and macOS: no features to pick per system
+
 ## [0.5.0]
 
 ### Security

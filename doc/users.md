@@ -17,10 +17,11 @@ development headers for OpenSSL and dbus, and on Linux PulseAudio (and ALSA, if 
 ALSA backend). PipeWire provides PulseAudio, so it works there too.
 To build from a checkout instead, see [Compiling](/doc/developers.md#compiling).
 
-### macOS
-The same `cargo install --locked ttunes` works: on macOS, ttunes plays through CoreAudio (the
-Rodio backend) instead of PulseAudio, which macOS doesn't have. Before 0.4.1 it needed
-`--no-default-features --features rodio_backend,cover,share_clipboard,notify`.
+### macOS and Windows
+The same `cargo install --locked ttunes` works: ttunes plays through the Rodio backend (CoreAudio on
+macOS, WASAPI on Windows) instead of PulseAudio. Before 0.4.1 macOS needed
+`--no-default-features --features rodio_backend,cover,share_clipboard,notify`, and Windows used to
+need `--no-default-features --features rodio_backend,share_clipboard,notify`.
 
 ### Ready-made builds
 Every [release](https://github.com/iiKillish/tui-tunes/releases/latest) has builds for Linux
@@ -150,7 +151,7 @@ things you can click, and a text cursor over text fields.
   days and in all, your streak of days, when in the day you listen, your top songs and artists of
   the last 30 days), your top songs and artists as Spotify counts them over 4 weeks, 6 months and
   all time (the songs play like any list), and your library in numbers. ttunes notes a song
-  listened to for 30 seconds or more in `listening.jsonl` in the cache directory.
+  listened to for 30 seconds or more in `listening.jsonl` in the data directory.
 
 ### Settings
 <kbd>,</kbd> (or `:settings`) opens the settings over the page, like the key list: which tabs the Library shows (turn off
@@ -352,7 +353,7 @@ Possible configuration values are:
 | `backend`                       | Audio backend to use                                           | String<sup>[1]</sup>                                                                  |                     |
 | `backend_device`                | Audio device to configure the backend                          | String                                                                                |                     |
 | `audio_cache`                   | Enable caching of audio files                                  | `true`, `false`                                                                       | `true`              |
-| `audio_cache_size`              | Maximum size of audio cache in MiB                             | Number                                                                                |                     |
+| `audio_cache_size`              | Maximum size of audio cache in MiB                             | Number                                                                                | `5120` (5 GiB)      |
 | `volnorm`                       | Enable volume normalization                                    | `true`, `false`                                                                       | `false`             |
 | `volnorm_pregain`               | Normalization pregain to apply in dB (if enabled)              | Number                                                                                | `0.0`               |
 | `default_keybindings`           | Enable default keybindings                                     | `true`, `false`                                                                       | `false`             |
@@ -599,9 +600,10 @@ removed by Spotify.
 
 A second login authorizes your own Spotify app (see [First run](#first-run)) for the Web API, which
 ttunes uses for the library, search and playlists. Its token is stored in
-`rspotify_token_<client ID>.json` in the cache directory.
+`rspotify_token_<client ID>.json` in the data directory.
 
-The credentials are stored in `librespot/credentials.json` in the user's cache directory. Run
+The credentials are stored in `librespot/credentials.json` in the user's data directory
+(`~/.local/share/ttunes` on Linux), not the cache, so clearing the cache doesn't log out. Run
 `ttunes info` to show the location of this directory.
 
 The `logout` command can be used to remove cached credentials. See

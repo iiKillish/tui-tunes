@@ -177,6 +177,12 @@ impl Worker {
         let mut load_failed = false;
         let mut preload = None;
         let mut preload_retried = false;
+        // The play request of the track playing, and whether it has played to its end.
+        let mut playing_request = None;
+        let mut ended = false;
+        // The play request paused to make way for another track (see the Load command), whose
+        // Paused event isn't passed on.
+        let mut interrupted = None;
 
         loop {
             if self.session.is_invalid() && reconnect.is_none() {
@@ -235,6 +241,20 @@ impl Worker {
                                     warn!("track is not playable");
                                     self.events.send(Event::Player(PlayerEvent::FinishedTrack));
                                 } else {
+                                    // What the sink has of the track before isn't to be heard,
+                                    // unless that played to its end and runs into this one.
+                                    let playing =
+                                        matches!(self.player_status, PlayerStatus::Playing);
+                                    if !(playing && ended) {
+                                        crate::audio::discard_buffered();
+                                    }
+                                    // Loading leaves the sink running (for gapless playback), so
+                                    // what it has buffered of a track still playing would be
+                                    // heard first: pausing stops it.
+                                    if playing && !ended {
+                                        interrupted = playing_request;
+                                        self.player.pause();
+                                    }
                                     self.player.load(uri.clone(), start_playing, position_ms);
                                     loading = Some((uri, start_playing, position_ms));
                                     load_failed = false;
@@ -262,11 +282,16 @@ impl Worker {
                         self.player.pause();
                     }
                     Some(WorkerCommand::Stop) => {
+                        crate::audio::discard_buffered();
                         loading = None;
                         preload = None;
                         self.player.stop();
                     }
                     Some(WorkerCommand::Seek(pos)) => {
+                        // A stopped sink keeps audio from before the seek.
+                        if !matches!(self.player_status, PlayerStatus::Playing) {
+                            crate::audio::discard_buffered();
+                        }
                         if let Some((_, _, position_ms)) = loading.as_mut() {
                             *position_ms = pos;
                         }
@@ -337,10 +362,12 @@ impl Worker {
                 },
                 event = self.player_events.next() => match event {
                     Some(LibrespotPlayerEvent::Playing {
-                        play_request_id: _,
+                        play_request_id,
                         track_id,
                         position_ms,
                     }) => {
+                        playing_request = Some(play_request_id);
+                        ended = false;
                         loading.take_if(|(uri, ..)| *uri == track_id);
                         let position = Duration::from_millis(position_ms as u64);
                         let playback_start = SystemTime::now() - position;
@@ -349,10 +376,13 @@ impl Worker {
                         self.player_status = PlayerStatus::Playing;
                     }
                     Some(LibrespotPlayerEvent::Paused {
-                        play_request_id: _,
+                        play_request_id,
                         track_id,
                         position_ms,
                     }) => {
+                        if interrupted.take_if(|id| *id == play_request_id).is_some() {
+                            continue;
+                        }
                         loading.take_if(|(uri, ..)| *uri == track_id);
                         let position = Duration::from_millis(position_ms as u64);
                         self.events
@@ -364,7 +394,18 @@ impl Worker {
                         self.player_status = PlayerStatus::Stopped;
                     }
                     Some(LibrespotPlayerEvent::EndOfTrack { .. }) => {
+                        ended = true;
                         self.events.send(Event::Player(PlayerEvent::FinishedTrack));
+                    }
+                    Some(LibrespotPlayerEvent::TrackChanged { audio_item }) => {
+                        if let Some(cache) = self.session.cache() {
+                            let paths = audio_item
+                                .files
+                                .values()
+                                .filter_map(|file| cache.file_path(*file))
+                                .collect();
+                            tokio::task::spawn_blocking(move || mark_used(paths));
+                        }
                     }
                     Some(LibrespotPlayerEvent::TimeToPreloadNextTrack { .. }) => {
                         self.events
@@ -420,6 +461,21 @@ impl Worker {
                     }
                 },
             }
+        }
+    }
+}
+
+/// Mark the cached audio files at `paths` (those there are) as just used. When the cache is full,
+/// librespot deletes the files used longest ago, judged across restarts by their access times,
+/// which reading them doesn't update on filesystems mounted `noatime`: a song played again would
+/// be deleted as if it hadn't been.
+fn mark_used(paths: Vec<std::path::PathBuf>) {
+    let used = std::fs::FileTimes::new().set_accessed(SystemTime::now());
+    for path in paths {
+        if let Ok(file) = std::fs::File::open(&path)
+            && let Err(e) = file.set_times(used)
+        {
+            debug!("Couldn't mark {} as used: {e}", path.display());
         }
     }
 }

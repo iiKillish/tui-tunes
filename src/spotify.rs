@@ -129,7 +129,7 @@ impl Spotify {
         spotify.start_worker(Some(user_tx))?;
         let user = ASYNC_RUNTIME.get().unwrap().block_on(user_rx).ok();
         // a login's access token expires, the stored credentials don't
-        if let Some(saved) = Cache::new(Some(config::cache_path("librespot")), None, None, None)
+        if let Some(saved) = Cache::new(Some(config::data_path("librespot")), None, None, None)
             .ok()
             .and_then(|cache| cache.credentials())
             .filter(|saved| saved.username == user)
@@ -245,18 +245,18 @@ impl Spotify {
         cfg: &config::Config,
         credentials: Credentials,
     ) -> Result<Session, librespot_core::Error> {
-        let librespot_cache_path = config::cache_path("librespot");
+        // The login and volume are kept, the audio is a cache.
+        let librespot_data_path = config::data_path("librespot");
         let audio_cache_path = match cfg.values().audio_cache {
             Some(false) => None,
-            _ => Some(librespot_cache_path.join("files")),
+            _ => Some(config::cache_path("librespot").join("files")),
         };
         let cache = Cache::new(
-            Some(librespot_cache_path.clone()),
-            Some(librespot_cache_path.join("volume")),
+            Some(librespot_data_path.clone()),
+            Some(librespot_data_path.join("volume")),
             audio_cache_path,
-            cfg.values()
-                .audio_cache_size
-                .map(|size| size as u64 * 1048576),
+            // 5 GiB unless set; without a limit the cache would grow forever.
+            Some(u64::from(cfg.values().audio_cache_size.unwrap_or(5120)) * 1048576),
         )
         .expect("Could not create cache");
         debug!("opening spotify session");
@@ -286,12 +286,8 @@ impl Spotify {
         // The PulseAudio stream properties were exported to the environment at
         // startup, see `pulseaudio_environment`.
         info!("Initializing audio backend {}", backend.0);
-        // Ours pauses at once; see crate::audio.
-        #[cfg(any(feature = "rodio_backend", target_os = "macos"))]
-        if backend.0 == "rodio" {
-            return Ok(crate::audio::BUILDER);
-        }
-        Ok(backend.1)
+        // Ours stop at once; see crate::audio.
+        Ok(crate::audio::builder(backend.0).unwrap_or(backend.1))
     }
 
     /// Create and run the worker thread.

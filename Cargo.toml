@@ -102,9 +102,13 @@ signal-hook = "0.4.4"
 # provides it too)...
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 librespot-playback = {version = "0.8.0", default-features = false, features = ["native-tls", "pulseaudio-backend"]}
+# For ttunes' own PulseAudio sink (src/audio/pulseaudio.rs).
+libpulse-binding = {version = "2", default-features = false}
+libpulse-simple-binding = {version = "2", default-features = false}
 
-# ...and Rodio (CoreAudio) on macOS, which has no PulseAudio, with ttunes' own sink (src/audio.rs).
-[target.'cfg(target_os = "macos")'.dependencies]
+# ...and Rodio (CoreAudio on macOS, WASAPI on Windows) elsewhere, with ttunes' own sink
+# (src/audio/rodio_sink.rs).
+[target.'cfg(any(target_os = "macos", windows))'.dependencies]
 librespot-playback = {version = "0.8.0", default-features = false, features = ["native-tls", "rodio-backend"]}
 rodio = {version = "0.21", default-features = false, features = ["playback"]}
 

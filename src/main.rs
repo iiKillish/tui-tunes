@@ -9,7 +9,6 @@ use log::error;
 use ttunes::program_arguments;
 
 mod application;
-#[cfg(any(feature = "rodio_backend", target_os = "macos"))]
 mod audio;
 mod authentication;
 mod cli;
@@ -63,6 +62,8 @@ fn main() -> Result<(), String> {
         Some(("info", _subcommand_matches)) => cli::info(),
         Some((_, _)) => unreachable!(),
         None => {
+            // An older ttunes kept the logins and listening history in the cache.
+            config::move_data_from_cache();
             // An older ttunes left the cache, and the login saved in it, readable by other users.
             config::restrict_cache_permissions();
 

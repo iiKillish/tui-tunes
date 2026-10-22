@@ -1,5 +1,5 @@
 //! Listening history kept by ttunes for the stats page: a line for each song listened to for 30
-//! seconds or more (as Spotify counts a play), in `listening.jsonl` in the cache directory.
+//! seconds or more (as Spotify counts a play), in `listening.jsonl` in the data directory.
 
 use std::collections::HashMap;
 use std::fs::OpenOptions;
@@ -52,7 +52,7 @@ pub fn record(track: &Track, listened: Duration) {
         title: track.title.clone(),
         artists: track.artists.clone(),
     };
-    let path = crate::config::cache_path(FILE);
+    let path = crate::config::data_path(FILE);
     let line = match serde_json::to_string(&play) {
         Ok(line) => line,
         Err(e) => return error!("Couldn't note a play: {e}"),
@@ -69,7 +69,7 @@ pub fn record(track: &Track, listened: Duration) {
 
 /// Every play noted so far, oldest first. Lines that can't be read are skipped.
 pub fn load() -> Vec<Play> {
-    std::fs::read_to_string(crate::config::cache_path(FILE))
+    std::fs::read_to_string(crate::config::data_path(FILE))
         .map(|text| {
             text.lines()
                 .filter_map(|line| serde_json::from_str(line).ok())

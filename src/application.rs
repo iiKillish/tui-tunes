@@ -14,7 +14,9 @@ use crate::library::Library;
 use crate::queue::Queue;
 use crate::spotify::{PlayerEvent, Spotify};
 use crate::tui::page::Ctx;
-use crate::{authentication, tui, utils};
+#[cfg(unix)]
+use crate::utils;
+use crate::{authentication, tui};
 use crate::{command, queue, spotify};
 
 #[cfg(feature = "mpris")]
