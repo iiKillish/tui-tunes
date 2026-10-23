@@ -697,7 +697,7 @@ dependencies = [
  "jni",
  "js-sys",
  "libc",
- "mach2",
+ "mach2 0.4.3",
  "ndk",
  "ndk-context",
  "num-derive",
@@ -709,6 +709,36 @@ dependencies = [
  "wasm-bindgen-futures",
  "web-sys",
  "windows 0.54.0",
+]
+
+[[package]]
+name = "cpal"
+version = "0.17.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b1f9c7312f19fc2fa12fd7acaf38de54e8320ba10d1a02dcbe21038def51ccb"
+dependencies = [
+ "alsa 0.10.0",
+ "coreaudio-rs",
+ "dasp_sample",
+ "jni",
+ "js-sys",
+ "libc",
+ "mach2 0.5.0",
+ "ndk",
+ "ndk-context",
+ "num-derive",
+ "num-traits",
+ "objc2",
+ "objc2-audio-toolbox",
+ "objc2-avf-audio",
+ "objc2-core-audio",
+ "objc2-core-audio-types",
+ "objc2-core-foundation",
+ "objc2-foundation",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+ "windows 0.62.2",
 ]
 
 [[package]]
@@ -2189,7 +2219,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "88258620bf3e6808ea1fadd11639648d77c06280b9f5a4c9d14ea79f6f998af6"
 dependencies = [
  "alsa 0.10.0",
- "cpal",
+ "cpal 0.16.0",
  "form_urlencoded",
  "futures-util",
  "libpulse-binding",
@@ -2202,7 +2232,7 @@ dependencies = [
  "portaudio-rs",
  "rand 0.9.5",
  "rand_distr",
- "rodio",
+ "rodio 0.21.1",
  "shell-words",
  "symphonia",
  "thiserror 2.0.21",
@@ -2296,6 +2326,15 @@ name = "mach2"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d640282b302c0bb0a2a8e0233ead9035e3bed871f0b7e81fe4a1ec829765db44"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "mach2"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a1b95cd5421ec55b445b5ae102f5ea0e768de1f82bd3001e11f426c269c3aea"
 dependencies = [
  "libc",
 ]
@@ -2452,7 +2491,7 @@ dependencies = [
  "mac-notification-sys",
  "serde",
  "tauri-winrt-notification",
- "zbus",
+ "zbus 5.19.0",
 ]
 
 [[package]]
@@ -2635,6 +2674,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-avf-audio"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "13a380031deed8e99db00065c45937da434ca987c034e13b87e4441f9e4090be"
+dependencies = [
+ "objc2",
+ "objc2-foundation",
+]
+
+[[package]]
 name = "objc2-core-audio"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2644,6 +2693,7 @@ dependencies = [
  "objc2",
  "objc2-core-audio-types",
  "objc2-core-foundation",
+ "objc2-foundation",
 ]
 
 [[package]]
@@ -2663,7 +2713,9 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a180dd8642fa45cdb7dd721cd4c11b1cadd4929ce112ebd8b9f5803cc79d536"
 dependencies = [
  "bitflags 2.13.2",
+ "block2",
  "dispatch2",
+ "libc",
  "objc2",
 ]
 
@@ -3540,9 +3592,21 @@ version = "0.21.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e40ecf59e742e03336be6a3d53755e789fd05a059fa22dfa0ed624722319e183"
 dependencies = [
- "cpal",
+ "cpal 0.16.0",
  "dasp_sample",
  "num-rational",
+]
+
+[[package]]
+name = "rodio"
+version = "0.22.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d0a536bb79db59098ef71a4dd4246c02eb87b316deceb1b68e0cde7167ec01eb"
+dependencies = [
+ "cpal 0.17.1",
+ "dasp_sample",
+ "num-rational",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -4414,7 +4478,6 @@ dependencies = [
  "signal-hook-registry",
  "socket2",
  "tokio-macros",
- "tracing",
  "windows-sys 0.61.2",
 ]
 
@@ -4660,7 +4723,8 @@ dependencies = [
  "rand 0.10.3",
  "ratatui",
  "reqwest 0.13.5",
- "rodio",
+ "rodio 0.21.1",
+ "rodio 0.22.2",
  "rspotify",
  "serde",
  "serde_cbor",
@@ -4677,7 +4741,7 @@ dependencies = [
  "unicode-width",
  "url",
  "vergen",
- "zbus",
+ "zbus 6.0.0",
 ]
 
 [[package]]
@@ -4828,15 +4892,15 @@ checksum = "accd4ea62f7bb7a82fe23066fb0957d48ef677f6eeb8215f372f52e48bb32426"
 
 [[package]]
 name = "vergen"
-version = "9.0.6"
+version = "9.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b2bf58be11fc9414104c6d3a2e464163db5ef74b12296bda593cac37b6e4777"
+checksum = "b849a1f6d8639e8de261e81ee0fc881e3e3620db1af9f2e0da015d4382ceaf75"
 dependencies = [
  "anyhow",
  "derive_builder",
  "rustversion",
  "time",
- "vergen-lib",
+ "vergen-lib 9.1.0",
 ]
 
 [[package]]
@@ -4850,7 +4914,7 @@ dependencies = [
  "rustversion",
  "time",
  "vergen",
- "vergen-lib",
+ "vergen-lib 0.1.6",
 ]
 
 [[package]]
@@ -4858,6 +4922,17 @@ name = "vergen-lib"
 version = "0.1.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b07e6010c0f3e59fcb164e0163834597da68d1f864e2b8ca49f74de01e9c166"
+dependencies = [
+ "anyhow",
+ "derive_builder",
+ "rustversion",
+]
+
+[[package]]
+name = "vergen-lib"
+version = "9.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b34a29ba7e9c59e62f229ae1932fb1b8fb8a6fdcc99215a641913f5f5a59a569"
 dependencies = [
  "anyhow",
  "derive_builder",
@@ -5637,15 +5712,42 @@ dependencies = [
  "rustix 1.1.5",
  "serde",
  "serde_repr",
- "tokio",
  "tracing",
  "uds_windows",
  "uuid",
  "windows-sys 0.61.2",
  "winnow",
- "zbus_macros",
+ "zbus_macros 5.19.0",
  "zbus_names",
  "zvariant",
+]
+
+[[package]]
+name = "zbus"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "266223222c9d81e5966455a9da0783e35d56a7ccab79a03c2366b2d98f8fc8a9"
+dependencies = [
+ "async-trait",
+ "bitflags 2.13.2",
+ "endi",
+ "futures-core",
+ "hex",
+ "libc",
+ "ordered-stream",
+ "rustix 1.1.5",
+ "serde",
+ "serde_repr",
+ "socket2",
+ "tokio",
+ "uds_windows",
+ "uuid",
+ "windows-sys 0.61.2",
+ "winnow",
+ "zbus_macros 6.1.0",
+ "zbus_utils",
+ "zcheapstr",
+ "zruntime",
 ]
 
 [[package]]
@@ -5664,6 +5766,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "zbus_macros"
+version = "6.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5bba6e2bfe19571dc81b3e0be9f8daec6e5422db3e2eea2e766a859553e7bd37"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.9",
+ "zbus_utils",
+]
+
+[[package]]
 name = "zbus_names"
 version = "4.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5672,6 +5786,19 @@ dependencies = [
  "serde",
  "winnow",
  "zvariant",
+]
+
+[[package]]
+name = "zbus_utils"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c27a055b114bd9fc3686e90f62bd1fe612d523fc5f620bac3b1d2f42d3f6cab8"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "serde",
+ "syn 3.0.9",
+ "winnow",
 ]
 
 [[package]]
@@ -5774,6 +5901,16 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[package]]
+name = "zruntime"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dfc035df602243402949ddf3dcc5bcfad7edeb732dd49ec6e605431c4eca54ce"
+dependencies = [
+ "futures-core",
+ "futures-io",
+]
 
 [[package]]
 name = "zune-core"
