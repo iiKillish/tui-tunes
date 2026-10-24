@@ -44,7 +44,7 @@ pub fn directories(cfg: &Config) -> Vec<PathBuf> {
 }
 
 fn expand_home(path: &str) -> PathBuf {
-    let home = || std::env::var_os("HOME").map(PathBuf::from);
+    let home = std::env::home_dir;
     match path.strip_prefix("~/") {
         Some(rest) => home().map_or_else(|| PathBuf::from(path), |home| home.join(rest)),
         None if path == "~" => home().unwrap_or_else(|| PathBuf::from(path)),
@@ -328,9 +328,9 @@ mod tests {
 
     #[test]
     fn expands_the_home_folder() {
-        let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+        let home = std::env::home_dir().unwrap();
         assert_eq!(expand_home("~/Music"), home.join("Music"));
-        assert_eq!(expand_home("/srv/music"), PathBuf::from("/srv/music"));
+        assert_eq!(expand_home("music"), PathBuf::from("music"));
     }
 
     /// A folder of `files` (path, fixture name), removed when dropped.
