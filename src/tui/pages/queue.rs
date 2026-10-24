@@ -432,7 +432,20 @@ impl Page for QueuePage {
                 let row = event.row.checked_sub(self.area.y).map(usize::from);
                 if let Some(index) = row.and_then(|row| self.row_items.get(row).copied().flatten())
                 {
-                    self.play(index, ctx);
+                    let menu = ctx.config.values().queue_click.as_deref() == Some("menu");
+                    if !menu {
+                        self.play(index, ctx);
+                        return Outcome::Consumed;
+                    }
+                    // Select it, so the menu is seen to be for that song.
+                    let items = Items::load(ctx);
+                    let position = (0..=items.last()).find(|&p| items.index(p) == Some(index));
+                    if let Some(position) = position {
+                        self.selected = position;
+                    }
+                    if let Some(item) = position.and_then(|p| items.get(p)) {
+                        return Outcome::Overlay(nav::context_menu(item.as_listitem(), ctx));
+                    }
                 }
             }
             // Only scroll while there's more below (or above).

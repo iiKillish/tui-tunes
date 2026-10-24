@@ -905,9 +905,10 @@ fn test_settings_change_tabs_home_and_colors() {
     assert!(!tabs.contains(&LibraryTab::Podcasts), "{tabs:?}");
     assert!(screen_text(&terminal).contains("[ ] Podcasts"));
 
-    // Then the Home card, two rows on.
-    key(&mut app, KeyCode::Down);
-    key(&mut app, KeyCode::Down);
+    // Then the Home card, three rows on (past Browse and Local files).
+    for _ in 0..3 {
+        key(&mut app, KeyCode::Down);
+    }
     key(&mut app, KeyCode::Enter);
     assert_eq!(
         app.ctx.config.values().pick_up_where_you_left_off,
@@ -1148,4 +1149,165 @@ fn test_ctrl_c_quits_even_while_typing() {
     key(&mut app, KeyCode::Char('x'));
     app.key(ctrl_c);
     assert!(app.quit);
+}
+
+#[test]
+fn test_local_tab_says_when_the_music_folder_is_empty() {
+    let dir = std::env::temp_dir().join(format!("ttunes-music-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut app = app();
+    app.ctx
+        .config
+        .edit(|doc| {
+            doc["library_tabs"] = toml_edit::value(toml_edit::Array::from_iter(["local"]));
+            let dirs = toml_edit::Array::from_iter([dir.to_string_lossy().as_ref()]);
+            doc["music_dirs"] = toml_edit::value(dirs);
+        })
+        .unwrap();
+    app.reload();
+    app.run(&Command::Focus(ScreenId::Library));
+    let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
+    // The folder is searched in the background.
+    let mut text = String::new();
+    for _ in 0..100 {
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        text = screen_text(&terminal);
+        if !text.contains("Looking for music files") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    std::fs::remove_dir(&dir).unwrap();
+    assert!(text.contains("No music files found"), "{text}");
+}
+
+#[test]
+fn test_local_tab_opens_folders_and_goes_back() {
+    let root = std::env::temp_dir().join(format!("ttunes-browse-{}", std::process::id()));
+    let fixture = |name: &str| {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/testdata")
+            .join(name)
+    };
+    std::fs::create_dir_all(root.join("phone/jazz")).unwrap();
+    std::fs::copy(fixture("one.mp3"), root.join("phone/jazz/one.mp3")).unwrap();
+    std::fs::copy(fixture("two.mp3"), root.join("phone/jazz/two.mp3")).unwrap();
+    let mut app = app();
+    let dir = root.to_string_lossy().into_owned();
+    app.ctx
+        .config
+        .edit(|doc| {
+            doc["library_tabs"] = toml_edit::value(toml_edit::Array::from_iter(["local"]));
+            doc["music_dirs"] = toml_edit::value(toml_edit::Array::from_iter([dir.as_str()]));
+        })
+        .unwrap();
+    app.reload();
+    app.run(&Command::Focus(ScreenId::Library));
+    let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
+    let mut draw = |app: &mut App| {
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+        screen_text(&terminal)
+    };
+    let mut text = String::new();
+    for _ in 0..100 {
+        text = draw(&mut app);
+        if !text.contains("Looking for music files") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    std::fs::remove_dir_all(&root).unwrap();
+    assert!(
+        text.contains("phone/") && text.contains("2 songs"),
+        "{text}"
+    );
+
+    // Enter goes into a folder, rather than playing it.
+    key(&mut app, KeyCode::Enter);
+    let text = draw(&mut app);
+    assert!(text.contains("jazz/"), "{text}");
+    key(&mut app, KeyCode::Enter);
+    let text = draw(&mut app);
+    assert!(
+        text.contains("Folder") && text.contains("Song one"),
+        "{text}"
+    );
+
+    // Enter on a song plays the folder's songs from it.
+    let mut worker = app.ctx.spotify.connect_for_test();
+    key(&mut app, KeyCode::Down);
+    key(&mut app, KeyCode::Enter);
+    let queued: Vec<String> = app
+        .ctx
+        .queue
+        .queue
+        .read()
+        .unwrap()
+        .iter()
+        .map(|p| p.uri())
+        .collect();
+    assert_eq!(
+        queued,
+        [
+            "spotify:local:Tester::Song+one:1",
+            "spotify:local:Tester::Song+two:1"
+        ]
+    );
+    assert_eq!(
+        app.ctx.queue.get_current().map(|p| p.uri()).as_deref(),
+        Some("spotify:local:Tester::Song+two:1")
+    );
+    let sent: Vec<_> = std::iter::from_fn(|| worker.try_recv().ok()).collect();
+    assert!(
+        sent.iter().any(|cmd| matches!(
+            cmd,
+            crate::spotify_worker::WorkerCommand::Load(track, ..)
+                if track.uri() == "spotify:local:Tester::Song+two:1"
+        )),
+        "{sent:?}"
+    );
+
+    // And back out, one folder at a time.
+    app.run(&Command::Back);
+    assert!(draw(&mut app).contains("jazz/"));
+    app.run(&Command::Back);
+    let text = draw(&mut app);
+    assert!(
+        text.contains("phone/") && !text.contains("Folder"),
+        "{text}"
+    );
+}
+
+#[test]
+fn test_clicking_a_queued_song_plays_it_or_opens_its_menu() {
+    use crate::tui::page::{Outcome, Page};
+
+    images::force_supported(false);
+    for menu in [false, true] {
+        let app = app();
+        if menu {
+            app.ctx
+                .config
+                .edit(|doc| doc["queue_click"] = toml_edit::value("menu"))
+                .unwrap();
+        }
+        let ctx = app.ctx.clone();
+        let playables: Vec<Playable> = tracks(3).into_iter().map(Playable::Track).collect();
+        ctx.queue.append_next(&playables);
+        ctx.queue.play(0, false, false);
+        let mut page = pages::queue::new(&ctx);
+        let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
+        terminal
+            .draw(|frame| page.draw(frame, frame.area(), &ctx, true))
+            .unwrap();
+        let third = find(&terminal, "Song number 3").expect("the third song");
+        let outcome = page.mouse(click(third.x, third.y), &ctx);
+        if menu {
+            assert!(matches!(outcome, Outcome::Overlay(_)), "no menu");
+            assert_eq!(ctx.queue.get_current_index(), Some(0), "it played");
+        } else {
+            assert!(!matches!(outcome, Outcome::Overlay(_)), "a menu");
+            assert_eq!(ctx.queue.get_current_index(), Some(2), "it didn't play");
+        }
+    }
 }

@@ -225,6 +225,26 @@ start with an _All_ tab: the top result, then rows of songs, artists, albums and
 On one of your playlists' pages, <kbd>D</kbd> removes the selected track and
 <kbd>Shift</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> moves it; `:rename` renames the playlist.
 
+### Local files
+The _Local_ tab of the Library shows your music folder (`~/Music`, or the folders in
+`music_dirs`, one for each) as it is on disk: its subfolders first, then its songs. <kbd>Return</kbd>
+on a folder opens it as a page, with _▶ Play_ and _⇄ Shuffle_ for everything in it, subfolders
+too; <kbd>Backspace</kbd> goes back up. Folders without songs in them aren't shown.
+
+Songs play like Spotify songs: <kbd>Return</kbd> plays one and queues the folder's songs after it,
+and the queue, seeking, volume, lyrics and MPRIS all work. They mix with Spotify songs in the
+queue (play next, add to queue, from either), but they can't be liked, shared or added to Spotify
+playlists, and autoplay doesn't follow them.
+
+A song's cover is the picture in the file, else its folder's: `cover`, `folder`, `front` or
+`album` (`.jpg`, `.jpeg` or `.png`, any case), else the nearest folder above it with one. A folder
+shows its picture too, or else its first song's.
+
+Playback is librespot's, which plays MP3 and FLAC files that are 44.1 kHz stereo and have tags.
+Other files are left out of the list. Files added while
+ttunes runs show up after a restart. Two files with the same artist, album, title and length are
+one song to librespot: only one of them is listed.
+
 ### Vim-Like Search Bar
 | Key          | Command                     |
 |--------------|-----------------------------|
@@ -381,7 +401,9 @@ Possible configuration values are:
 | `shuffle`                       | Set default shuffle state                                      | `true`, `false`                                                                       | `false`             |
 | `repeat`                        | Set default repeat mode                                        | `"off"`, `"track"`, `"playlist"`                                                      | `"off"`             |
 | `playback_state`                | Set default playback state                                     | `"Stopped"`, `"Paused"`, `"Playing"`, `"Default"`                                     | `"Paused"`          |
-| `library_tabs`                  | Tabs to show in library screen                                 | Array of `"tracks"`, `"albums"`, `"artists"`, `"playlists"`, `"podcasts"`, `"browse"` | All tabs            |
+| `library_tabs`                  | Tabs to show in library screen                                 | Array of `"tracks"`, `"albums"`, `"artists"`, `"playlists"`, `"podcasts"`, `"browse"`, `"local"` | All tabs |
+| `queue_click`                   | What clicking a song in _Up next_ does: play it, or open its menu | `"play"`, `"menu"`                                                               | `"play"`            |
+| `music_dirs`                    | Folders of music files for the _Local_ tab (`~` for home)<sup>[5]</sup> | Array of paths, e.g. `["~/Music", "/mnt/music"]`                             | The system's music folder (`~/Music`) |
 | `hide_display_names`            | Hides spotify usernames in the library header and on playlists | `true`, `false`                                                                       | `false`             |
 | `[track_format]`                | Set active fields shown in Library/Queue views                 | See [track formatting](#track-formatting)                                             |                     |
 | `[notification_format]`         | Set the text displayed in notifications<sup>[2]</sup>          | See [notification formatting](#notification-formatting)                               |                     |
@@ -401,6 +423,7 @@ Possible configuration values are:
    on its album and the songs played before it) and adds them to the end of the queue, shown as
    "Next from: Autoplay". Songs you queue go ahead of them. Not with repeat on, and not for
    podcasts.
+5. See [local files](#local-files). Read when ttunes starts.
 
 ### Custom Keybindings
 Keybindings can be configured in `[keybindings]` section in `config.toml`.

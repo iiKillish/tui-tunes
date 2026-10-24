@@ -20,9 +20,12 @@ pub enum Playable {
 
 impl Playable {
     pub fn format(playable: &Self, formatting: &str, library: &Library) -> String {
-        // The artists with an ID, as [ListItem::artists] lists them.
+        // The artists with an ID, as [ListItem::artists] lists them (local files have no IDs).
         let artists = || -> Vec<&str> {
             match playable {
+                Self::Track(track) if track.is_local => {
+                    track.artists.iter().map(String::as_str).collect()
+                }
                 Self::Track(track) => track
                     .artists
                     .iter()

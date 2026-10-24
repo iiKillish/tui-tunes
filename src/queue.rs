@@ -184,6 +184,17 @@ impl Queue {
     }
 
     /// Whether the current item's ID is `id` (`None` for items without one, like local files).
+    pub fn is_current_uri(&self, uri: &str) -> bool {
+        let Some(index) = self.get_current_index() else {
+            return false;
+        };
+        self.queue
+            .read()
+            .unwrap()
+            .get(index)
+            .is_some_and(|current| current.uri() == uri)
+    }
+
     pub fn is_current_id(&self, id: Option<&str>) -> bool {
         let Some(index) = self.get_current_index() else {
             return false;
@@ -912,6 +923,7 @@ pub fn send_notification(summary_txt: &str, body_txt: &str, cover_url: Option<St
     if let Some(u) = cover_url {
         let path = crate::utils::cache_path_for_url(u.to_string());
         if !path.exists()
+            && crate::utils::local_path(&u).is_none()
             && let Err(e) = crate::utils::download(u, path.clone())
         {
             log::error!("Failed to download cover: {e}");

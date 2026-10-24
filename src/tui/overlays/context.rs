@@ -26,7 +26,8 @@ pub fn context_menu(item: Box<dyn ListItem>, ctx: &Ctx) -> Box<dyn Overlay> {
         nav::queue_item(i.as_listitem(), false, ctx);
         Outcome::Message("Added to the queue".into())
     }));
-    if let Some(track) = item.track() {
+    // Local files aren't on Spotify, to be liked or added to playlists.
+    if let Some(track) = item.track().filter(|track| !track.is_local) {
         let saved = ctx.library.is_saved_track(&Playable::Track(track.clone()));
         let t = track.clone();
         entries.push(Entry::new(

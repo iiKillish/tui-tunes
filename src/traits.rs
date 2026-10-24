@@ -1,7 +1,10 @@
 use crate::library::Library;
 use crate::model::album::Album;
 use crate::model::artist::Artist;
+use std::sync::Arc;
+
 use crate::model::category::Category;
+use crate::model::folder::Folder;
 use crate::model::playlist::Playlist;
 use crate::model::show::Show;
 use crate::model::track::Track;
@@ -15,6 +18,7 @@ pub enum OpenTarget {
     Artist(Artist),
     Show(Show),
     Category(Category),
+    Folder(Arc<Folder>),
 }
 
 pub trait ListItem: Sync + Send + 'static {
@@ -28,7 +32,12 @@ pub trait ListItem: Sync + Send + 'static {
     fn play_next(&mut self, queue: &Queue);
     fn queue(&mut self, queue: &Queue);
     fn save(&mut self, library: &Library);
-    /// What opening the item shows: a page for albums, playlists, artists, shows and categories.
+    /// Whether playing the item (Enter) opens it instead, as for folders: you go into a folder.
+    fn opens_on_play(&self) -> bool {
+        false
+    }
+    /// What opening the item shows: a page for albums, playlists, artists, shows, categories and
+    /// folders.
     /// `None` for tracks and episodes (they get a context menu instead).
     fn target(&self) -> Option<OpenTarget> {
         None

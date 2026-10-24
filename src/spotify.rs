@@ -313,6 +313,7 @@ impl Spotify {
             bitrate: bitrate.unwrap_or(Bitrate::Bitrate320),
             normalisation: cfg.values().volnorm.unwrap_or(false),
             normalisation_pregain_db: cfg.values().volnorm_pregain.unwrap_or(0.0),
+            local_file_directories: crate::local_files::directories(&cfg),
             ..Default::default()
         };
 

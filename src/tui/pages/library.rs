@@ -1,6 +1,6 @@
 //! The Library screen: tabs in the order of the `library_tabs` setting. Playlists (with Liked
 //! Songs first), albums and artists as grids of covers like Spotify's library; saved tracks,
-//! podcasts and the browse categories as lists.
+//! podcasts, the browse categories and the music files on this computer as lists.
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -10,6 +10,7 @@ use strum::IntoEnumIterator;
 use crate::config::LibraryTab;
 use crate::library::Library;
 use crate::model::category::Category;
+use crate::model::folder::Entry;
 use crate::model::show::Show;
 use crate::model::track::Track;
 use crate::tui::page::Ctx;
@@ -87,6 +88,7 @@ pub fn new(ctx: &Ctx) -> Tabbed {
                 );
             }
             LibraryTab::Browse => tabbed.add_tab("Browse", Box::new(browse())),
+            LibraryTab::Local => tabbed.add_tab("Local", Box::new(local())),
         }
     }
     tabbed
@@ -145,4 +147,28 @@ fn browse() -> LoadingList<Category> {
             events.trigger();
         });
     })
+}
+
+/// The music files in the `music_dirs` folders, as their folders (each opens as a page), found
+/// the first time the tab is shown.
+fn local() -> LoadingList<Entry> {
+    let list = ItemList::new(Arc::default()).with_source("Local files");
+    let content = list.content().clone();
+    let loading = Arc::new(AtomicBool::new(true));
+    let still_loading = loading.clone();
+    LoadingList::new("Local", list, move || still_loading.load(Ordering::Relaxed))
+        .loading_message("Looking for music files…")
+        .empty_message(
+            "No music files found: put MP3 or FLAC files in ~/Music, or set music_dirs in the \
+             config file",
+        )
+        .load_when_shown(move |ctx| {
+            let dirs = crate::local_files::directories(&ctx.config);
+            let events = ctx.events.clone();
+            std::thread::spawn(move || {
+                *content.write().unwrap() = crate::local_files::scan(&dirs);
+                loading.store(false, Ordering::Relaxed);
+                events.trigger();
+            });
+        })
 }

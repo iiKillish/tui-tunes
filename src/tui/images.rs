@@ -838,6 +838,14 @@ pub fn cached_cover_path(url: &str) -> Option<PathBuf> {
     static POOL: OnceLock<crossbeam_channel::Sender<Job>> = OnceLock::new();
 
     let path = crate::utils::cache_path_for_url(url.to_string());
+    // A picture on disk is never downloaded, and isn't read again for a while if it couldn't be.
+    if crate::utils::local_path(url).is_some() {
+        let failed = downloads()
+            .failed
+            .get(url)
+            .is_some_and(|at| at.elapsed() < RETRY_AFTER);
+        return (path.exists() && !failed).then_some(path);
+    }
     // Files only appear there once complete (see utils::download).
     if path.exists() {
         return Some(path);
@@ -862,7 +870,10 @@ pub fn cached_cover_path(url: &str) -> Option<PathBuf> {
 /// The cached cover for `url`, at `path`, couldn't be read: delete it so it's downloaded again,
 /// after [RETRY_AFTER] so a server sending something unreadable isn't asked again every frame.
 fn forget_cover(url: &str, path: &std::path::Path) {
-    let _ = std::fs::remove_file(path);
+    // Never one of the user's own pictures.
+    if crate::utils::local_path(url).is_none() {
+        let _ = std::fs::remove_file(path);
+    }
     let mut downloads = downloads();
     downloads.pending.remove(url);
     downloads
@@ -1150,6 +1161,29 @@ mod tests {
         );
         let cover = cell_sequence("IMAGE", Rect::new(2, 1, 3, 2), false);
         assert_eq!(cover, "\x1b7\x1b[2;3HIMAGE\x1b8\x1b[1C");
+    }
+
+    #[test]
+    fn local_covers_are_read_where_they_are_and_never_deleted() {
+        let dir = std::env::temp_dir().join(format!("ttunes-cover {}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("cover é.png");
+        std::fs::copy(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/testdata/cover.png"),
+            &path,
+        )
+        .unwrap();
+        let url = String::from(url::Url::from_file_path(&path).unwrap());
+        assert_eq!(cached_cover_path(&url), Some(path.clone()));
+        // Unreadable: kept on disk, and left alone for a while.
+        forget_cover(&url, &path);
+        assert!(path.exists());
+        assert_eq!(cached_cover_path(&url), None);
+        // One that isn't there isn't downloaded.
+        let missing = String::from(url::Url::from_file_path(dir.join("gone.png")).unwrap());
+        assert_eq!(cached_cover_path(&missing), None);
+        assert!(!downloads().pending.contains(&missing));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

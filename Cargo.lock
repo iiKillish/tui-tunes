@@ -4668,6 +4668,7 @@ dependencies = [
  "signal-hook 0.4.5",
  "strum 0.28.0",
  "strum_macros 0.28.0",
+ "symphonia",
  "tokio",
  "tokio-stream",
  "tokio-util",

@@ -66,7 +66,7 @@ pub fn rename_playlist(playlist: &Playlist, name: &str, ctx: &Ctx) -> Outcome {
     }
 }
 
-/// The page for an album, playlist, artist, show or category.
+/// The page for an album, playlist, artist, show, category or folder.
 pub fn open_target(target: OpenTarget, ctx: &Ctx) -> Box<dyn Page> {
     match target {
         OpenTarget::Album(album) => Box::new(pages::album::AlbumPage::new(album, ctx)),
@@ -78,6 +78,7 @@ pub fn open_target(target: OpenTarget, ctx: &Ctx) -> Box<dyn Page> {
         OpenTarget::Category(category) => {
             Box::new(pages::category::CategoryPage::new_category(category, ctx))
         }
+        OpenTarget::Folder(folder) => Box::new(pages::folder::FolderPage::new(folder)),
     }
 }
 
@@ -107,6 +108,15 @@ pub fn go_to_artists(artists: Vec<Artist>, ctx: &Ctx) -> Outcome {
 /// The menu for a track or episode (`o`, or a right click).
 pub fn context_menu(item: Box<dyn ListItem>, ctx: &Ctx) -> Box<dyn Overlay> {
     crate::tui::overlays::context::context_menu(item, ctx)
+}
+
+/// Pick a playlist to add `tracks` to (see [add_to_playlist]), unless they're local files, which
+/// Spotify's playlists can't have added.
+pub fn pick_playlist_for(tracks: Vec<Track>, ctx: &Ctx) -> Outcome {
+    if tracks.iter().any(|track| track.is_local) {
+        return Outcome::Error("Local files can't be added to Spotify playlists".into());
+    }
+    Outcome::Overlay(add_to_playlist(tracks, ctx))
 }
 
 /// Pick one of the user's playlists (their own or collaborative) to add `tracks` to.

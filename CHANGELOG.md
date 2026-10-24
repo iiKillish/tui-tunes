@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- A _Local_ tab in the Library plays the MP3 and FLAC files in your music
+  folder (`~/Music`, or the folders in the new `music_dirs` setting), with the
+  queue, seeking, lyrics and MPRIS like Spotify songs. It shows the folders as
+  they are on disk: Enter opens one as a page, with Play and Shuffle for all
+  of it. Covers come from the files, or a `cover.jpg` (and the like) in the
+  folder
+
+- A setting (`queue_click`, also in the settings under Playback) to have
+  clicking a song in _Up next_ open its menu instead of playing it
+
+### Fixed
+
+- Local files in playlists no longer all show as playing when one of them is,
+  and show their artists in the player and notifications
+
 ## [0.6.0]
 
 ### Changed

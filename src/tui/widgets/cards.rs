@@ -725,7 +725,7 @@ impl Page for CardGrid {
                     ..
                 }) = &selected
                 {
-                    return Outcome::Overlay(nav::add_to_playlist(vec![track.clone()], ctx));
+                    return nav::pick_playlist_for(vec![track.clone()], ctx);
                 }
             }
             Command::Delete => {

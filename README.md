@@ -13,6 +13,7 @@ needs a Spotify Premium account.
   Windows Terminal (with WSL), iTerm2 and others with sixel
 - Uses your terminal's colors, so it matches the theme you already have
 - Listening stats: time listened, streaks, your top songs and artists
+- Plays the MP3 and FLAC files in your music folder too, from the Library's _Local_ tab
 - A settings page for library tabs, keys and more; hold Ctrl+Shift to see the keys on screen
 - Vim-style keys, mouse support, MPRIS and an IPC socket for remote control
 

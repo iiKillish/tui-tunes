@@ -204,7 +204,7 @@ pub fn run(cmd: &Command, ctx: &Ctx) -> Outcome {
         }
         Command::AddCurrent => {
             if let Some(track) = queue.get_current().and_then(|t| t.track()) {
-                return Outcome::Overlay(nav::add_to_playlist(vec![track], ctx));
+                return nav::pick_playlist_for(vec![track], ctx);
             }
         }
         Command::Open(TargetMode::Current) => {

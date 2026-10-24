@@ -42,6 +42,7 @@ enum Choice {
     VolumeCurve,
     Theme,
     ImageProtocol,
+    QueueClick,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -154,6 +155,7 @@ fn library_tabs() -> Vec<(LibraryTab, &'static str)> {
                 LibraryTab::Playlists => "Playlists",
                 LibraryTab::Podcasts => "Podcasts",
                 LibraryTab::Browse => "Browse",
+                LibraryTab::Local => "Local files",
             };
             (tab, name)
         })
@@ -186,6 +188,7 @@ fn section_rows(section: usize) -> Vec<Row> {
         1 => rows.extend([
             Row::Switch(Switch::Autoplay),
             Row::Switch(Switch::Notify),
+            Row::Choice(Choice::QueueClick),
             Row::Blank,
             Row::Title("Sound"),
             Row::Choice(Choice::Bitrate),
@@ -385,6 +388,7 @@ fn choice_label(choice: Choice) -> (&'static str, bool) {
         Choice::VolumeCurve => ("Volume steps", true),
         Choice::Theme => ("Theme", false),
         Choice::ImageProtocol => ("Covers", true),
+        Choice::QueueClick => ("Clicking a song in Up next", false),
     }
 }
 
@@ -417,6 +421,7 @@ fn options(choice: Choice) -> Vec<(&'static str, &'static str)> {
             ("iterm2", "iTerm2 images"),
             ("none", "Off"),
         ],
+        Choice::QueueClick => vec![("", "Plays it"), ("menu", "Opens its menu")],
     }
 }
 
@@ -436,6 +441,10 @@ fn current(choice: Choice, values: &ConfigValues) -> Option<usize> {
         Choice::ImageProtocol => match values.image_protocol.as_deref() {
             None | Some("auto") => String::new(),
             Some(protocol) => protocol.to_lowercase(),
+        },
+        Choice::QueueClick => match values.queue_click.as_deref() {
+            None | Some("play") => String::new(),
+            Some(action) => action.to_lowercase(),
         },
         Choice::Theme => return current_theme(&values.theme),
     };
@@ -486,6 +495,7 @@ fn set_choice(doc: &mut toml_edit::DocumentMut, choice: Choice, index: usize) {
         Choice::Bitrate => "bitrate",
         Choice::VolumeCurve => "volume_curve",
         Choice::ImageProtocol => "image_protocol",
+        Choice::QueueClick => "queue_click",
         Choice::Theme => unreachable!(),
     };
     if value.is_empty() {
@@ -598,6 +608,7 @@ fn tab_name(tab: LibraryTab) -> &'static str {
         LibraryTab::Playlists => "playlists",
         LibraryTab::Podcasts => "podcasts",
         LibraryTab::Browse => "browse",
+        LibraryTab::Local => "local",
     }
 }
 

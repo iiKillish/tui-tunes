@@ -37,6 +37,7 @@ pub enum LibraryTab {
     Playlists,
     Podcasts,
     Browse,
+    Local,
 }
 
 /// The format used to represent tracks in a list.
@@ -118,6 +119,10 @@ pub struct ConfigValues {
     pub autoplay: Option<bool>,
     /// Show the "Pick up where you left off" card at the top of Home (default on).
     pub pick_up_where_you_left_off: Option<bool>,
+    /// What clicking a song in Up next does: "play" it (default) or open its "menu".
+    pub queue_click: Option<String>,
+    /// Folders of music files for the Local tab (default: the system's music folder, `~/Music`).
+    pub music_dirs: Option<Vec<String>>,
 }
 
 /// The ttunes theme.

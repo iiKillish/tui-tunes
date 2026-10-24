@@ -766,7 +766,9 @@ impl Library {
 
     /// Save `tracks` to the user's library.
     pub fn save_tracks(&self, tracks: &[&Track]) {
-        if !*self.is_done.read().unwrap() {
+        // Local files aren't on Spotify to be liked.
+        let tracks: Vec<&Track> = tracks.iter().copied().filter(|t| !t.is_local).collect();
+        if tracks.is_empty() || !*self.is_done.read().unwrap() {
             return;
         }
 
@@ -782,7 +784,7 @@ impl Library {
         let mut added = Vec::new();
         {
             let mut store = self.tracks.write().unwrap();
-            for track in tracks {
+            for track in &tracks {
                 if store.iter().any(|t| t.id == track.id) {
                     continue;
                 }

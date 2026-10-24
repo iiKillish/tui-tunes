@@ -3,6 +3,7 @@
 pub mod album;
 pub mod artist;
 pub mod category;
+pub mod folder;
 pub mod home;
 pub mod library;
 pub mod liked;

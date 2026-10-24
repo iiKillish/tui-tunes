@@ -93,9 +93,21 @@ pub fn parse_duration(text: &str) -> Result<Duration, String> {
 }
 
 pub fn cache_path_for_url(url: String) -> std::path::PathBuf {
+    // Local files' covers are on disk already.
+    if let Some(path) = local_path(&url) {
+        return path;
+    }
     let mut path = crate::config::cache_path("covers");
     path.push(url.split('/').next_back().unwrap());
     path
+}
+
+/// The file a `file://` URL (a local file's cover) is of.
+pub fn local_path(url: &str) -> Option<std::path::PathBuf> {
+    if !url.starts_with("file://") {
+        return None;
+    }
+    url::Url::parse(url).ok()?.to_file_path().ok()
 }
 
 /// Largest download accepted. Spotify's covers are well under 1 MB; this keeps a broken or

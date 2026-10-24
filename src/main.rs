@@ -17,6 +17,7 @@ mod command;
 mod config;
 mod events;
 mod library;
+mod local_files;
 mod lyrics;
 mod model;
 mod pagination;

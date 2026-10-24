@@ -14,6 +14,7 @@ use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 
 use crate::command::{Command, GotoMode, JumpMode, MoveAmount, MoveMode, TargetMode};
+use crate::model::folder;
 use crate::model::playable::Playable;
 use crate::model::track::Track;
 use crate::pagination::Pagination;
@@ -207,9 +208,9 @@ impl<I: ListItem + Clone> ItemList<I> {
             };
             pointer::clickable(line);
             let playing = item.is_playing(&ctx.queue) && current.is_some();
-            let unplayable = item
-                .track_ref()
-                .is_some_and(|t| t.is_local || t.is_playable == Some(false));
+            let unplayable = item.track_ref().is_some_and(|t| {
+                t.is_playable == Some(false) || (t.is_local && t.is_playable.is_none())
+            });
             let style = if index == self.selected {
                 if focused {
                     styles.selected()
@@ -338,21 +339,41 @@ impl<I: ListItem + Clone> ItemList<I> {
     }
 
     /// Play from the selected item: for lists of tracks, the whole list from there (so the rest
-    /// follows in the queue); otherwise the item itself (an album, a playlist…).
+    /// follows in the queue); otherwise the item itself (an album, a playlist…). In a folder, its
+    /// songs from the selected one, without its subfolders.
     fn play(&self, ctx: &Ctx) {
-        let tracks: Option<Vec<Playable>> = {
+        // The tracks, and where the selected one is among them.
+        let tracks: Option<(Vec<Playable>, usize)> = {
             let content = self.content.read().unwrap();
             let any = &*content as &dyn std::any::Any;
-            any.downcast_ref::<Vec<Playable>>().cloned().or_else(|| {
-                any.downcast_ref::<Vec<Track>>()
-                    .map(|t| t.iter().cloned().map(Playable::Track).collect())
-            })
+            if let Some(playables) = any.downcast_ref::<Vec<Playable>>() {
+                Some((playables.clone(), self.selected))
+            } else if let Some(tracks) = any.downcast_ref::<Vec<Track>>() {
+                let tracks = tracks.iter().cloned().map(Playable::Track).collect();
+                Some((tracks, self.selected))
+            } else if let Some(entries) = any.downcast_ref::<Vec<folder::Entry>>()
+                && entries
+                    .get(self.selected)
+                    .is_some_and(|entry| entry.track_ref().is_some())
+            {
+                let tracks = entries
+                    .iter()
+                    .filter_map(|entry| entry.track().map(Playable::Track))
+                    .collect();
+                let before = entries[..self.selected]
+                    .iter()
+                    .filter(|entry| entry.track_ref().is_some())
+                    .count();
+                Some((tracks, before))
+            } else {
+                None
+            }
         };
         match tracks {
-            Some(tracks) => {
+            Some((tracks, selected)) => {
                 ctx.queue.clear();
                 let index = ctx.queue.append_next_from(&tracks, self.source.as_deref());
-                ctx.queue.play(index + self.selected, true, false);
+                ctx.queue.play(index + selected, true, false);
             }
             None => {
                 if let Some(item) = self.selected_item() {
@@ -434,6 +455,13 @@ impl<I: ListItem + Clone> ItemList<I> {
                     None => return Outcome::Message("Nothing is playing".into()),
                 }
             }
+            Command::Play
+                if self
+                    .selected_item()
+                    .is_some_and(|item| item.opens_on_play()) =>
+            {
+                return self.open(ctx);
+            }
             Command::Play => self.play(ctx),
             Command::PlayNext | Command::Queue => {
                 if let Some(item) = self.selected_item() {
@@ -447,7 +475,7 @@ impl<I: ListItem + Clone> ItemList<I> {
             }
             Command::Add => {
                 if let Some(track) = self.selected_item().and_then(|i| i.track()) {
-                    return Outcome::Overlay(nav::add_to_playlist(vec![track], ctx));
+                    return nav::pick_playlist_for(vec![track], ctx);
                 }
             }
             Command::Open(TargetMode::Selected) => return self.open(ctx),

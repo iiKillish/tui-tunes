@@ -1008,7 +1008,7 @@ impl Page for HomePage {
             }
             Command::Add => {
                 if let Some(HomeItem::Song(track)) = self.selected_item() {
-                    return Outcome::Overlay(nav::add_to_playlist(vec![track], ctx));
+                    return nav::pick_playlist_for(vec![track], ctx);
                 }
             }
             Command::Open(TargetMode::Selected) => {

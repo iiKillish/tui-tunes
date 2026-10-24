@@ -212,7 +212,11 @@ impl ListItem for Track {
     }
 
     fn is_playing(&self, queue: &Queue) -> bool {
-        queue.is_current_id(self.id.as_deref())
+        match self.id.as_deref() {
+            Some(id) => queue.is_current_id(Some(id)),
+            // Local files have no ID: told apart by their URIs.
+            None => queue.is_current_uri(&self.uri),
+        }
     }
 
     fn display_left(&self, library: &Library) -> String {

@@ -131,7 +131,7 @@ impl MprisPlayer {
         // This is necessary because SimplifiedTrack objects don't contain a cover_url
         let playable_full = playable.and_then(|p| match p {
             Playable::Track(track) => {
-                if track.cover_url.is_some() {
+                if track.cover_url.is_some() || track.is_local {
                     // We already have `cover_url`, no need to fetch the full track
                     Some(Playable::Track(track))
                 } else {
