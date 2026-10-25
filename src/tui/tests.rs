@@ -1192,6 +1192,7 @@ fn test_local_tab_opens_folders_and_goes_back() {
     std::fs::create_dir_all(root.join("phone/jazz")).unwrap();
     std::fs::copy(fixture("one.mp3"), root.join("phone/jazz/one.mp3")).unwrap();
     std::fs::copy(fixture("two.mp3"), root.join("phone/jazz/two.mp3")).unwrap();
+    std::fs::copy(fixture("one.mp3"), root.join("phone/voice memo.wav")).unwrap();
     let mut app = app();
     let dir = root.to_string_lossy().into_owned();
     app.ctx
@@ -1221,6 +1222,8 @@ fn test_local_tab_opens_folders_and_goes_back() {
         text.contains("phone/") && text.contains("2 songs"),
         "{text}"
     );
+    // Under the list, why the .wav file isn't in it.
+    assert!(text.contains("1 music file can't be played"), "{text}");
 
     // Enter goes into a folder, rather than playing it.
     key(&mut app, KeyCode::Enter);

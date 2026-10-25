@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- The _Local_ tab says how many music files it can't play (other formats, or
+  not 44.1 kHz stereo), under the list
+
+### Fixed
+
+- Starting no longer waits on Spotify when it's limiting requests: your user
+  ID comes from the login instead of asking for your account
+
 ## [0.7.0]
 
 ### Added

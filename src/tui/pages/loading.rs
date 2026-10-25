@@ -12,7 +12,8 @@ use crate::tui::widgets::list::ItemList;
 pub type Loader = Box<dyn FnOnce(&Ctx)>;
 
 /// A titled list whose items arrive in the background (the library, search results): says so
-/// while it's still empty, or that there's nothing once loading is done.
+/// while it's still empty, or that there's nothing once loading is done. A note, if it has one,
+/// goes under the items (or in place of the empty message).
 pub struct LoadingList<I: ListItem + Clone> {
     title: String,
     pub list: ItemList<I>,
@@ -21,6 +22,7 @@ pub struct LoadingList<I: ListItem + Clone> {
     loader: Option<Loader>,
     loading_message: String,
     empty_message: String,
+    note: Option<Box<dyn Fn() -> Option<String>>>,
 }
 
 impl<I: ListItem + Clone> LoadingList<I> {
@@ -36,6 +38,7 @@ impl<I: ListItem + Clone> LoadingList<I> {
             loader: None,
             loading_message: "Loading…".into(),
             empty_message: "Nothing here yet".into(),
+            note: None,
         }
     }
 
@@ -54,6 +57,12 @@ impl<I: ListItem + Clone> LoadingList<I> {
         self.empty_message = message.into();
         self
     }
+
+    /// Show what `note` gives under the items once loading is done.
+    pub fn note(mut self, note: impl Fn() -> Option<String> + 'static) -> Self {
+        self.note = Some(Box::new(note));
+        self
+    }
 }
 
 impl<I: ListItem + Clone> Page for LoadingList<I> {
@@ -65,24 +74,46 @@ impl<I: ListItem + Clone> Page for LoadingList<I> {
         if let Some(loader) = self.loader.take() {
             loader(ctx);
         }
+        let loading = (self.loading)();
+        let note = self
+            .note
+            .as_ref()
+            .filter(|_| !loading)
+            .and_then(|note| note());
+        let styles = Styles(&ctx.palette);
+        let width = usize::from(area.width.saturating_sub(2));
         if self.list.is_empty() {
-            let message = if (self.loading)() {
+            let message = if loading {
                 &self.loading_message
             } else {
-                &self.empty_message
+                note.as_ref().unwrap_or(&self.empty_message)
             };
-            let styles = Styles(&ctx.palette);
             put(
                 frame.buffer_mut(),
                 area.x + 2,
                 area.y,
                 message,
-                usize::from(area.width.saturating_sub(2)),
+                width,
                 styles.secondary(),
             );
             return;
         }
-        self.list.draw(frame, area, ctx, focused);
+        let mut list_area = area;
+        if let Some(note) = &note
+            && area.height > 1
+        {
+            list_area.height -= 1;
+            let y = area.bottom() - 1;
+            put(
+                frame.buffer_mut(),
+                area.x + 2,
+                y,
+                note,
+                width,
+                styles.secondary(),
+            );
+        }
+        self.list.draw(frame, list_area, ctx, focused);
     }
 
     fn command(&mut self, cmd: &Command, ctx: &Ctx) -> Outcome {

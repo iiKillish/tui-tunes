@@ -3,7 +3,7 @@
 //! podcasts, the browse categories and the music files on this computer as lists.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use strum::IntoEnumIterator;
 
@@ -156,17 +156,30 @@ fn local() -> LoadingList<Entry> {
     let content = list.content().clone();
     let loading = Arc::new(AtomicBool::new(true));
     let still_loading = loading.clone();
+    let skipped = Arc::new(AtomicUsize::new(0));
+    let shown_skipped = skipped.clone();
     LoadingList::new("Local", list, move || still_loading.load(Ordering::Relaxed))
         .loading_message("Looking for music files…")
         .empty_message(
             "No music files found: put MP3 or FLAC files in ~/Music, or set music_dirs in the \
              config file",
         )
+        .note(move || match shown_skipped.load(Ordering::Relaxed) {
+            0 => None,
+            1 => Some(
+                "1 music file can't be played: only 44.1 kHz stereo MP3 and FLAC with tags".into(),
+            ),
+            n => Some(format!(
+                "{n} music files can't be played: only 44.1 kHz stereo MP3 and FLAC with tags"
+            )),
+        })
         .load_when_shown(move |ctx| {
             let dirs = crate::local_files::directories(&ctx.config);
             let events = ctx.events.clone();
             std::thread::spawn(move || {
-                *content.write().unwrap() = crate::local_files::scan(&dirs);
+                let scan = crate::local_files::scan(&dirs);
+                *content.write().unwrap() = scan.entries;
+                skipped.store(scan.skipped, Ordering::Relaxed);
                 loading.store(false, Ordering::Relaxed);
                 events.trigger();
             });

@@ -241,7 +241,7 @@ A song's cover is the picture in the file, else its folder's: `cover`, `folder`,
 shows its picture too, or else its first song's.
 
 Playback is librespot's, which plays MP3 and FLAC files that are 44.1 kHz stereo and have tags.
-Other files are left out of the list. Files added while
+Other files are left out of the list, with a line under it saying how many. Files added while
 ttunes runs show up after a restart. Two files with the same artist, album, title and length are
 one song to librespot: only one of them is listed.
 

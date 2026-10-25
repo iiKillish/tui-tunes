@@ -27,6 +27,13 @@ use crate::model::track::Track;
 /// 0.5's MP4 reader leaves out AAC's channel count, which librespot's decoder needs.
 const EXTENSIONS: &[&str] = &["mp3", "flac"];
 
+/// Music files librespot doesn't look for, counted in [Scan::skipped] so it's clear why they're
+/// missing.
+const OTHER_EXTENSIONS: &[&str] = &[
+    "aac", "aif", "aiff", "alac", "ape", "m4a", "m4p", "mp4", "oga", "ogg", "opus", "wav", "wma",
+    "wv",
+];
+
 /// What librespot's player plays: it has no resampling, so it turns down other files.
 const SAMPLE_RATE: u32 = librespot_playback::SAMPLE_RATE;
 const CHANNELS: usize = librespot_playback::NUM_CHANNELS as usize;
@@ -53,16 +60,25 @@ fn expand_home(path: &str) -> PathBuf {
     }
 }
 
+/// What [scan] found.
+pub struct Scan {
+    pub entries: Vec<Entry>,
+    /// Music files left out: in a format librespot doesn't play, or not 44.1 kHz stereo, or
+    /// without tags or a length.
+    pub skipped: usize,
+}
+
 /// The music in `dirs` that librespot can play, as folders of subfolders and songs: what's in
 /// the folder for one folder, a folder for each of several. Slow for a big collection (each file
 /// is opened), so run off the UI thread.
-pub fn scan(dirs: &[PathBuf]) -> Vec<Entry> {
+pub fn scan(dirs: &[PathBuf]) -> Scan {
     scan_saving_covers(dirs, &crate::config::cache_path("local-covers"))
 }
 
 /// [scan], saving the pictures in the files to `covers` (see [embedded_cover]).
-fn scan_saving_covers(dirs: &[PathBuf], covers: &Path) -> Vec<Entry> {
+fn scan_saving_covers(dirs: &[PathBuf], covers: &Path) -> Scan {
     let mut seen = HashSet::new();
+    let mut skipped = 0;
     let mut roots = Vec::new();
     for dir in dirs {
         if !dir.is_dir() {
@@ -70,28 +86,31 @@ fn scan_saving_covers(dirs: &[PathBuf], covers: &Path) -> Vec<Entry> {
             continue;
         }
         // librespot gives up on a folder at the first entry it can't read, as here.
-        match visit(dir, None, &mut seen, covers) {
+        match visit(dir, None, &mut seen, &mut skipped, covers) {
             Ok(folder) if !folder.entries.is_empty() => roots.push(folder),
             Ok(_) => {}
             Err(e) => warn!("Couldn't read music folder {}: {e}", dir.display()),
         }
     }
-    match <[Folder; 1]>::try_from(roots) {
+    let entries = match <[Folder; 1]>::try_from(roots) {
         Ok([root]) => root.entries,
         Err(roots) => roots
             .into_iter()
             .map(|folder| Entry::Folder(Arc::new(folder)))
             .collect(),
-    }
+    };
+    Scan { entries, skipped }
 }
 
 /// The folder `dir`, leaving out subfolders without songs. Files with the same tags and length
-/// have the same URI, one song to librespot: `seen` keeps them from being listed twice. Without a
-/// picture of its own, a folder has `parent_cover`, its parent's.
+/// have the same URI, one song to librespot: `seen` keeps them from being listed twice. Music files
+/// that can't be played are counted in `skipped`. Without a picture of its own, a folder has
+/// `parent_cover`, its parent's.
 fn visit(
     dir: &Path,
     parent_cover: Option<&str>,
     seen: &mut HashSet<String>,
+    skipped: &mut usize,
     covers: &Path,
 ) -> io::Result<Folder> {
     let mut folders = Vec::new();
@@ -100,7 +119,7 @@ fn visit(
     for entry in fs::read_dir(dir)? {
         let path = entry?.path();
         if path.is_dir() {
-            let folder = visit(&path, cover.as_deref(), seen, covers)?;
+            let folder = visit(&path, cover.as_deref(), seen, skipped, covers)?;
             if !folder.entries.is_empty() {
                 folders.push(folder);
             }
@@ -109,16 +128,27 @@ fn visit(
         let Some(extension) = path.extension().and_then(|e| e.to_str()) else {
             continue;
         };
-        if !EXTENSIONS.contains(&extension.to_lowercase().as_str()) {
+        let lowercase = extension.to_lowercase();
+        if !EXTENSIONS.contains(&lowercase.as_str()) {
+            if OTHER_EXTENSIONS.contains(&lowercase.as_str()) {
+                debug!(
+                    "Can't play {}: librespot doesn't look for it",
+                    path.display()
+                );
+                *skipped += 1;
+            }
             continue;
         }
         match read(&path, extension, cover.as_deref(), covers) {
             Some(track) if seen.insert(track.uri.clone()) => tracks.push(track),
             Some(_) => debug!("{} is the same song as another file", path.display()),
-            None => debug!(
-                "Can't play {}: no tags, no length, or not 44.1 kHz stereo",
-                path.display()
-            ),
+            None => {
+                debug!(
+                    "Can't play {}: no tags, no length, or not 44.1 kHz stereo",
+                    path.display()
+                );
+                *skipped += 1;
+            }
         }
     }
     folders.sort_by_cached_key(|folder| folder.name.to_lowercase());
@@ -380,9 +410,10 @@ mod tests {
                 ("not music.txt", "one.mp3"),
             ],
         );
-        let entries = scan(std::slice::from_ref(&dir.0));
+        let Scan { entries, skipped } = scan(std::slice::from_ref(&dir.0));
         // "empty" has no songs; the copy of two.mp3 is the same song, listed once.
         assert_eq!(names(&entries), ["jazz/", "Song two"]);
+        assert_eq!(skipped, 0);
         let Entry::Folder(jazz) = &entries[0] else {
             unreachable!()
         };
@@ -402,7 +433,7 @@ mod tests {
             ],
         );
         let covers = dir.0.join("saved covers");
-        let entries = scan_saving_covers(std::slice::from_ref(&dir.0), &covers);
+        let entries = scan_saving_covers(std::slice::from_ref(&dir.0), &covers).entries;
         let [Entry::Folder(album), Entry::Folder(bare)] = &entries[..] else {
             panic!("{entries:?}")
         };
@@ -427,6 +458,24 @@ mod tests {
     }
 
     #[test]
+    fn counts_music_files_it_cant_play() {
+        let dir = MusicDir::new(
+            "skipped",
+            &[
+                ("one.mp3", "one.mp3"),
+                ("album/song.m4a", "one.mp3"),
+                ("album/song.OGG", "one.mp3"),
+                ("not a song.mp3", "cover.png"),
+                ("cover.png", "cover.png"),
+                ("notes.txt", "one.mp3"),
+            ],
+        );
+        let Scan { entries, skipped } = scan(std::slice::from_ref(&dir.0));
+        assert_eq!(names(&entries), ["Song one"]);
+        assert_eq!(skipped, 3);
+    }
+
+    #[test]
     fn several_music_folders_are_a_folder_each() {
         let first = MusicDir::new("first", &[("one.mp3", "one.mp3")]);
         let second = MusicDir::new("second", &[("two.mp3", "two.mp3")]);
@@ -434,7 +483,8 @@ mod tests {
             first.0.clone(),
             second.0.clone(),
             PathBuf::from("/nonexistent"),
-        ]);
+        ])
+        .entries;
         let folders: Vec<_> = entries
             .iter()
             .map(|entry| match entry {
