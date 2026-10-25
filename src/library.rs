@@ -7,7 +7,6 @@ use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 
 use log::{debug, error, info};
-use rspotify::model::Id;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -45,7 +44,6 @@ pub struct Library {
     pub shows: Arc<RwLock<Vec<Show>>>,
     pub is_done: Arc<RwLock<bool>>,
     pub user_id: Option<String>,
-    pub display_name: Option<String>,
     /// Tracks being saved (true) or removed (false) by [Self::toggle_saved_track_in_background],
     /// shown in their new state until Spotify has been told.
     pending_saves: Arc<RwLock<HashMap<String, bool>>>,
@@ -72,7 +70,6 @@ impl Library {
             shows: Arc::new(RwLock::new(Vec::new())),
             is_done: Arc::new(RwLock::new(false)),
             user_id: None,
-            display_name: None,
             pending_saves: Arc::default(),
             saved_ids: Arc::default(),
             saved_caches: Arc::default(),
@@ -83,9 +80,9 @@ impl Library {
     }
 
     pub fn new(ev: EventManager, spotify: Spotify, cfg: Arc<Config>) -> Self {
-        let current_user = spotify.api.current_user().ok();
-        let user_id = current_user.as_ref().map(|u| u.id.id().to_string());
-        let display_name = current_user.as_ref().and_then(|u| u.display_name.clone());
+        // The session's username is the user's ID: asking Spotify (/me) could wait out a rate
+        // limit before anything is shown.
+        let user_id = spotify.api.user();
 
         let library = Self {
             tracks: Arc::new(RwLock::new(Vec::new())),
@@ -95,7 +92,6 @@ impl Library {
             shows: Arc::new(RwLock::new(Vec::new())),
             is_done: Arc::new(RwLock::new(false)),
             user_id,
-            display_name,
             pending_saves: Arc::default(),
             saved_ids: Arc::default(),
             saved_caches: Arc::default(),

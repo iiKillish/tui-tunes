@@ -10,8 +10,8 @@ use rspotify::http::HttpError;
 use rspotify::model::{
     AlbumId, ArtistId, CursorBasedPage, EpisodeId, FullAlbum, FullArtist, FullEpisode, FullShow,
     FullTrack, ItemPositions, LibraryId, Market, Page, PlayableId, PlaylistId, PlaylistResult,
-    PrivateUser, SavedAlbum, SavedTrack, SearchMultipleResult, SearchResult, SearchType, Show,
-    ShowId, SimplifiedTrack, TimeRange, TrackId, Type, UserId,
+    SavedAlbum, SavedTrack, SearchMultipleResult, SearchResult, SearchType, Show, ShowId,
+    SimplifiedTrack, TimeRange, TrackId, Type, UserId,
 };
 use rspotify::{AuthCodeSpotify, ClientError, ClientResult, Config, prelude::*};
 use tokio::sync::mpsc;
@@ -185,6 +185,11 @@ impl Default for WebApi {
 impl WebApi {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// The username of the logged in user.
+    pub fn user(&self) -> Option<String> {
+        self.user.clone()
     }
 
     /// Set the username for use with the API.
@@ -1139,11 +1144,6 @@ impl WebApi {
                 .collect()
         })
         .ok_or(())
-    }
-
-    /// Get details about the logged in user.
-    pub fn current_user(&self) -> Result<PrivateUser, ()> {
-        self.api_with_retry(|api| api.current_user()).ok_or(())
     }
 }
 
