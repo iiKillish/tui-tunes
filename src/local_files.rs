@@ -23,7 +23,8 @@ use crate::config::Config;
 use crate::model::folder::{Entry, Folder};
 use crate::model::track::Track;
 
-/// The files librespot looks for. It takes .mp4 and .m4p too, but can't decode them.
+/// The files librespot looks for. It takes .mp4 and .m4p too, but can't play them: symphonia
+/// 0.5's MP4 reader leaves out AAC's channel count, which librespot's decoder needs.
 const EXTENSIONS: &[&str] = &["mp3", "flac"];
 
 /// What librespot's player plays: it has no resampling, so it turns down other files.
