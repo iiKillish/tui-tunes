@@ -4,6 +4,15 @@ updates:
     directory: "/"
     schedule:
       interval: weekly
+    ignore:
+      # Pinned for librespot-core's build script (see Cargo.toml).
+      - dependency-name: vergen
+      # notify-rust 4 is still on zbus 5; moving alone would build both.
+      - dependency-name: zbus
+        update-types: ["version-update:semver-major"]
+      # Kept on librespot-playback's version so there's one audio stack.
+      - dependency-name: rodio
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
     groups:
       cargo:
         patterns:
