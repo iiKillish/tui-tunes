@@ -358,6 +358,11 @@ pub fn default_keybindings() -> HashMap<String, Vec<Command>> {
         "Shift+Down".into(),
         vec![Command::Shift(ShiftMode::Down, None)],
     );
+    kb.insert("Shift+k".into(), vec![Command::Shift(ShiftMode::Up, None)]);
+    kb.insert(
+        "Shift+j".into(),
+        vec![Command::Shift(ShiftMode::Down, None)],
+    );
 
     kb.insert(
         "g".into(),

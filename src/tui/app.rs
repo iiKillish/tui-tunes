@@ -448,14 +448,18 @@ impl App {
                 let outcome = self.screen().root.command(cmd, &ctx);
                 self.apply(outcome, false);
             }
+            // Help and the settings take the place of what's open (each other, a menu), rather
+            // than showing over it.
             Command::Help => {
                 self.hints_on = false;
+                self.overlays.clear();
                 let overlay = actions::help(self);
                 self.overlays.push(overlay);
             }
             Command::Hints => self.hints_on = !self.hints_on,
             Command::Settings => {
                 self.hints_on = false;
+                self.overlays.clear();
                 let settings = crate::tui::overlays::settings::Settings::new();
                 self.overlays.push(Box::new(settings));
             }

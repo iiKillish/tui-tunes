@@ -121,6 +121,9 @@ pub struct ConfigValues {
     pub pick_up_where_you_left_off: Option<bool>,
     /// What clicking a song in Up next does: "play" it (default) or open its "menu".
     pub queue_click: Option<String>,
+    /// What clicking a song in the other lists (search, albums, playlists, the library) does:
+    /// "play" it once it's selected (default; the first click selects it) or open its "menu".
+    pub track_click: Option<String>,
     /// Folders of music files for the Local tab (default: the system's music folder, `~/Music`).
     pub music_dirs: Option<Vec<String>>,
 }

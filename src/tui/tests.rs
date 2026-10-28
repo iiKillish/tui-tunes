@@ -904,6 +904,19 @@ fn test_key_hints_label_whats_on_screen() {
 }
 
 #[test]
+fn test_help_opened_from_the_settings_replaces_them() {
+    let mut app = app();
+    let mut terminal = Terminal::new(TestBackend::new(90, 45)).unwrap();
+    app.run(&Command::Settings);
+    app.run(&Command::Help);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert_eq!(app.overlay_areas().len(), 1, "settings still open under help");
+    app.run(&Command::Back);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(app.overlay_areas().is_empty(), "back went to the settings");
+}
+
+#[test]
 fn test_help_groups_keys_and_filters() {
     let mut app = app();
     let mut terminal = Terminal::new(TestBackend::new(90, 45)).unwrap();
@@ -1346,6 +1359,35 @@ fn test_local_tab_opens_folders_and_goes_back() {
         text.contains("phone/") && !text.contains("Folder"),
         "{text}"
     );
+}
+
+#[test]
+fn test_clicking_a_song_in_a_list_selects_it_or_opens_its_menu() {
+    use crate::tui::page::Outcome;
+    use crate::tui::widgets::list::ItemList;
+    use std::sync::RwLock;
+
+    images::force_supported(false);
+    for menu in [false, true] {
+        let app = app();
+        if menu {
+            app.ctx
+                .config
+                .edit(|doc| doc["track_click"] = toml_edit::value("menu"))
+                .unwrap();
+        }
+        let ctx = app.ctx.clone();
+        let mut list = ItemList::new(Arc::new(RwLock::new(tracks(5))));
+        let mut terminal = Terminal::new(TestBackend::new(60, 10)).unwrap();
+        terminal
+            .draw(|frame| list.draw(frame, frame.area(), &ctx, true))
+            .unwrap();
+        let third = find(&terminal, "Song number 3").expect("the third song");
+        let outcome = list.mouse(click(third.x, third.y), &ctx);
+        assert_eq!(list.selected(), 2, "it wasn't selected");
+        assert_eq!(matches!(outcome, Outcome::Overlay(_)), menu, "menu: {menu}");
+        assert_eq!(ctx.queue.get_current_index(), None, "it played");
+    }
 }
 
 #[test]

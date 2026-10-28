@@ -538,13 +538,18 @@ impl<I: ListItem + Clone> ItemList<I> {
                 if index >= self.len() {
                     return Outcome::Consumed;
                 }
-                // Clicking the selected track plays it; clicking an album or playlist opens it.
+                // Clicking the selected track plays it (or any track opens its menu, with
+                // `track_click`); clicking an album or playlist opens it.
                 let already = index == self.selected;
                 self.selected = index;
                 let is_track = self
                     .selected_item()
                     .is_some_and(|i| i.track().is_some() || i.is_playable());
                 if is_track {
+                    let menu = ctx.config.values().track_click.as_deref() == Some("menu");
+                    if menu && let Some(item) = self.selected_item() {
+                        return Outcome::Overlay(nav::context_menu(item.as_listitem(), ctx));
+                    }
                     if already {
                         self.play(ctx);
                     }

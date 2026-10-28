@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- A setting (`track_click`, also in the settings under Playback) to have
+  clicking a song in search, albums, playlists and the library open its menu,
+  like `queue_click` does for _Up next_
+- <kbd>Shift</kbd>+<kbd>J</kbd> and <kbd>Shift</kbd>+<kbd>K</kbd> move the
+  selected song down and up in the queue or a playlist, like
+  <kbd>Shift</kbd>+<kbd>Down</kbd> and <kbd>Shift</kbd>+<kbd>Up</kbd>
+
+### Changed
+
+- Opening help from the settings (or the settings from help) closes the one
+  that was open, instead of showing over it
+
 ## [0.8.0]
 
 ### Added
