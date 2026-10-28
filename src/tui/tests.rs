@@ -910,7 +910,11 @@ fn test_help_opened_from_the_settings_replaces_them() {
     app.run(&Command::Settings);
     app.run(&Command::Help);
     terminal.draw(|frame| app.draw(frame)).unwrap();
-    assert_eq!(app.overlay_areas().len(), 1, "settings still open under help");
+    assert_eq!(
+        app.overlay_areas().len(),
+        1,
+        "settings still open under help"
+    );
     app.run(&Command::Back);
     terminal.draw(|frame| app.draw(frame)).unwrap();
     assert!(app.overlay_areas().is_empty(), "back went to the settings");
