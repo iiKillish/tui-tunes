@@ -4,7 +4,8 @@
 //!
 //! Items take two rows (title, then artists) next to a two-row cover, with a blank row between
 //! them. The selection moves over the current track and the upcoming ones; play, delete and shift
-//! work on it (upcoming items only shift among themselves). Clicking an item plays it.
+//! work on it (upcoming items only shift among themselves). Clicking an item plays it. A Clear
+//! button at the top right clears what's up next.
 
 use std::sync::Arc;
 
@@ -16,6 +17,7 @@ use ratatui::style::Style;
 
 use crate::command::{Command, MoveAmount, MoveMode, ShiftMode, TargetMode};
 use crate::model::playable::Playable;
+use crate::tui::hints;
 use crate::tui::images;
 use crate::tui::nav;
 use crate::tui::page::{Ctx, Outcome, Page};
@@ -46,6 +48,8 @@ pub struct QueuePage {
     /// there (for clicks).
     area: Rect,
     row_items: Vec<Option<usize>>,
+    /// Where the Clear button was drawn last, if it was.
+    clear_button: Option<Rect>,
     /// "12 songs, 45 min" for what's coming up, worked out while drawing.
     subtitle: String,
 }
@@ -58,6 +62,7 @@ pub fn new(_ctx: &Ctx) -> QueuePage {
         max_scroll: 0,
         area: Rect::default(),
         row_items: Vec::new(),
+        clear_button: None,
         subtitle: String::new(),
     }
 }
@@ -286,10 +291,28 @@ impl Page for QueuePage {
         let mut y = 0;
         let buf = frame.buffer_mut();
 
+        // Clear, on the top row at the right, while there's anything to clear.
+        self.clear_button = None;
+        if !items.upcoming.is_empty() && height >= 3 {
+            let label = " ✕ Clear ";
+            let bx = area.right().saturating_sub(INDENT + width(label) as u16);
+            if bx >= x + 16 {
+                let written = put(buf, bx, area.y, label, usize::MAX, styles.primary());
+                let button = Rect::new(bx, area.y, written as u16, 1);
+                pointer::clickable(button);
+                hints::add(button, Command::Clear);
+                self.clear_button = Some(button);
+            }
+        }
+        let heading_width = match self.clear_button {
+            Some(button) => usize::from(button.x.saturating_sub(x + 1)),
+            None => text_width,
+        };
+
         if let Some((index, current)) = &items.current
             && height >= 3
         {
-            put(buf, x, area.y, "Now playing", text_width, heading);
+            put(buf, x, area.y, "Now playing", heading_width, heading);
             y += 1;
             let look = ItemLook {
                 item: current,
@@ -354,7 +377,8 @@ impl Page for QueuePage {
                     Some(name) => format!("Next from: {name}"),
                     None => "Next up".to_string(),
                 };
-                put(buf, x, area.y + y as u16, &text, text_width, heading);
+                let room = if y == 0 { heading_width } else { text_width };
+                put(buf, x, area.y + y as u16, &text, room, heading);
                 y += 1;
                 previous_source = Some(source);
             }
@@ -428,6 +452,13 @@ impl Page for QueuePage {
 
     fn mouse(&mut self, event: MouseEvent, ctx: &Ctx) -> Outcome {
         match event.kind {
+            MouseEventKind::Down(MouseButton::Left)
+                if self
+                    .clear_button
+                    .is_some_and(|r| r.contains((event.column, event.row).into())) =>
+            {
+                return Outcome::Run(vec![Command::Clear]);
+            }
             MouseEventKind::Down(MouseButton::Left) => {
                 let row = event.row.checked_sub(self.area.y).map(usize::from);
                 if let Some(index) = row.and_then(|row| self.row_items.get(row).copied().flatten())

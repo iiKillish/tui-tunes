@@ -63,6 +63,9 @@ pub struct Player {
     hits: Hits,
     /// The volume knob is being dragged.
     dragging_volume: bool,
+    /// The progress knob is being dragged, to this fraction of the track: it seeks there when
+    /// let go.
+    dragging_progress: Option<f64>,
 }
 
 /// Whether the controls are drawn as (bigger) images.
@@ -214,8 +217,8 @@ impl Player {
         }
     }
 
-    /// The volume bar with a knob (●) at the current level, which can be dragged.
-    fn draw_volume(frame: &mut Frame, area: Rect, fraction: f64, ctx: &Ctx, background: Style) {
+    /// A bar with a knob (●) at `fraction`, which can be dragged: the volume, and the progress.
+    fn draw_slider(frame: &mut Frame, area: Rect, fraction: f64, ctx: &Ctx, background: Style) {
         Self::draw_bar(frame, area, fraction, ctx, background);
         if area.width == 0 {
             return;
@@ -232,10 +235,24 @@ impl Player {
         );
     }
 
-    /// Whether a drag started on the player (the volume knob) is going on: it then gets every
-    /// mouse event, wherever the pointer is.
+    /// Whether a drag started on the player (the volume or progress knob) is going on: it then
+    /// gets every mouse event, wherever the pointer is.
     pub fn dragging(&self) -> bool {
-        self.dragging_volume
+        self.dragging_volume || self.dragging_progress.is_some()
+    }
+
+    /// Milliseconds into the current track (of `total`): where the progress knob is being dragged
+    /// to, if it is.
+    fn elapsed(&self, total: u32, ctx: &Ctx) -> u32 {
+        match self.dragging_progress {
+            Some(fraction) => (f64::from(total) * fraction) as u32,
+            None => (ctx.spotify.get_current_progress().as_millis() as u32).min(total),
+        }
+    }
+
+    /// The fraction of the progress `bar` at column `x`, for dragging past its ends too.
+    fn progress_at(x: u16, bar: Rect) -> f64 {
+        (f64::from(x.saturating_sub(bar.x)) / f64::from(bar.width.max(1))).min(1.0)
     }
 
     /// Set the volume from a pointer at column `x`, for the volume bar starting at `bar_x`.
@@ -462,10 +479,7 @@ impl Player {
         let (elapsed, total) = match &track {
             Some(t) => {
                 let total = t.duration();
-                (
-                    (ctx.spotify.get_current_progress().as_millis() as u32).min(total),
-                    total,
-                )
+                (self.elapsed(total, ctx), total)
             }
             None => (0, 0),
         };
@@ -474,10 +488,12 @@ impl Player {
         } else {
             0.0
         };
-        Self::draw_bar(frame, bar, fraction, ctx, background);
         self.hits.progress = Some(bar);
         if track.is_some() {
+            Self::draw_slider(frame, bar, fraction, ctx, background);
             Self::draw_times(frame, bar, elapsed, total, ctx, background);
+        } else {
+            Self::draw_bar(frame, bar, 0.0, ctx, background);
         }
 
         let controls_row = progress_row + 2;
@@ -495,7 +511,7 @@ impl Player {
                 background.fg(ctx.palette.primary),
             );
             let vbar = Rect::new(vx + 3, volume_row, VOLUME_BAR_WIDTH, 1);
-            Self::draw_volume(
+            Self::draw_slider(
                 frame,
                 vbar,
                 f64::from(ctx.spotify.volume()) / f64::from(u16::MAX),
@@ -641,10 +657,7 @@ impl Player {
         let (elapsed, total) = match &track {
             Some(t) => {
                 let total = t.duration();
-                (
-                    (ctx.spotify.get_current_progress().as_millis() as u32).min(total),
-                    total,
-                )
+                (self.elapsed(total, ctx), total)
             }
             None => (0, 0),
         };
@@ -653,10 +666,12 @@ impl Player {
         } else {
             0.0
         };
-        Self::draw_bar(frame, bar, fraction, ctx, background);
         self.hits.progress = Some(bar);
         if track.is_some() {
+            Self::draw_slider(frame, bar, fraction, ctx, background);
             Self::draw_times(frame, bar, elapsed, total, ctx, background);
+        } else {
+            Self::draw_bar(frame, bar, 0.0, ctx, background);
         }
 
         let controls_row = progress_row + 2;
@@ -675,7 +690,7 @@ impl Player {
                 background.fg(ctx.palette.primary),
             );
             let vbar = Rect::new(vx + 3, volume_row, VOLUME_BAR_WIDTH, 1);
-            Self::draw_volume(
+            Self::draw_slider(
                 frame,
                 vbar,
                 f64::from(ctx.spotify.volume()) / f64::from(u16::MAX),
@@ -794,7 +809,7 @@ impl Player {
         );
         if let Some(t) = &track {
             let total = t.duration();
-            let elapsed = (ctx.spotify.get_current_progress().as_millis() as u32).min(total);
+            let elapsed = self.elapsed(total, ctx);
             let buf = frame.buffer_mut();
             let secondary = background.fg(ctx.palette.secondary);
             let e = duration(elapsed);
@@ -819,7 +834,7 @@ impl Player {
             } else {
                 0.0
             };
-            Self::draw_bar(frame, bar, fraction, ctx, background);
+            Self::draw_slider(frame, bar, fraction, ctx, background);
         } else {
             Self::draw_bar(frame, bar, 0.0, ctx, background);
         }
@@ -836,7 +851,7 @@ impl Player {
                 2,
                 background.fg(ctx.palette.primary),
             );
-            Self::draw_volume(
+            Self::draw_slider(
                 frame,
                 Rect::new(vx + 3, mid, VOLUME_BAR_WIDTH, 1),
                 f64::from(ctx.spotify.volume()) / f64::from(u16::MAX),
@@ -887,10 +902,9 @@ impl Player {
                         ctx.library.toggle_saved_track_in_background(&track);
                     }
                 } else if let Some(bar) = self.hits.progress.filter(|r| r.contains(at)) {
-                    if let Some(track) = ctx.queue.get_current() {
-                        let fraction = f64::from(at.x - bar.x) / f64::from(bar.width.max(1));
-                        ctx.spotify
-                            .seek((f64::from(track.duration()) * fraction) as u32);
+                    // Seeks when let go, rather than at every step of the drag.
+                    if ctx.queue.get_current().is_some() {
+                        self.dragging_progress = Some(Self::progress_at(at.x, bar));
                     }
                 } else if let Some(volume) = self.hits.volume.filter(|r| r.contains(at)) {
                     let bar_x = volume.x + 3;
@@ -906,6 +920,18 @@ impl Player {
                 }
             }
             MouseEventKind::Up(_) if self.dragging_volume => self.dragging_volume = false,
+            MouseEventKind::Drag(MouseButton::Left) if self.dragging_progress.is_some() => {
+                if let Some(bar) = self.hits.progress {
+                    self.dragging_progress = Some(Self::progress_at(at.x, bar));
+                }
+            }
+            MouseEventKind::Up(_) if self.dragging_progress.is_some() => {
+                let fraction = self.dragging_progress.take().unwrap_or_default();
+                if let Some(track) = ctx.queue.get_current() {
+                    ctx.spotify
+                        .seek((f64::from(track.duration()) * fraction) as u32);
+                }
+            }
             MouseEventKind::ScrollUp if in_rect(&self.hits.volume) => {
                 ctx.spotify
                     .set_volume(ctx.spotify.volume().saturating_add(VOLUME_PERCENT), true);

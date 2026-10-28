@@ -18,7 +18,7 @@ use crate::traits::ListItem;
 use crate::tui::app::App;
 use crate::tui::nav;
 use crate::tui::overlays::help::Help;
-use crate::tui::overlays::menu::Menu;
+use crate::tui::overlays::menu::{Entry, Menu};
 use crate::tui::overlays::prompt::Prompt;
 use crate::tui::page::{Ctx, Outcome, Overlay};
 
@@ -97,10 +97,27 @@ pub fn run(cmd: &Command, ctx: &Ctx) -> Outcome {
         }
         Command::Next => queue.next(true),
         Command::Clear => {
-            return Outcome::Overlay(Box::new(Menu::confirm("Clear the queue?", |ctx| {
-                ctx.queue.clear();
-                Outcome::Consumed
-            })));
+            if queue.get_current_index().is_none() {
+                return Outcome::Overlay(Box::new(Menu::confirm("Clear the queue?", |ctx| {
+                    ctx.queue.clear();
+                    Outcome::Consumed
+                })));
+            }
+            // Something's playing: it can keep going, with autoplay after it.
+            return Outcome::Overlay(Box::new(Menu::new(
+                "Clear the queue?",
+                vec![
+                    Entry::new("Clear up next, keep playing", |ctx| {
+                        ctx.queue.clear_upcoming();
+                        Outcome::Consumed
+                    }),
+                    Entry::new("Clear everything and stop", |ctx| {
+                        ctx.queue.clear();
+                        Outcome::Consumed
+                    }),
+                    Entry::new("Cancel", |_| Outcome::Close),
+                ],
+            )));
         }
         Command::UpdateLibrary => ctx.library.update_library(true),
         Command::TogglePlay => queue.toggleplayback(),

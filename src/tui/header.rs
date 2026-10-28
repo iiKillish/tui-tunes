@@ -8,7 +8,7 @@ use ratatui::style::Style;
 
 use crate::theme::Palette;
 use crate::tui::images;
-use crate::tui::style::{Styles, bold, fill, mix, put, rgb};
+use crate::tui::style::{Styles, bold, fill, mix, put, rgb, width};
 
 /// Rows the header takes, including a blank row under it.
 pub const HEADER_ROWS: u16 = 9;
@@ -46,7 +46,6 @@ pub fn draw(
     header: &PageHeader,
     palette: &Palette,
 ) -> Vec<(Rect, HeaderAction)> {
-    let styles = Styles(palette);
     let buf = frame.buffer_mut();
 
     // Background: the cover's color fading into the page, row by row.
@@ -110,41 +109,99 @@ pub fn draw(
         fg(palette.secondary),
     );
 
-    // Buttons: Play stands out in the accent, the others are plain.
     let mut buttons = Vec::new();
     let mut x = text_x;
-    let y = area.y + 5;
-    let mut button = |label: &str, style: Style, action: HeaderAction, x: &mut u16| {
-        let text = format!(" {label} ");
+    for (label, style, action) in button_labels(header, palette, false) {
         let written = put(
             buf,
-            *x,
-            y,
-            &text,
-            usize::from(area.right().saturating_sub(*x)),
+            x,
+            area.y + 5,
+            &label,
+            usize::from(area.right().saturating_sub(x)),
             style,
         );
         if written > 0 {
-            buttons.push((Rect::new(*x, y, written as u16, 1), action));
+            buttons.push((Rect::new(x, area.y + 5, written as u16, 1), action));
         }
-        *x += written as u16 + 2;
+        x += written as u16 + 2;
+    }
+    buttons
+}
+
+/// The header's buttons, right-aligned in the one-row `area`, for windows too short for the whole
+/// header: Play and Shuffle. Labelled if that leaves `keep` columns on the left (for the page's
+/// title), just icons if not; nothing if even those don't fit. Returns where each was drawn, for
+/// clicks.
+pub fn draw_buttons(
+    frame: &mut Frame,
+    area: Rect,
+    header: &PageHeader,
+    palette: &Palette,
+    keep: u16,
+) -> Vec<(Rect, HeaderAction)> {
+    let total = |labels: &[(String, Style, HeaderAction)]| {
+        labels
+            .iter()
+            .map(|(label, ..)| width(label) as u16 + 2)
+            .sum::<u16>()
+            .saturating_sub(2)
     };
+    let play_and_shuffle = |short| {
+        let mut labels = button_labels(header, palette, short);
+        labels.retain(|(.., action)| *action != HeaderAction::Like);
+        labels
+    };
+    let mut labels = play_and_shuffle(false);
+    if total(&labels) + keep > area.width {
+        labels = play_and_shuffle(true);
+    }
+    let total = total(&labels);
+    if labels.is_empty() || total > area.width {
+        return Vec::new();
+    }
+    let buf = frame.buffer_mut();
+    let mut buttons = Vec::new();
+    let mut x = area.right() - total;
+    for (label, style, action) in labels {
+        let written = put(buf, x, area.y, &label, usize::MAX, style) as u16;
+        buttons.push((Rect::new(x, area.y, written, 1), action));
+        x += written + 2;
+    }
+    buttons
+}
+
+/// The buttons' labels (padded, and just the icons if `short`), styles and actions: Play stands
+/// out in the accent, the others are plain.
+fn button_labels(
+    header: &PageHeader,
+    palette: &Palette,
+    short: bool,
+) -> Vec<(String, Style, HeaderAction)> {
+    let fg = |color| Style::new().fg(color);
+    let label = |icon: &str, text: &str| match short {
+        true => format!(" {icon} "),
+        false => format!(" {icon} {text} "),
+    };
+    let mut buttons = Vec::new();
     if header.playable {
-        button("▶ Play", styles.button(), HeaderAction::Play, &mut x);
-        button(
-            "⇄ Shuffle",
+        buttons.push((
+            label("▶", "Play"),
+            Styles(palette).button(),
+            HeaderAction::Play,
+        ));
+        buttons.push((
+            label("⇄", "Shuffle"),
             fg(palette.primary),
             HeaderAction::Shuffle,
-            &mut x,
-        );
+        ));
     }
     if let Some(liked) = header.liked {
-        let (label, style) = if liked {
-            ("♥ Liked", fg(palette.title))
+        let (icon, text, style) = if liked {
+            ("♥", "Liked", fg(palette.title))
         } else {
-            ("♡ Like", fg(palette.primary))
+            ("♡", "Like", fg(palette.primary))
         };
-        button(label, style, HeaderAction::Like, &mut x);
+        buttons.push((label(icon, text), style, HeaderAction::Like));
     }
     buttons
 }

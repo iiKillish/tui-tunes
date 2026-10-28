@@ -38,6 +38,9 @@ const MESSAGE_TIME: Duration = Duration::from_secs(5);
 const MIN_PAGE_ROWS: u16 = 10;
 /// Fewest rows to keep for a page below its header; with less room the header isn't shown.
 const MIN_ROWS_BELOW_HEADER: u16 = 6;
+/// Columns the page's title keeps beside the header's buttons, when they share its row; less
+/// and the buttons are just icons.
+const MIN_TITLE_WIDTH: u16 = 16;
 /// Most suggestions shown over the command line at once.
 const MAX_SUGGESTIONS: usize = 8;
 
@@ -1020,12 +1023,11 @@ impl App {
         let remaining = content.bottom().saturating_sub(y);
         let show_header = header.is_some() && remaining > HEADER_ROWS + MIN_ROWS_BELOW_HEADER;
         if has_stack || (!show_header && remaining > 4) {
-            let buf = frame.buffer_mut();
             let mut x = content.x + 2;
             if has_stack {
                 let back = format!("‹ {parent}");
                 let written = put(
-                    buf,
+                    frame.buffer_mut(),
                     x,
                     y,
                     &back,
@@ -1038,34 +1040,45 @@ impl App {
                 self.regions.back = Some(back);
                 x += written as u16 + 3;
             }
+            // Without room for the header, its buttons go at the right of this row.
+            let mut right = content.right().saturating_sub(2);
+            if !show_header && let Some(header) = &header {
+                let room = Rect::new(x, y, right.saturating_sub(x), 1);
+                self.regions.header_buttons =
+                    header::draw_buttons(frame, room, header, &ctx.palette, MIN_TITLE_WIDTH);
+                if let Some((first, _)) = self.regions.header_buttons.first() {
+                    right = first.x.saturating_sub(2);
+                }
+            }
+            let buf = frame.buffer_mut();
             if !show_header && has_stack {
                 put(
                     buf,
                     x,
                     y,
                     &page_title,
-                    usize::from(content.right().saturating_sub(x + 2)),
+                    usize::from(right.saturating_sub(x)),
                     bold(styles.accent()),
                 );
             }
             let subtitle = screen.top_ref().subtitle();
-            if !subtitle.is_empty() && !show_header {
+            if !subtitle.is_empty() && !show_header && self.regions.header_buttons.is_empty() {
                 let sx = content.right().saturating_sub(width(&subtitle) as u16 + 2);
                 if sx > x + 4 {
                     put(buf, sx, y, &subtitle, usize::MAX, styles.secondary());
                 }
             }
-            if has_stack {
+            if has_stack || !self.regions.header_buttons.is_empty() {
                 y += 1;
             }
         }
         if show_header && let Some(header) = &header {
             let area = Rect::new(content.x, y, content.width, HEADER_ROWS);
             self.regions.header_buttons = header::draw(frame, area, header, &ctx.palette);
-            for (button, _) in &self.regions.header_buttons {
-                pointer::clickable(*button);
-            }
             y += HEADER_ROWS;
+        }
+        for (button, _) in &self.regions.header_buttons {
+            pointer::clickable(*button);
         }
 
         let page_area = Rect::new(

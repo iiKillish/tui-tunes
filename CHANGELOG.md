@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Clearing the queue (<kbd>c</kbd>, or the new _Clear_ button on _Up next_)
+  can keep the current song playing and clear only what's up next, so
+  autoplay picks what follows it
+
+### Changed
+
+- The progress bar has a ● knob to drag, like the volume; the song seeks when
+  you let go
+
+### Fixed
+
+- Album, playlist and artist pages in short windows still have Play and
+  Shuffle buttons, beside the page's title
+
 ## [0.7.1]
 
 ### Changed

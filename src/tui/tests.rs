@@ -418,9 +418,11 @@ fn test_layout_tiny_windows() {
                 // The tabs, and the bar's controls, inside its rows at the bottom.
                 assert_shows(name, &text, &["Home   Search"]);
                 let bar_rows = (height / 3) as usize;
+                // (Leaving out the title row, which has the page's Play and Shuffle buttons.)
                 let above_bar = text
                     .lines()
                     .take(height as usize - bar_rows)
+                    .filter(|line| !line.trim_start().starts_with('‹'))
                     .collect::<String>();
                 let bar = rows_from(&text, height as usize - bar_rows);
                 assert_shows(name, &bar, controls(images_on));
@@ -475,14 +477,14 @@ fn test_layout_snapshot() {
     let expected = [
         "  Home   Search   Library   Up next   L…",
         "                                        ",
-        "  ‹ Home   An Album Title That Goes O…  ",
+        "  ‹ Home   An Album Title T…   ▶    ⇄   ",
         "▌  ▶ Song number 1 with a fair…  ✓ 3:01 ",
         "   2 Song number 2 with a fair…  ✓ 3:02 ",
         "   3 Song number 3 with a fair…  ✓ 3:03 ",
         "   4 Song number 4 with a fair…  ✓ 3:04 ",
         "  Song number 1 with a fairly long…  ♥  ",
         "         ⇄    ⏮    ▶    ⏭    ↻          ",
-        "      0:00 ━━━━━━━━━━━━━━━━━ -3:01      ",
+        "      0:00 ●━━━━━━━━━━━━━━━━ -3:01      ",
     ];
     assert_eq!(
         shots["album"].lines().collect::<Vec<_>>(),
@@ -734,6 +736,71 @@ fn click(column: u16, row: u16) -> MouseEvent {
         row,
         modifiers: KeyModifiers::NONE,
     }
+}
+
+#[test]
+fn test_short_windows_keep_play_and_shuffle_beside_the_title() {
+    images::force_supported(false);
+    let mut app = full_app();
+    let ctx = app.ctx.clone();
+    app.open_page(Box::new(pages::album::AlbumPage::new(album(), &ctx)));
+    let mut terminal = Terminal::new(TestBackend::new(60, 10)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    // Labelled when there's room, beside the title.
+    let shuffle = find(&terminal, "⇄ Shuffle").expect("the Shuffle button");
+    assert_eq!(shuffle.y, 2, "\n{}", screen_text(&terminal));
+    assert!(!ctx.queue.get_shuffle());
+    app.mouse(click(shuffle.x, shuffle.y));
+    assert!(ctx.queue.get_shuffle(), "clicking Shuffle shuffles");
+}
+
+#[test]
+fn test_the_queues_clear_button_can_keep_the_current_track() {
+    images::force_supported(false);
+    let mut app = full_app();
+    let ctx = app.ctx.clone();
+    app.run(&Command::Focus(ScreenId::Queue));
+    let mut terminal = Terminal::new(TestBackend::new(80, 30)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let clear = find(&terminal, "✕ Clear").expect("the Clear button");
+    app.mouse(click(clear.x, clear.y));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let keep = find(&terminal, "Clear up next, keep playing").expect("the choices");
+    app.mouse(click(keep.x, keep.y));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert_eq!(ctx.queue.len(), 1);
+    assert_eq!(ctx.queue.get_current_index(), Some(0));
+    assert!(
+        find(&terminal, "✕ Clear").is_none(),
+        "nothing left to clear"
+    );
+}
+
+#[test]
+fn test_dragging_the_progress_knob_shows_where_it_will_seek_to() {
+    images::force_supported(false);
+    let mut app = full_app();
+    let mut terminal = Terminal::new(TestBackend::new(40, 10)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let knob = find(&terminal, "0:00 ●").expect("the progress knob");
+    let (x, y) = (knob.x + 5, knob.y);
+    let mut event = click(x, y);
+    app.mouse(event);
+    event.kind = MouseEventKind::Drag(MouseButton::Left);
+    // Past the bar's end, as a drag can go: the end of the track.
+    event.column = 39;
+    app.mouse(event);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(
+        find(&terminal, "3:01 ━━━━━━━━━━━━━━━━● -0:00").is_some(),
+        "\n{}",
+        screen_text(&terminal)
+    );
+    // Let go, it seeks there and the knob goes back to following playback.
+    event.kind = MouseEventKind::Up(MouseButton::Left);
+    app.mouse(event);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(find(&terminal, "━━━━━━● -0:00").is_none());
 }
 
 #[test]

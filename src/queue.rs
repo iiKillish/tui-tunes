@@ -384,6 +384,23 @@ impl Queue {
         self.sources.write().unwrap().clear();
     }
 
+    /// Remove everything after the current item, which keeps playing, and let autoplay pick what
+    /// follows it. Clears the whole queue if nothing is playing.
+    pub fn clear_upcoming(&self) {
+        let Some(current) = *self.current_track.read().unwrap() else {
+            return self.clear();
+        };
+        {
+            // The old shuffle order could have upcoming items anywhere: drop it with them.
+            *self.random_order.write().unwrap() = None;
+            self.queue.write().unwrap().truncate(current + 1);
+            self.sources.write().unwrap().truncate(current + 1);
+        }
+        // Ask again, even if it was asked for this track already: what it found is gone too.
+        *self.autoplay_after.write().unwrap() = None;
+        self.request_autoplay(current);
+    }
+
     /// The amount of items in `self.queue`.
     pub fn len(&self) -> usize {
         self.queue.read().unwrap().len()
@@ -1099,6 +1116,25 @@ mod tests {
         q.append(make_track(2));
         assert_eq!(ids(&q), ["id_0", "id_1", "id_2", "id_10", "id_11"]);
         assert_eq!(source_of(&q, "id_2"), None);
+    }
+
+    #[test]
+    fn test_clear_upcoming_keeps_the_current_track_and_lets_autoplay_follow_it() {
+        let q = make_queue(make_tracks(4), Some(1));
+        *q.autoplay_after.write().unwrap() = Some("spotify:track:id_1".into());
+        q.clear_upcoming();
+        assert_eq!(ids(&q), ["id_0", "id_1"]);
+        assert_eq!(q.get_current_index(), Some(1));
+        // What autoplay finds for the current track is taken again.
+        q.add_autoplay("spotify:track:id_1", autoplay_tracks());
+        assert_eq!(ids(&q), ["id_0", "id_1", "id_10", "id_11"]);
+    }
+
+    #[test]
+    fn test_clear_upcoming_with_nothing_playing_clears_everything() {
+        let q = make_queue(make_tracks(3), None);
+        q.clear_upcoming();
+        assert!(ids(&q).is_empty());
     }
 
     // --- sleep timer ---

@@ -106,7 +106,9 @@ playlist, an artist) stack on top of it; the `‹ name` link above them goes bac
 | <kbd>g</kbd> / <kbd>G</kbd>                                 | Go to the top / bottom of the current page.                                   |
 
 Everything can be clicked: tabs, cards, rows, the player's buttons, progress bar and volume (drag
-its ● knob), and the Play / Shuffle / Like buttons on album, playlist and artist pages. In
+their ● knobs; the song seeks when you let go), and the Play / Shuffle / Like buttons on album,
+playlist and artist pages (in windows too short for the page's header, Play and Shuffle sit on
+the title row). In
 terminals that support it (Kitty, Ghostty and foot), the mouse pointer turns into a hand over
 things you can click, and a text cursor over text fields.
 
@@ -206,7 +208,7 @@ When pressing <kbd>O</kbd>:
 ### Queue
 | Key                          | Command                              |
 |------------------------------|--------------------------------------|
-| <kbd>C</kbd>                 | Clear the entire queue.              |
+| <kbd>C</kbd>                 | Clear the queue: everything, or only what's up next (the current song keeps playing, then autoplay picks what follows). |
 | <kbd>D</kbd>                 | Delete the currently selected track. |
 | <kbd>Shift</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> | Move the selected track up or down. |
 | <kbd>Ctrl</kbd>+<kbd>S</kbd> | Save the current queue.              |
@@ -279,7 +281,7 @@ Note: \<FOO\> - mandatory arg; [BAR] - optional arg
 | `repeat` [REPEAT_MODE]<br/>Alias: `loop` | Set repeat mode. Omit argument to step through the available modes.<br/>\* Valid values for REPEAT_MODE: `list` (aliases: `playlist`, `queue`), `track` (aliases: `once`, `single`), `none` (alias: `off`) |
 | `shuffle` [`on`\|`off`] | Enable or disable shuffle. Omit argument to toggle. |
 | `sleep` [\<TIME\>\|`track`\|`off`] | Set the sleep timer, which pauses playback. `track` pauses when the current track ends, and the next one waits paused; `off` turns the timer off. Omit the argument to toggle `track`.<br/>\* TIME is a number of minutes, or a duration such as `1h 30m`, `45m` or `90s` (units: `ms`, `s`, `m`, `h`). |
-| `clear` | Clear the queue. |
+| `clear` | Clear the queue: asks whether to clear everything, or only what's up next and keep the current song playing, with autoplay after it. |
 
 #### Library and playlists
 
