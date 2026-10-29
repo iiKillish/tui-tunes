@@ -7,12 +7,13 @@ use std::time::{Duration, Instant};
 
 use chrono::Local;
 use ratatui::Frame;
-use ratatui::buffer::Buffer;
-use ratatui::crossterm::event::MouseEvent;
+use ratatui::buffer::{Buffer, Cell};
+use ratatui::crossterm::event::{MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
+use ratatui::style::Color;
 use rspotify::model::TimeRange;
 
-use crate::command::Command;
+use crate::command::{Command, MoveAmount, MoveMode};
 use crate::model::track::Track;
 use crate::stats::{self, Summary, hours_minutes};
 use crate::tui::page::{Ctx, Outcome, Page};
@@ -26,6 +27,10 @@ const TOP: usize = 10;
 const SPOTIFY_TOP: u32 = 50;
 /// How long the listening summary is shown before it's worked out again.
 const REFRESH: Duration = Duration::from_secs(30);
+/// Rows a tab may draw, at most; what's below the screen is scrolled to.
+const MAX_ROWS: u16 = 200;
+/// Rows scrolled by the mouse wheel, as in lists.
+const WHEEL_ROWS: u16 = 3;
 
 pub fn new() -> Tabbed {
     let mut tabbed = Tabbed::new("Stats");
@@ -33,7 +38,7 @@ pub fn new() -> Tabbed {
     tabbed.add_tab("Top: 4 weeks", Box::new(Top::new(TimeRange::ShortTerm)));
     tabbed.add_tab("6 months", Box::new(Top::new(TimeRange::MediumTerm)));
     tabbed.add_tab("All time", Box::new(Top::new(TimeRange::LongTerm)));
-    tabbed.add_tab("Library", Box::new(LibraryNumbers));
+    tabbed.add_tab("Library", Box::new(LibraryNumbers::default()));
     tabbed
 }
 
@@ -66,6 +71,78 @@ fn draw_tiles(buf: &mut Buffer, area: Rect, tiles: &[(String, String)], styles: 
     y - area.y
 }
 
+/// How far a tab taller than the screen is scrolled.
+#[derive(Default)]
+struct Scroll {
+    offset: u16,
+    /// As of the last draw: the furthest it scrolls, and the rows shown.
+    max: u16,
+    height: u16,
+}
+
+impl Scroll {
+    /// Draw `content` in `area`, from `offset` rows down. `content` draws into a buffer as tall as
+    /// it may need ([MAX_ROWS]) and returns the rows it used.
+    fn draw(
+        &mut self,
+        buf: &mut Buffer,
+        area: Rect,
+        content: impl FnOnce(&mut Buffer, Rect) -> u16,
+    ) {
+        let tall = Rect::new(area.x, 0, area.width, MAX_ROWS);
+        let mut drawn = Buffer::empty(tall);
+        let used = content(&mut drawn, tall).min(MAX_ROWS);
+        self.height = area.height;
+        self.max = used.saturating_sub(area.height);
+        self.offset = self.offset.min(self.max);
+        for row in 0..area.height.min(used - self.offset) {
+            for x in area.left()..area.right() {
+                let from = &drawn[(x, self.offset + row)];
+                if *from == Cell::EMPTY {
+                    continue;
+                }
+                // Over the page's background, as if drawn there.
+                let to = &mut buf[(x, area.y + row)];
+                to.set_symbol(from.symbol());
+                to.fg = from.fg;
+                to.modifier = from.modifier;
+                if from.bg != Color::Reset {
+                    to.bg = from.bg;
+                }
+            }
+        }
+    }
+
+    /// Scroll for up and down moves and the mouse wheel; anything else is ignored.
+    fn command(&mut self, cmd: &Command) -> Outcome {
+        let rows = |amount: &MoveAmount| match amount {
+            MoveAmount::Integer(n) => u16::try_from(n.unsigned_abs()).unwrap_or(u16::MAX),
+            MoveAmount::Float(scale) => ((f32::from(self.height) * scale) as u16).max(1),
+            MoveAmount::Extreme => u16::MAX,
+        };
+        match cmd {
+            Command::Move(MoveMode::Up, amount) => self.by(-i32::from(rows(amount))),
+            Command::Move(MoveMode::Down, amount) => self.by(i32::from(rows(amount))),
+            _ => return Outcome::Ignored,
+        }
+        Outcome::Consumed
+    }
+
+    fn mouse(&mut self, event: MouseEvent) -> Outcome {
+        match event.kind {
+            MouseEventKind::ScrollUp => self.by(-i32::from(WHEEL_ROWS)),
+            MouseEventKind::ScrollDown => self.by(i32::from(WHEEL_ROWS)),
+            _ => return Outcome::Ignored,
+        }
+        Outcome::Consumed
+    }
+
+    fn by(&mut self, rows: i32) {
+        let offset = (i32::from(self.offset) + rows).clamp(0, i32::from(self.max));
+        self.offset = offset as u16;
+    }
+}
+
 /// A section title at `y`.
 fn title(buf: &mut Buffer, area: Rect, y: u16, text: &str, styles: &Styles) {
     if y < area.bottom() {
@@ -84,10 +161,12 @@ fn title(buf: &mut Buffer, area: Rect, y: u16, text: &str, styles: &Styles) {
 #[derive(Default)]
 struct Listening {
     summary: Option<(Summary, Instant)>,
+    scroll: Scroll,
 }
 
 impl Listening {
-    fn summary(&mut self) -> &Summary {
+    /// Work the summary out again if it's been shown a while.
+    fn refresh(&mut self) {
         let stale = self
             .summary
             .as_ref()
@@ -96,7 +175,6 @@ impl Listening {
             let summary = stats::summarize(&stats::load(), Local::now(), TOP);
             self.summary = Some((summary, Instant::now()));
         }
-        &self.summary.as_ref().unwrap().0
     }
 }
 
@@ -154,97 +232,115 @@ impl Page for Listening {
 
     fn draw(&mut self, frame: &mut Frame, area: Rect, ctx: &Ctx, _focused: bool) {
         let styles = Styles(&ctx.palette);
-        let summary = self.summary();
-        let buf = frame.buffer_mut();
-        if summary.plays == 0 {
-            put(
-                buf,
-                area.x + 2,
-                area.y,
-                "ttunes keeps your listening history from now on: play some music and come back.",
-                usize::from(area.width.saturating_sub(4)),
-                styles.secondary(),
-            );
-            return;
-        }
-        let since = summary
-            .since
-            .map(|day| format!("since {}", stats::short_date(day)))
-            .unwrap_or_default();
-        let days = if summary.streak == 1 { "day" } else { "days" };
-        let tiles = [
-            (hours_minutes(summary.today), "today".to_string()),
-            (hours_minutes(summary.week), "last 7 days".to_string()),
-            (format!("{} {days}", summary.streak), "streak".to_string()),
-            (hours_minutes(summary.total), format!("in all, {since}")),
-            (summary.plays.to_string(), "songs played".to_string()),
-        ];
-        let mut y = area.y + draw_tiles(buf, area, &tiles, &styles);
-
-        title(buf, area, y, "When you listen", &styles);
-        y += 1;
-        y += draw_hours(buf, area, y, &summary.hours, &styles) + 1;
-
-        // Top songs and artists side by side where there's room, else one under the other.
-        let side_by_side = area.width >= 90;
-        let half = if side_by_side {
-            area.width / 2
-        } else {
-            area.width
-        };
-        let songs: Vec<String> = summary
-            .top_songs
-            .iter()
-            .map(|(title, artists, plays)| {
-                let times = if *plays == 1 { "play" } else { "plays" };
-                format!("{title} · {artists} · {plays} {times}")
-            })
-            .collect();
-        let artists: Vec<String> = summary
-            .top_artists
-            .iter()
-            .map(|(name, time)| format!("{name} · {}", hours_minutes(*time)))
-            .collect();
-        let columns = [
-            ("Top songs, last 30 days", songs),
-            ("Top artists, last 30 days", artists),
-        ];
-        let mut column_y = y;
-        for (i, (heading, lines)) in columns.iter().enumerate() {
-            let (x, top) = if side_by_side {
-                (area.x + i as u16 * half, y)
-            } else {
-                (area.x, column_y)
-            };
-            let column = Rect::new(x, top, half, area.bottom().saturating_sub(top));
-            title(buf, column, top, heading, &styles);
-            for (n, line) in lines.iter().enumerate() {
-                let row = top + 1 + n as u16;
-                if row >= area.bottom() {
-                    break;
-                }
-                put(
-                    buf,
-                    x + 2,
-                    row,
-                    &format!("{:>2}", n + 1),
-                    2,
-                    styles.secondary(),
-                );
-                let text = truncate(line, usize::from(half.saturating_sub(8)));
-                put(buf, x + 5, row, &text, usize::from(half), styles.primary());
-            }
-            column_y = top + lines.len() as u16 + 2;
-        }
+        self.refresh();
+        let summary = &self.summary.as_ref().unwrap().0;
+        self.scroll.draw(frame.buffer_mut(), area, |buf, area| {
+            draw_listening(buf, area, summary, &styles)
+        });
     }
 
-    fn command(&mut self, _cmd: &Command, _ctx: &Ctx) -> Outcome {
-        Outcome::Ignored
+    fn command(&mut self, cmd: &Command, _ctx: &Ctx) -> Outcome {
+        self.scroll.command(cmd)
+    }
+
+    fn mouse(&mut self, event: MouseEvent, _ctx: &Ctx) -> Outcome {
+        self.scroll.mouse(event)
     }
 
     fn on_show(&mut self, _ctx: &Ctx) {
         self.summary = None;
     }
+}
+
+/// The listening summary, from the top of `area`. Returns the rows used.
+fn draw_listening(buf: &mut Buffer, area: Rect, summary: &Summary, styles: &Styles) -> u16 {
+    if summary.plays == 0 {
+        put(
+            buf,
+            area.x + 2,
+            area.y,
+            "ttunes keeps your listening history from now on: play some music and come back.",
+            usize::from(area.width.saturating_sub(4)),
+            styles.secondary(),
+        );
+        return 1;
+    }
+    let since = summary
+        .since
+        .map(|day| format!("since {}", stats::short_date(day)))
+        .unwrap_or_default();
+    let days = if summary.streak == 1 { "day" } else { "days" };
+    let tiles = [
+        (hours_minutes(summary.today), "today".to_string()),
+        (hours_minutes(summary.week), "last 7 days".to_string()),
+        (format!("{} {days}", summary.streak), "streak".to_string()),
+        (hours_minutes(summary.total), format!("in all, {since}")),
+        (summary.plays.to_string(), "songs played".to_string()),
+    ];
+    let mut y = area.y + draw_tiles(buf, area, &tiles, styles);
+
+    title(buf, area, y, "When you listen", styles);
+    y += 1;
+    y += draw_hours(buf, area, y, &summary.hours, styles) + 1;
+
+    // Top songs and artists side by side where there's room, else one under the other.
+    let side_by_side = area.width >= 90;
+    let half = if side_by_side {
+        area.width / 2
+    } else {
+        area.width
+    };
+    let songs: Vec<String> = summary
+        .top_songs
+        .iter()
+        .map(|(title, artists, plays)| {
+            let times = if *plays == 1 { "play" } else { "plays" };
+            format!("{title} · {artists} · {plays} {times}")
+        })
+        .collect();
+    let artists: Vec<String> = summary
+        .top_artists
+        .iter()
+        .map(|(name, time)| format!("{name} · {}", hours_minutes(*time)))
+        .collect();
+    let columns = [
+        ("Top songs, last 30 days", songs),
+        ("Top artists, last 30 days", artists),
+    ];
+    let mut column_y = y;
+    for (i, (heading, lines)) in columns.iter().enumerate() {
+        let (x, top) = if side_by_side {
+            (area.x + i as u16 * half, y)
+        } else {
+            (area.x, column_y)
+        };
+        let column = Rect::new(x, top, half, area.bottom().saturating_sub(top));
+        title(buf, column, top, heading, styles);
+        for (n, line) in lines.iter().enumerate() {
+            let row = top + 1 + n as u16;
+            if row >= area.bottom() {
+                break;
+            }
+            put(
+                buf,
+                x + 2,
+                row,
+                &format!("{:>2}", n + 1),
+                2,
+                styles.secondary(),
+            );
+            let text = truncate(line, usize::from(half.saturating_sub(8)));
+            put(buf, x + 5, row, &text, usize::from(half), styles.primary());
+        }
+        column_y = top + lines.len() as u16 + 2;
+    }
+    let bottom = if side_by_side {
+        let longest = columns.iter().map(|(_, lines)| lines.len()).max();
+        y + 1 + longest.unwrap_or(0) as u16
+    } else {
+        column_y.saturating_sub(1)
+    };
+    bottom - area.y
 }
 
 /// The user's top artists and songs over a time range, as Spotify counts them. The songs are a
@@ -373,7 +469,10 @@ impl Page for Top {
 }
 
 /// The library in numbers.
-struct LibraryNumbers;
+#[derive(Default)]
+struct LibraryNumbers {
+    scroll: Scroll,
+}
 
 impl Page for LibraryNumbers {
     fn title(&self) -> String {
@@ -411,11 +510,17 @@ impl Page for LibraryNumbers {
                 "podcasts".to_string(),
             ),
         ];
-        draw_tiles(frame.buffer_mut(), area, &tiles, &styles);
+        self.scroll.draw(frame.buffer_mut(), area, |buf, area| {
+            draw_tiles(buf, area, &tiles, &styles)
+        });
     }
 
-    fn command(&mut self, _cmd: &Command, _ctx: &Ctx) -> Outcome {
-        Outcome::Ignored
+    fn command(&mut self, cmd: &Command, _ctx: &Ctx) -> Outcome {
+        self.scroll.command(cmd)
+    }
+
+    fn mouse(&mut self, event: MouseEvent, _ctx: &Ctx) -> Outcome {
+        self.scroll.mouse(event)
     }
 }
 
@@ -443,6 +548,7 @@ mod tests {
             .collect();
         let mut page = Listening {
             summary: Some((stats::summarize(&plays, now, TOP), Instant::now())),
+            scroll: Scroll::default(),
         };
         let ctx = crate::tui::tests::app().ctx;
         let mut terminal = Terminal::new(TestBackend::new(100, 30)).unwrap();
@@ -467,5 +573,57 @@ mod tests {
         ] {
             assert!(text.contains(expected), "{expected:?} missing:\n{text}");
         }
+    }
+
+    #[test]
+    fn test_listening_scrolls_to_what_doesnt_fit() {
+        let now = Local.with_ymd_and_hms(2026, 10, 18, 21, 0, 0).unwrap();
+        let plays: Vec<stats::Play> = (0..10)
+            .map(|i| stats::Play {
+                at: (now - chrono::Duration::hours(i)).timestamp(),
+                ms: 200_000,
+                uri: format!("spotify:track:{i}"),
+                title: format!("Song {i}"),
+                artists: vec!["Paramore".into()],
+            })
+            .collect();
+        let mut page = Listening {
+            summary: Some((stats::summarize(&plays, now, TOP), Instant::now())),
+            scroll: Scroll::default(),
+        };
+        let ctx = crate::tui::tests::app().ctx;
+        let mut terminal = Terminal::new(TestBackend::new(60, 10)).unwrap();
+        let mut draw = |page: &mut Listening| {
+            terminal
+                .draw(|frame| page.draw(frame, frame.area(), &ctx, true))
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            (0..buffer.area.height)
+                .map(|y| {
+                    (0..buffer.area.width)
+                        .map(|x| buffer[(x, y)].symbol())
+                        .collect::<String>()
+                        + "\n"
+                })
+                .collect::<String>()
+        };
+        let text = draw(&mut page);
+        assert!(
+            text.contains("today") && !text.contains("Top artists"),
+            "{text}"
+        );
+        let down = Command::Move(MoveMode::Down, MoveAmount::Extreme);
+        assert!(!page.command(&down, &ctx).is_ignored());
+        let text = draw(&mut page);
+        assert!(
+            text.contains("Top artists") && text.contains("Paramore") && !text.contains("today"),
+            "{text}"
+        );
+        // And back up a row at a time.
+        let up = Command::Move(MoveMode::Up, MoveAmount::default());
+        for _ in 0..MAX_ROWS {
+            page.command(&up, &ctx);
+        }
+        assert!(draw(&mut page).contains("today"));
     }
 }
