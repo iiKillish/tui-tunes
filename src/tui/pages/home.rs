@@ -9,12 +9,16 @@
 //! Spotify only lists the last 50 songs played, which may all be from one album, so Jump back in
 //! is kept in [HISTORY_FILE] and what Spotify lists is added to it.
 //!
+//! Spotify isn't told what ttunes plays songs from, so it lists them as played from nothing. What's
+//! started in ttunes is kept in [STARTED_FILE] instead (see [started]): it's shown at once, and
+//! the songs it queued count as played from it.
+//!
 //! Everything is loaded from Spotify in the background, and again when the screen is shown after
 //! [REFRESH_AFTER], or [RETRY_AFTER] when a request failed.
 
 use std::cmp::{Reverse, min};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -46,6 +50,10 @@ use crate::tui::style::{SELECTION_MARKER, Styles, bold, fill, put, scroll_to};
 const MAX_ITEMS: usize = 20;
 /// Jump back in as of the last load, in the data directory.
 const HISTORY_FILE: &str = "home_history.json";
+/// Albums, playlists and artists started in ttunes, in the data directory.
+const STARTED_FILE: &str = "home_started.json";
+/// Songs noted per item started, at most.
+const MAX_STARTED_TRACKS: usize = 1000;
 /// Home is reloaded when shown again after this long.
 const REFRESH_AFTER: Duration = Duration::from_secs(10 * 60);
 /// Home is loaded again this soon when a request failed (Spotify rate limits busy starts).
@@ -158,6 +166,16 @@ impl HomeItem {
         }
     }
 
+    /// What songs are played from to play this item, as Spotify names it; not for songs.
+    fn context(&self) -> Option<(PlayContext, String)> {
+        match self {
+            Self::Album(album) => Some((PlayContext::Album, album.id.clone()?)),
+            Self::Playlist(playlist) => Some((PlayContext::Playlist, playlist.id.clone())),
+            Self::Artist(artist) => Some((PlayContext::Artist, artist.id.clone()?)),
+            Self::Song(_) => None,
+        }
+    }
+
     fn as_listitem(&self) -> Box<dyn ListItem> {
         match self {
             Self::Album(album) => album.as_listitem(),
@@ -221,15 +239,24 @@ struct Played {
     item: HomeItem,
 }
 
-/// `fresh` (from Spotify) added to `saved` (from earlier loads): each item once, as in `fresh` if
-/// it's there, most recently played first, [MAX_ITEMS] at most.
+/// `fresh` (from Spotify, and started in ttunes) added to `saved` (from earlier loads): each item
+/// once, as in `fresh` if it's there and as of when it was last played, most recently played
+/// first, [MAX_ITEMS] at most.
 fn remember(fresh: Vec<Played>, saved: Vec<Played>) -> Vec<Played> {
-    let mut seen = HashSet::new();
-    let mut all: Vec<Played> = fresh
-        .into_iter()
-        .chain(saved)
-        .filter(|played| seen.insert(played.item.key()))
-        .collect();
+    let mut all: Vec<Played> = Vec::new();
+    let mut index = HashMap::new();
+    for played in fresh.into_iter().chain(saved) {
+        match index.get(&played.item.key()) {
+            Some(&i) => {
+                let kept: &mut Played = &mut all[i];
+                kept.at = kept.at.max(played.at);
+            }
+            None => {
+                index.insert(played.item.key(), all.len());
+                all.push(played);
+            }
+        }
+    }
     all.sort_by_key(|played| Reverse(played.at));
     all.truncate(MAX_ITEMS);
     all
@@ -259,6 +286,83 @@ fn save_history(history: &[Played]) {
     if let Err(e) = saved {
         error!("Couldn't save Home's history in {}: {e}", path.display());
     }
+}
+
+/// An album, playlist or artist started in ttunes, when (seconds since the Unix epoch), and the
+/// IDs of the songs queued from it.
+#[derive(Clone, Serialize, Deserialize)]
+struct Started {
+    at: i64,
+    item: HomeItem,
+    tracks: Vec<String>,
+}
+
+/// Held while [STARTED_FILE] is read or written, which happens on other threads.
+static STARTED_LOCK: Mutex<()> = Mutex::new(());
+/// Started since Home last showed what was, oldest first.
+static JUST_STARTED: Mutex<Vec<HomeItem>> = Mutex::new(Vec::new());
+
+/// Note that `target` started playing, with `tracks` queued from it, so Home shows it in Jump
+/// back in (Spotify won't say it was played). Only albums, playlists and artists are noted.
+pub fn started(target: &OpenTarget, tracks: &[Playable]) {
+    let item = match target {
+        OpenTarget::Album(album) => HomeItem::Album(album.without_tracks()),
+        OpenTarget::Playlist(playlist) => HomeItem::Playlist(playlist.without_tracks()),
+        OpenTarget::Artist(artist) => HomeItem::Artist(artist.clone()).without_tracks(),
+        _ => return,
+    };
+    // Tests mustn't write to the real data, or show one test's plays in another's Home.
+    if cfg!(test) {
+        return;
+    }
+    JUST_STARTED.lock().unwrap().push(item.clone());
+    let tracks = tracks
+        .iter()
+        .filter_map(|playable| match playable {
+            Playable::Track(track) => track.id.clone(),
+            _ => None,
+        })
+        .take(MAX_STARTED_TRACKS)
+        .collect();
+    let started = Started {
+        at: chrono::Utc::now().timestamp(),
+        item,
+        tracks,
+    };
+    thread::spawn(move || {
+        let _lock = STARTED_LOCK.lock().unwrap();
+        let mut all = read_started();
+        all.retain(|s| s.item.key() != started.item.key());
+        all.insert(0, started);
+        all.truncate(MAX_ITEMS);
+        let path = crate::config::data_path(STARTED_FILE);
+        let saved = serde_json::to_string(&all)
+            .map_err(|e| e.to_string())
+            .and_then(|json| std::fs::write(&path, json).map_err(|e| e.to_string()));
+        if let Err(e) = saved {
+            error!("Couldn't note what was played in {}: {e}", path.display());
+        }
+    });
+}
+
+/// What was started in ttunes, newest first; empty if there's none or it can't be read. Call with
+/// [STARTED_LOCK] held.
+fn read_started() -> Vec<Started> {
+    std::fs::read_to_string(crate::config::data_path(STARTED_FILE))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+/// What `play` was played from, if Spotify doesn't say but it was queued from something started
+/// in ttunes before it: the latest such.
+fn started_from(started: &[Started], play: &RecentPlay) -> Option<(PlayContext, String)> {
+    let id = play.track.id.as_deref()?;
+    started
+        .iter()
+        .filter(|s| s.at <= play.played_at && s.tracks.iter().any(|t| t == id))
+        .max_by_key(|s| s.at)
+        .and_then(|s| s.item.context())
 }
 
 /// What Home shows, as loaded from Spotify.
@@ -312,6 +416,17 @@ impl Sections {
     }
 }
 
+/// `jump_back_in` with `just` (started since, oldest first) moved or added to the front,
+/// [MAX_ITEMS] at most.
+fn add_started(just: Vec<HomeItem>, mut jump_back_in: Vec<HomeItem>) -> Vec<HomeItem> {
+    for item in just {
+        jump_back_in.retain(|other| other.key() != item.key());
+        jump_back_in.insert(0, item);
+    }
+    jump_back_in.truncate(MAX_ITEMS);
+    jump_back_in
+}
+
 /// Load what Home shows from Spotify. Slow (several requests): run in the background.
 fn load(spotify: &Spotify, library: &Library) -> Sections {
     let api = &spotify.api;
@@ -326,7 +441,19 @@ fn load(spotify: &Spotify, library: &Library) -> Sections {
     // can't be loaded (Spotify's own mixes, like Daily Mix playlists, come through the session).
     // What's saved from earlier loads isn't asked for again.
     let history = load_history();
-    let saved = saved_contexts(&history);
+    let started = {
+        let _lock = STARTED_LOCK.lock().unwrap();
+        read_started()
+    };
+    let started_played: Vec<Played> = started
+        .iter()
+        .map(|s| Played {
+            at: s.at,
+            item: s.item.clone(),
+        })
+        .collect();
+    let mut saved = saved_contexts(&history);
+    saved.extend(saved_contexts(&started_played));
     let mut loaded: HashMap<(PlayContext, String), Option<HomeItem>> = HashMap::new();
     let mut shown = HashSet::new();
     let mut fresh = Vec::new();
@@ -334,7 +461,11 @@ fn load(spotify: &Spotify, library: &Library) -> Sections {
         if fresh.len() >= MAX_ITEMS {
             break;
         }
-        let context_item = play.context.as_ref().and_then(|(kind, id)| {
+        let context = play
+            .context
+            .clone()
+            .or_else(|| started_from(&started, play));
+        let context_item = context.as_ref().and_then(|(kind, id)| {
             loaded
                 .entry((*kind, id.clone()))
                 .or_insert_with(|| load_context(api, library, &saved, play, *kind, id))
@@ -357,6 +488,7 @@ fn load(spotify: &Spotify, library: &Library) -> Sections {
             });
         }
     }
+    fresh.extend(started_played);
     let history = remember(fresh, history);
     // Without Spotify's list there's nothing new to save.
     if !failed {
@@ -402,15 +534,7 @@ fn load(spotify: &Spotify, library: &Library) -> Sections {
 fn saved_contexts(history: &[Played]) -> HashMap<(PlayContext, String), HomeItem> {
     history
         .iter()
-        .filter_map(|played| {
-            let key = match &played.item {
-                HomeItem::Album(album) => (PlayContext::Album, album.id.clone()?),
-                HomeItem::Playlist(playlist) => (PlayContext::Playlist, playlist.id.clone()),
-                HomeItem::Artist(artist) => (PlayContext::Artist, artist.id.clone()?),
-                HomeItem::Song(_) => return None,
-            };
-            Some((key, played.item.clone()))
-        })
+        .filter_map(|played| Some((played.item.context()?, played.item.clone())))
         .collect()
 }
 
@@ -523,6 +647,21 @@ pub fn new_for_test(
 }
 
 impl HomePage {
+    /// Put what was started in ttunes since (see [started]) first in Jump back in, once loaded.
+    fn show_started(&mut self) {
+        let mut sections = self.sections.write().unwrap();
+        let Some(loaded) = sections.as_ref() else {
+            return;
+        };
+        let just = std::mem::take(&mut *JUST_STARTED.lock().unwrap());
+        if just.is_empty() {
+            return;
+        }
+        let mut updated = Sections::clone(loaded);
+        updated.jump_back_in = add_started(just, updated.jump_back_in);
+        *sections = Some(Arc::new(updated));
+    }
+
     /// Load in the background if not loaded yet, or loaded a while ago.
     fn refresh_if_needed(&mut self, ctx: &Ctx) {
         let after = if self.failed() {
@@ -890,6 +1029,7 @@ impl Page for HomePage {
 
     fn draw(&mut self, frame: &mut Frame, area: Rect, ctx: &Ctx, focused: bool) {
         self.refresh_if_needed(ctx);
+        self.show_started();
         self.regions = Regions::default();
         let styles = Styles(&ctx.palette);
         let buf = frame.buffer_mut();
@@ -1159,6 +1299,56 @@ mod tests {
         let items: Vec<HomeItem> = history.iter().map(|p| p.item.clone()).collect();
         assert_eq!(titles(&items), ["a3", "a1", "x", "a2"]);
         assert_eq!(history[1].at, 400, "a1 as Spotify lists it now");
+    }
+
+    #[test]
+    fn history_has_items_as_of_when_they_were_last_played() {
+        // a1 was started in ttunes since Spotify last listed it.
+        let saved = vec![played(100, album("a2"))];
+        let fresh = vec![played(300, album("a1")), played(500, album("a1"))];
+        let history = remember(fresh, saved);
+        let items: Vec<HomeItem> = history.iter().map(|p| p.item.clone()).collect();
+        assert_eq!(titles(&items), ["a1", "a2"]);
+        assert_eq!(history[0].at, 500);
+    }
+
+    #[test]
+    fn songs_count_as_played_from_what_queued_them_in_ttunes() {
+        let started = |at, id: &str, tracks: &[&str]| Started {
+            at,
+            item: album(id),
+            tracks: tracks.iter().map(|t| t.to_string()).collect(),
+        };
+        let started = vec![
+            started(200, "later", &["t1"]),
+            started(100, "earlier", &["t1", "t2"]),
+        ];
+        let play = |at, id: &str| RecentPlay {
+            track: track(id),
+            album: serde_json::from_value(serde_json::json!({
+                "id": "own", "title": "own", "artists": [], "artist_ids": [], "year": "",
+            }))
+            .unwrap(),
+            played_at: at,
+            context: None,
+        };
+        let from = |at, id| started_from(&started, &play(at, id)).map(|(_, id)| id);
+        assert_eq!(from(250, "t1").as_deref(), Some("later"), "the latest");
+        assert_eq!(
+            from(150, "t1").as_deref(),
+            Some("earlier"),
+            "before the later"
+        );
+        assert_eq!(from(250, "t2").as_deref(), Some("earlier"));
+        assert_eq!(from(50, "t1"), None, "played before either was started");
+        assert_eq!(from(250, "t3"), None, "not queued from either");
+    }
+
+    #[test]
+    fn just_started_items_go_first() {
+        let jump_back_in = vec![album("a1"), album("a2"), album("a3")];
+        let items = add_started(vec![album("a3"), album("new")], jump_back_in);
+        assert_eq!(titles(&items), ["new", "a3", "a1", "a2"]);
     }
 
     #[test]

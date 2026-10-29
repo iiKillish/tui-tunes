@@ -18,7 +18,7 @@ use crate::model::folder;
 use crate::model::playable::Playable;
 use crate::model::track::Track;
 use crate::pagination::Pagination;
-use crate::traits::ListItem;
+use crate::traits::{ListItem, OpenTarget};
 use crate::tui::hints;
 use crate::tui::images;
 use crate::tui::nav;
@@ -47,6 +47,8 @@ pub struct ItemList<I: ListItem + Clone> {
     /// Name of what these items are (an album, playlist…), recorded in the queue when playing
     /// from this list so Up next can show "Next from: …".
     source: Option<String>,
+    /// The album, playlist or artist these items are from, noted for Home when playing them.
+    played_from: Option<OpenTarget>,
     /// The last `/` search and the rows matching it.
     search: String,
     matches: Vec<usize>,
@@ -65,6 +67,7 @@ impl<I: ListItem + Clone> ItemList<I> {
             thumbnails: true,
             album_column: true,
             source: None,
+            played_from: None,
             search: String::new(),
             matches: Vec::new(),
             match_index: 0,
@@ -90,6 +93,11 @@ impl<I: ListItem + Clone> ItemList<I> {
 
     pub fn with_source(mut self, source: &str) -> Self {
         self.source = Some(source.to_string());
+        self
+    }
+
+    pub fn played_from(mut self, target: OpenTarget) -> Self {
+        self.played_from = Some(target);
         self
     }
 
@@ -374,6 +382,9 @@ impl<I: ListItem + Clone> ItemList<I> {
                 ctx.queue.clear();
                 let index = ctx.queue.append_next_from(&tracks, self.source.as_deref());
                 ctx.queue.play(index + selected, true, false);
+                if let Some(target) = &self.played_from {
+                    crate::tui::pages::home::started(target, &tracks);
+                }
             }
             None => {
                 if let Some(item) = self.selected_item() {

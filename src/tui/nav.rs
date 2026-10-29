@@ -37,6 +37,9 @@ pub fn play_item(mut item: Box<dyn ListItem>, ctx: &Ctx) {
     QUEUEING.run(move || {
         queue.clear();
         item.play(&queue);
+        if let Some(target) = item.target() {
+            pages::home::started(&target, &queue.queue.read().unwrap());
+        }
         crate::tui::request_redraw();
     });
 }

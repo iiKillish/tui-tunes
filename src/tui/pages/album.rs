@@ -7,6 +7,7 @@ use ratatui::layout::Rect;
 use crate::command::Command;
 use crate::model::album::Album;
 use crate::model::track::Track;
+use crate::traits::OpenTarget;
 use crate::tui::header::{HeaderAction, PageHeader};
 use crate::tui::page::{Ctx, Outcome, Page};
 use crate::tui::style::{Styles, put, songs_and_length};
@@ -58,6 +59,7 @@ impl AlbumPage {
             .without_thumbnails()
             .without_album()
             .with_source(&album.title)
+            .played_from(OpenTarget::Album(album.without_tracks()))
     }
 
     /// Show the album loaded in the background if it's arrived since the last look.

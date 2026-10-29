@@ -8,6 +8,7 @@ use crate::command::{Command, ShiftMode, SortDirection, SortKey};
 use crate::config::SortingOrder;
 use crate::model::playable::Playable;
 use crate::model::playlist::Playlist;
+use crate::traits::OpenTarget;
 use crate::tui::header::{HeaderAction, PageHeader};
 use crate::tui::nav;
 use crate::tui::page::{Ctx, Outcome, Page};
@@ -80,6 +81,7 @@ impl PlaylistPage {
         ItemList::new(Arc::new(RwLock::new(tracks)))
             .numbered()
             .with_source(&playlist.name)
+            .played_from(OpenTarget::Playlist(playlist.without_tracks()))
     }
 
     fn is_own(&self, ctx: &Ctx) -> bool {

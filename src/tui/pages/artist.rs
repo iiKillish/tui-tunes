@@ -8,6 +8,7 @@ use ratatui::layout::Rect;
 use crate::command::Command;
 use crate::model::artist::Artist;
 use crate::model::track::Track;
+use crate::traits::OpenTarget;
 use crate::tui::header::{HeaderAction, PageHeader};
 use crate::tui::page::{Ctx, Outcome, Page};
 use crate::tui::widgets::list::ItemList;
@@ -34,7 +35,10 @@ impl ArtistPage {
         }
         let source = format!("{} top tracks", artist.name);
         Self {
-            top_tracks: ItemList::new(tracks).numbered().with_source(&source),
+            top_tracks: ItemList::new(tracks)
+                .numbered()
+                .with_source(&source)
+                .played_from(OpenTarget::Artist(artist.clone())),
             artist,
         }
     }

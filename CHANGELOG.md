@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Albums, playlists and artists played in ttunes show in Home's _Jump back in_
+  (and _Pick up where you left off_) straight away, and stay there rather than
+  being replaced by the albums of their songs: Spotify isn't told what ttunes
+  plays songs from
+
 ## [0.9.0]
 
 ### Added
