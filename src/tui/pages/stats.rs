@@ -349,6 +349,10 @@ struct Top {
     range: TimeRange,
     artists: Arc<RwLock<Vec<String>>>,
     songs: ItemList<Track>,
+    /// Where the artists' names were drawn last, if they were (beside the songs, where there's
+    /// room), and how far they're scrolled: the mouse wheel scrolls them there.
+    artists_area: Option<Rect>,
+    artists_scroll: Scroll,
     /// Loading has started; it's done once this is set.
     started: bool,
     loaded: Arc<RwLock<bool>>,
@@ -365,6 +369,8 @@ impl Top {
             range,
             artists: Arc::default(),
             songs: ItemList::new(Arc::default()).numbered().with_source(source),
+            artists_area: None,
+            artists_scroll: Scroll::default(),
             started: false,
             loaded: Arc::default(),
         }
@@ -429,31 +435,39 @@ impl Page for Top {
         } else {
             (None, area)
         };
+        self.artists_area = None;
         if let Some(column) = artists_area {
             let buf = frame.buffer_mut();
             title(buf, column, column.y, "Top artists", &styles);
-            for (n, name) in artists.iter().enumerate() {
-                let y = column.y + 1 + n as u16;
-                if y >= column.bottom() {
-                    break;
+            // The names scroll under the title.
+            let names = Rect {
+                y: column.y + 1,
+                height: column.height.saturating_sub(1),
+                ..column
+            };
+            self.artists_area = Some(names);
+            self.artists_scroll.draw(buf, names, |buf, names| {
+                for (n, name) in artists.iter().enumerate() {
+                    let y = names.y + n as u16;
+                    put(
+                        buf,
+                        names.x + 2,
+                        y,
+                        &format!("{:>2}", n + 1),
+                        2,
+                        styles.secondary(),
+                    );
+                    put(
+                        buf,
+                        names.x + 5,
+                        y,
+                        name,
+                        usize::from(names.width.saturating_sub(7)),
+                        styles.primary(),
+                    );
                 }
-                put(
-                    buf,
-                    column.x + 2,
-                    y,
-                    &format!("{:>2}", n + 1),
-                    2,
-                    styles.secondary(),
-                );
-                put(
-                    buf,
-                    column.x + 5,
-                    y,
-                    name,
-                    usize::from(column.width.saturating_sub(7)),
-                    styles.primary(),
-                );
-            }
+                artists.len() as u16
+            });
         }
         drop(artists);
         self.songs.draw(frame, songs_area, ctx, focused);
@@ -464,6 +478,12 @@ impl Page for Top {
     }
 
     fn mouse(&mut self, event: MouseEvent, ctx: &Ctx) -> Outcome {
+        let over_artists = self
+            .artists_area
+            .is_some_and(|area| area.contains((event.column, event.row).into()));
+        if over_artists {
+            return self.artists_scroll.mouse(event);
+        }
         self.songs.mouse(event, ctx)
     }
 }
@@ -573,6 +593,60 @@ mod tests {
         ] {
             assert!(text.contains(expected), "{expected:?} missing:\n{text}");
         }
+    }
+
+    #[test]
+    fn test_top_artists_scroll_under_the_pointer() {
+        use ratatui::crossterm::event::KeyModifiers;
+
+        let track: Track = serde_json::from_value(serde_json::json!({
+            "id": "t", "uri": "spotify:track:t", "title": "A song", "track_number": 1,
+            "disc_number": 1, "duration": 1000, "artists": [], "artist_ids": [],
+            "album_artists": [], "url": "", "list_index": 0, "is_local": false,
+        }))
+        .unwrap();
+        let mut page = Top::new(TimeRange::ShortTerm);
+        page.started = true;
+        *page.loaded.write().unwrap() = true;
+        *page.artists.write().unwrap() = (1..=30).map(|n| format!("Artist {n}")).collect();
+        *page.songs.content().write().unwrap() = vec![track];
+        let ctx = crate::tui::tests::app().ctx;
+        let mut terminal = Terminal::new(TestBackend::new(110, 10)).unwrap();
+        let mut draw = |page: &mut Top| {
+            terminal
+                .draw(|frame| page.draw(frame, frame.area(), &ctx, true))
+                .unwrap();
+            let buffer = terminal.backend().buffer();
+            (0..buffer.area.height)
+                .map(|y| {
+                    (0..buffer.area.width)
+                        .map(|x| buffer[(x, y)].symbol())
+                        .collect::<String>()
+                        + "\n"
+                })
+                .collect::<String>()
+        };
+        let text = draw(&mut page);
+        assert!(
+            text.contains("Artist 1 ") && !text.contains("Artist 30"),
+            "{text}"
+        );
+        let wheel = |row| MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: 5,
+            row,
+            modifiers: KeyModifiers::NONE,
+        };
+        for _ in 0..10 {
+            page.mouse(wheel(4), &ctx);
+        }
+        let text = draw(&mut page);
+        assert!(
+            text.contains("Top artists")
+                && text.contains("Artist 30")
+                && !text.contains("Artist 1 "),
+            "{text}"
+        );
     }
 
     #[test]
