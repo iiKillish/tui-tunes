@@ -85,7 +85,7 @@ serde = "1.0"
 serde_cbor = "0.11.2"
 serde_json = "1.0"
 # Reads music files' tags for the Local tab, as librespot does to play them.
-symphonia = {version = "0.5", default-features = false, features = ["mp3", "flac"]}
+symphonia = {version = "0.6", default-features = false, features = ["mp3", "flac"]}
 strum = "0.28"
 strum_macros = "0.28"
 tokio = {version = "1", features = ["rt-multi-thread", "sync", "time", "net"]}
