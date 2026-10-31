@@ -45,6 +45,7 @@ use crate::tui::nav;
 use crate::tui::page::{Ctx, Outcome, Page};
 use crate::tui::pointer;
 use crate::tui::style::{SELECTION_MARKER, Styles, bold, fill, put, scroll_to};
+use crate::tui::wheel;
 
 /// Items per kind loaded at most.
 const MAX_ITEMS: usize = 20;
@@ -1192,6 +1193,8 @@ impl Page for HomePage {
     fn mouse(&mut self, event: MouseEvent, ctx: &Ctx) -> Outcome {
         let at = Position::new(event.column, event.row);
         match event.kind {
+            MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
+                if !wheel::moves(&event, self.visible_items()) => {}
             MouseEventKind::ScrollDown => self.scroll(1),
             MouseEventKind::ScrollUp => self.scroll(-1),
             MouseEventKind::Down(button @ (MouseButton::Left | MouseButton::Right)) => {

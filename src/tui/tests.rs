@@ -826,6 +826,23 @@ fn test_clicks_outside_a_lists_rows_do_nothing() {
 }
 
 #[test]
+fn test_clicking_an_album_in_a_list_opens_it() {
+    use crate::tui::widgets::list::ItemList;
+    use std::sync::RwLock;
+
+    let ctx = app().ctx.clone();
+    let mut list = ItemList::new(Arc::new(RwLock::new(vec![album(), album()])));
+    let mut terminal = Terminal::new(TestBackend::new(40, 12)).unwrap();
+    terminal
+        .draw(|frame| list.draw(frame, Rect::new(0, 0, 40, 12), &ctx, true))
+        .unwrap();
+    assert!(matches!(
+        list.mouse(click(5, 1), &ctx),
+        crate::tui::page::Outcome::Open(_)
+    ));
+}
+
+#[test]
 fn test_clicking_an_empty_menu_row_keeps_the_selection() {
     use crate::tui::overlays::menu::{Entry, Menu};
     use crate::tui::page::Overlay;
@@ -1426,4 +1443,44 @@ fn test_clicking_a_queued_song_plays_it_or_opens_its_menu() {
             assert_eq!(ctx.queue.get_current_index(), Some(2), "it didn't play");
         }
     }
+}
+
+#[test]
+fn test_a_wheel_notch_sent_as_several_events_scrolls_up_next_by_one_song() {
+    images::force_supported(false);
+    let mut app = app();
+    let ctx = app.ctx.clone();
+    let songs: Vec<Playable> = tracks(4).into_iter().map(Playable::Track).collect();
+    let first = ctx.queue.append_next_from(&songs, Some("An Album"));
+    ctx.queue.play(first, true, false);
+    app.run(&Command::Focus(ScreenId::Queue));
+    // Room for the current song and one of the three up next.
+    let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let now_playing = find(&terminal, "Now playing").expect("the current song");
+    let shown = |terminal: &Terminal<TestBackend>| {
+        (2..=4)
+            .filter(|n| screen_text(terminal).contains(&format!("Song number {n} ")))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(shown(&terminal), [2]);
+    // Ghostty sends three events a notch.
+    let mut notch = |kind, terminal: &mut Terminal<TestBackend>| {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        for _ in 0..3 {
+            app.mouse(MouseEvent {
+                kind,
+                column: now_playing.x,
+                row: now_playing.y + 5,
+                modifiers: KeyModifiers::NONE,
+            });
+        }
+        terminal.draw(|frame| app.draw(frame)).unwrap();
+    };
+    notch(MouseEventKind::ScrollDown, &mut terminal);
+    assert_eq!(shown(&terminal), [3], "\n{}", screen_text(&terminal));
+    notch(MouseEventKind::ScrollDown, &mut terminal);
+    assert_eq!(shown(&terminal), [4]);
+    notch(MouseEventKind::ScrollUp, &mut terminal);
+    assert_eq!(shown(&terminal), [3]);
 }

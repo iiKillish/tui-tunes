@@ -25,6 +25,7 @@ use crate::tui::pointer;
 use crate::tui::style::{
     SELECTION_MARKER, Styles, bold, duration, fill, put, songs_and_length, width,
 };
+use crate::tui::wheel;
 
 /// Most upcoming items looked at; more than ever fit on screen.
 const MAX_UPCOMING: usize = 200;
@@ -50,6 +51,8 @@ pub struct QueuePage {
     row_items: Vec<Option<usize>>,
     /// Where the Clear button was drawn last, if it was.
     clear_button: Option<Rect>,
+    /// Upcoming items drawn last.
+    upcoming_shown: usize,
     /// "12 songs, 45 min" for what's coming up, worked out while drawing.
     subtitle: String,
 }
@@ -63,6 +66,7 @@ pub fn new(_ctx: &Ctx) -> QueuePage {
         area: Rect::default(),
         row_items: Vec::new(),
         clear_button: None,
+        upcoming_shown: 0,
         subtitle: String::new(),
     }
 }
@@ -360,6 +364,7 @@ impl Page for QueuePage {
         }
 
         // Group consecutive items by source: a heading whenever it changes (and at the top).
+        self.upcoming_shown = 0;
         let mut previous_source: Option<&Option<Arc<str>>> = None;
         let upcoming = items
             .upcoming
@@ -392,6 +397,7 @@ impl Page for QueuePage {
                 title_style: styles.primary(),
             };
             self.draw_item(buf, area.y + y as u16, look, ctx);
+            self.upcoming_shown += 1;
             rows.iter_mut()
                 .skip(y)
                 .take(2)
@@ -479,7 +485,9 @@ impl Page for QueuePage {
                     }
                 }
             }
-            // Only scroll while there's more below (or above).
+            // Only while there's more below (or above).
+            MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
+                if !wheel::moves(&event, self.upcoming_shown) => {}
             MouseEventKind::ScrollDown => {
                 if self.scroll < self.max_scroll {
                     self.scroll += 1;

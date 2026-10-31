@@ -174,6 +174,8 @@ impl Worker {
             None;
         let mut failed_attempts = 0;
         let mut loading = None;
+        // The title of the track being loaded, for saying it couldn't be played.
+        let mut loading_title = String::new();
         let mut load_failed = false;
         let mut preload = None;
         let mut preload_retried = false;
@@ -234,11 +236,15 @@ impl Worker {
                     Some(WorkerCommand::Load(playable, start_playing, position_ms)) => {
                         loading = None;
                         preload = None;
+                        loading_title = title(&playable);
                         match SpotifyUri::from_uri(&playable.uri()) {
                             Ok(uri) => {
                                 info!("player loading track: {uri:?}");
                                 if !uri.is_playable() {
                                     warn!("track is not playable");
+                                    crate::tui::report_error(format!(
+                                        "{loading_title} can't be played"
+                                    ));
                                     self.events.send(Event::Player(PlayerEvent::FinishedTrack));
                                 } else {
                                     // What the sink has of the track before isn't to be heard,
@@ -429,6 +435,12 @@ impl Worker {
                         {
                             if load_failed || self.session.is_invalid() {
                                 warn!("Unable to load {uri:?}, holding it");
+                                // Held paused, it would otherwise look like play did nothing.
+                                crate::tui::report_error(if self.session.is_invalid() {
+                                    format!("Lost the connection to Spotify: {loading_title} plays once it's back")
+                                } else {
+                                    format!("Spotify couldn't play {loading_title}: press play to try again")
+                                });
                                 let position = Duration::from_millis(position_ms as u64);
                                 self.events
                                     .send(Event::Player(PlayerEvent::Paused(position)));
@@ -462,6 +474,14 @@ impl Worker {
                 },
             }
         }
+    }
+}
+
+/// What to call `playable` in a message.
+fn title(playable: &Playable) -> String {
+    match playable {
+        Playable::Track(track) => track.title.clone(),
+        Playable::Episode(episode) => episode.name.clone(),
     }
 }
 

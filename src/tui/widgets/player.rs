@@ -37,8 +37,8 @@ pub const BAR_ROWS: u16 = 5;
 const VOLUME_BAR_WIDTH: u16 = 12;
 /// Narrowest track text beside the bar's controls; narrower bars put the title above them.
 const MIN_BAR_TEXT_WIDTH: u16 = 16;
-/// Smallest cover worth drawing above the controls; below this the hero puts it beside them.
-const MIN_COVER_ROWS_ABOVE: u16 = 8;
+/// Narrowest the track, progress and controls get beside the hero's cover.
+const MIN_SIDE_CONTENT_WIDTH: u16 = 32;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Control {
@@ -441,9 +441,30 @@ impl Player {
         }
     }
 
-    /// The hero beside its cover: for short heroes, where a cover above the controls would be
-    /// tiny. The cover fills the height on the left; the track, progress, controls and volume
-    /// stack up on the right.
+    /// Rows of the hero's cover above the controls: what the rest leaves, as wide as fits.
+    fn cover_rows_above(area: Rect) -> u16 {
+        let mut rows = area.height.saturating_sub(HERO_CHROME_ROWS);
+        while rows > 0 && images::square_width(rows) + 4 > area.width {
+            rows -= 1;
+        }
+        if rows < 4 { 0 } else { rows }
+    }
+
+    /// Rows of the hero's cover beside the controls: the height, unless that leaves them too
+    /// little room.
+    fn cover_rows_beside(area: Rect) -> u16 {
+        let mut rows = area.height.saturating_sub(2);
+        while rows > 0
+            && 2 + images::square_width(rows) + 4 + MIN_SIDE_CONTENT_WIDTH + 3 > area.width
+        {
+            rows -= 1;
+        }
+        rows
+    }
+
+    /// The hero beside its cover: where that fits a bigger cover than above the controls (short
+    /// heroes, or tall ones not much wider than they are tall). The cover is on the left; the
+    /// track, progress, controls and volume stack up on the right.
     fn draw_hero_side(
         &mut self,
         frame: &mut Frame,
@@ -451,21 +472,22 @@ impl Player {
         ctx: &Ctx,
         count: usize,
         url: &str,
+        cover_rows: u16,
     ) {
         let background = Style::new().bg(ctx.palette.background);
         let track = ctx.queue.get_current();
-        let cover_rows = area.height.saturating_sub(2);
         let cover_width = images::square_width(cover_rows);
+        let cover_top = area.y + 1 + area.height.saturating_sub(2 + cover_rows) / 2;
         images::cover(
             url,
-            Rect::new(area.x + 2, area.y + 1, cover_width, cover_rows),
+            Rect::new(area.x + 2, cover_top, cover_width, cover_rows),
         );
 
         let left = area.x + 2 + cover_width + 4;
         let content_width = area.right().saturating_sub(left + 3).min(64);
         // Center the rows vertically next to the cover.
         let block = 11;
-        let top = area.y + 1 + cover_rows.saturating_sub(block) / 2;
+        let top = cover_top + cover_rows.saturating_sub(block) / 2;
         self.draw_text(
             frame,
             Rect::new(left, top, content_width, 3),
@@ -597,19 +619,20 @@ impl Player {
         count: usize,
         show_cover: bool,
     ) {
-        // Short heroes put the cover beside the rest rather than above it.
+        // The cover beside the rest rather than above it when that makes it bigger.
+        let beside = Self::cover_rows_beside(area);
         if show_cover
             && images::supported()
-            && area.height < HERO_CHROME_ROWS + MIN_COVER_ROWS_ABOVE
             && area.height >= 12
             && area.width >= 70
+            && beside > Self::cover_rows_above(area)
             && let Some(url) = ctx
                 .queue
                 .get_current()
                 .as_ref()
                 .and_then(Playable::cover_url)
         {
-            return self.draw_hero_side(frame, area, ctx, count, &url);
+            return self.draw_hero_side(frame, area, ctx, count, &url, beside);
         }
         // Design V1: no fill of its own, the main background.
         let background = Style::new().bg(ctx.palette.background);
@@ -617,17 +640,11 @@ impl Player {
 
         // The cover as big as fits, square.
         let cover_url = track.as_ref().and_then(Playable::cover_url);
-        let mut cover_rows = if show_cover && images::supported() && cover_url.is_some() {
-            area.height.saturating_sub(HERO_CHROME_ROWS)
+        let cover_rows = if show_cover && images::supported() && cover_url.is_some() {
+            Self::cover_rows_above(area)
         } else {
             0
         };
-        while cover_rows > 0 && images::square_width(cover_rows) + 4 > area.width {
-            cover_rows -= 1;
-        }
-        if cover_rows < 4 {
-            cover_rows = 0;
-        }
         let block = HERO_CHROME_ROWS + cover_rows;
         let top = area.y + area.height.saturating_sub(block) / 2;
         if cover_rows > 0
@@ -949,5 +966,23 @@ impl Player {
             _ => return Outcome::Ignored,
         }
         Outcome::Consumed
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_the_heros_cover_never_shrinks_as_it_gets_taller() {
+        for width in [70, 90, 120, 160] {
+            let mut last = 0;
+            for height in 12..=28 {
+                let area = Rect::new(0, 0, width, height);
+                let rows = Player::cover_rows_beside(area).max(Player::cover_rows_above(area));
+                assert!(rows >= last, "{width}x{height}: {rows} rows after {last}");
+                last = rows;
+            }
+        }
     }
 }

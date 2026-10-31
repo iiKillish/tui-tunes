@@ -350,6 +350,18 @@ impl<I: ListItem + Clone> ItemList<I> {
     /// follows in the queue); otherwise the item itself (an album, a playlist…). In a folder, its
     /// songs from the selected one, without its subfolders.
     fn play(&self, ctx: &Ctx) {
+        self.play_from(ctx, false);
+    }
+
+    /// Play all of the list's tracks, from the first, or from a random one with shuffle on (the
+    /// header's Play and Shuffle).
+    pub fn play_all(&mut self, ctx: &Ctx) {
+        self.select(0);
+        self.play_from(ctx, true);
+    }
+
+    /// [Self::play], from a random track with shuffle on if `random_start`.
+    fn play_from(&self, ctx: &Ctx, random_start: bool) {
         // The tracks, and where the selected one is among them.
         let tracks: Option<(Vec<Playable>, usize)> = {
             let content = self.content.read().unwrap();
@@ -381,7 +393,7 @@ impl<I: ListItem + Clone> ItemList<I> {
             Some((tracks, selected)) => {
                 ctx.queue.clear();
                 let index = ctx.queue.append_next_from(&tracks, self.source.as_deref());
-                ctx.queue.play(index + selected, true, false);
+                ctx.queue.play(index + selected, true, random_start);
                 if let Some(target) = &self.played_from {
                     crate::tui::pages::home::started(target, &tracks);
                 }
@@ -553,9 +565,9 @@ impl<I: ListItem + Clone> ItemList<I> {
                 // `track_click`); clicking an album or playlist opens it.
                 let already = index == self.selected;
                 self.selected = index;
-                let is_track = self
-                    .selected_item()
-                    .is_some_and(|i| i.track().is_some() || i.is_playable());
+                // Albums and playlists are playable too, but they open: only what has no page of
+                // its own is a track here.
+                let is_track = self.selected_item().is_some_and(|i| i.target().is_none());
                 if is_track {
                     let menu = ctx.config.values().track_click.as_deref() == Some("menu");
                     if menu && let Some(item) = self.selected_item() {

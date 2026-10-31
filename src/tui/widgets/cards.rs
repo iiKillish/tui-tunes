@@ -29,6 +29,7 @@ use crate::tui::page::{Ctx, Outcome, Page};
 use crate::tui::pages::liked::LikedPage;
 use crate::tui::pointer;
 use crate::tui::style::{SELECTION_MARKER, Styles, bold, fill, put, scroll_to};
+use crate::tui::wheel;
 use crate::utils::search_text;
 
 /// Rows of a card's cover (when covers can be shown).
@@ -509,6 +510,13 @@ impl CardGrid {
         }
     }
 
+    /// Rows of cards drawn last.
+    fn rows_shown(&self) -> usize {
+        let mut rows: Vec<u16> = self.card_areas.iter().map(|(rect, _, _)| rect.y).collect();
+        rows.dedup();
+        rows.len()
+    }
+
     /// Enter on a card: open albums, playlists, artists and Liked Songs; play tracks, followed by
     /// the rest of their section's tracks.
     fn activate(&self, sections: &[Section], ctx: &Ctx) -> Outcome {
@@ -792,6 +800,8 @@ impl Page for CardGrid {
                     return self.activate(&sections, ctx);
                 }
             }
+            MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
+                if !wheel::moves(&event, self.rows_shown()) => {}
             MouseEventKind::ScrollDown => {
                 self.move_selection(&sections, &MoveMode::Down, &MoveAmount::Integer(1));
             }

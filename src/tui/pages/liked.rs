@@ -43,8 +43,8 @@ impl Page for LikedPage {
 
     fn header_action(&mut self, action: HeaderAction, ctx: &Ctx) -> Outcome {
         ctx.queue.set_shuffle(action == HeaderAction::Shuffle);
-        self.list.select(0);
-        self.list.command(&Command::Play, ctx)
+        self.list.play_all(ctx);
+        Outcome::Consumed
     }
 
     fn draw(&mut self, frame: &mut Frame, area: Rect, ctx: &Ctx, focused: bool) {

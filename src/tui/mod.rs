@@ -17,6 +17,7 @@ pub mod pages;
 pub mod pointer;
 pub mod splash;
 pub mod style;
+pub mod wheel;
 pub mod widgets;
 
 #[cfg(test)]

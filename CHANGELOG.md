@@ -7,10 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A message when Spotify won't play a song, instead of play seeming to do
+  nothing: press play to try it again
+
+### Changed
+
+- The player puts the cover beside the controls whenever that makes it bigger
+  than above them, so making the window taller no longer shrinks it
+
 ### Fixed
 
 - The top artists beside the songs on the Stats screen's _Top_ tabs scroll
   with the mouse wheel
+- Clicking an album or playlist in a list opens it, rather than its song menu
+- _Shuffle_ on an album, playlist, artist or Liked Songs starts on a random
+  song, not always the first
+- A mouse wheel notch moves one song in _Up next_ (one card row, one row on
+  Home) when only one or two fit, in terminals that send several wheel events
+  a notch (like Ghostty), rather than skipping past the ones between
 
 ## [0.9.2]
 

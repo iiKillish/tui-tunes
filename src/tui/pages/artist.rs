@@ -64,8 +64,8 @@ impl Page for ArtistPage {
         match action {
             HeaderAction::Play | HeaderAction::Shuffle => {
                 ctx.queue.set_shuffle(action == HeaderAction::Shuffle);
-                self.top_tracks.select(0);
-                self.top_tracks.command(&Command::Play, ctx)
+                self.top_tracks.play_all(ctx);
+                Outcome::Consumed
             }
             HeaderAction::Like => {
                 if ctx.library.is_followed_artist(&self.artist) {

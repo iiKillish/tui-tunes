@@ -103,8 +103,8 @@ impl Page for AlbumPage {
         match action {
             HeaderAction::Play | HeaderAction::Shuffle => {
                 ctx.queue.set_shuffle(action == HeaderAction::Shuffle);
-                self.list.select(0);
-                self.list.command(&Command::Play, ctx)
+                self.list.play_all(ctx);
+                Outcome::Consumed
             }
             HeaderAction::Like => {
                 if ctx.library.is_saved_album(&self.album) {
