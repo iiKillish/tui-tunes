@@ -50,6 +50,30 @@ pub enum QueueEvent {
     },
 }
 
+/// How many recently listened to tracks autoplay is told to leave out.
+const AUTOPLAY_RECENT: usize = 50;
+
+/// The last `limit` distinct track URIs listened to, oldest first and ending with `current`:
+/// those `started` this session (oldest first), then from the listening `history` (oldest first)
+/// before it.
+fn recent_tracks(
+    started: &[String],
+    history: &[String],
+    current: &str,
+    limit: usize,
+) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut recent: Vec<String> = std::iter::once(current)
+        .chain(started.iter().rev().map(String::as_str))
+        .chain(history.iter().rev().map(String::as_str))
+        .filter(|uri| seen.insert(*uri))
+        .take(limit)
+        .map(String::from)
+        .collect();
+    recent.reverse();
+    recent
+}
+
 /// The source ("Next from: …") of tracks added by autoplay.
 pub const AUTOPLAY_SOURCE: &str = "Autoplay";
 
@@ -79,6 +103,9 @@ pub struct Queue {
     autoplay_after: RwLock<Option<String>>,
     /// The queue ran out while autoplay was still looking: play what it finds.
     waiting_for_autoplay: RwLock<bool>,
+    /// The URIs of the tracks started this session, oldest first, skipped ones too, so autoplay
+    /// can leave them out; see [recent_tracks].
+    started: RwLock<Vec<String>>,
     spotify: Spotify,
     cfg: Arc<Config>,
     /// Formats notifications.
@@ -109,6 +136,7 @@ impl Queue {
             failed_in_a_row: RwLock::new(0),
             autoplay_after: RwLock::new(None),
             waiting_for_autoplay: RwLock::new(false),
+            started: RwLock::new(Vec::new()),
             random_order: RwLock::new(queue_state.random_order),
             unshuffled: RwLock::new(None),
             sources: RwLock::new(sources),
@@ -503,6 +531,14 @@ impl Queue {
         if let Some(track) = &self.queue.read().unwrap().get(index) {
             self.spotify.load(track, start_playing, 0);
             self.current_track.write().unwrap().replace(index);
+            if let Playable::Track(track) = track {
+                let mut started = self.started.write().unwrap();
+                started.push(track.uri.clone());
+                // Only the latest are sent to autoplay.
+                if started.len() > 2 * AUTOPLAY_RECENT {
+                    started.drain(..AUTOPLAY_RECENT);
+                }
+            }
             self.spotify.update_track();
 
             #[cfg(feature = "notify")]
@@ -627,7 +663,8 @@ impl Queue {
     }
 
     /// When the track at `index` is the last one to play, ask autoplay for tracks to follow it,
-    /// based on its album and the tracks played before it. Asked once per track.
+    /// based on its album and the tracks listened to lately (see [recent_tracks]). Asked once per
+    /// track.
     fn request_autoplay(&self, index: usize) {
         if !self.autoplay_enabled() || self.next_index().is_some() {
             return;
@@ -647,17 +684,23 @@ impl Queue {
             }
             *after = Some(track.uri.clone());
         }
-        // The tracks played up to this one, oldest first, so autoplay doesn't repeat them.
-        let recent: Vec<String> = q[..=index]
-            .iter()
-            .rev()
-            .filter_map(Playable::track)
-            .map(|track| track.uri)
-            .take(50)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect();
+        // The tracks listened to lately, so autoplay doesn't repeat them: the ones started this
+        // session, skipped or not and wherever they are in the queue (it may have been cleared,
+        // shuffled or repeated), then the listening history from before.
+        let history: Vec<String> = if cfg!(test) {
+            Vec::new()
+        } else {
+            crate::stats::load()
+                .into_iter()
+                .map(|play| play.uri)
+                .collect()
+        };
+        let recent = recent_tracks(
+            &self.started.read().unwrap(),
+            &history,
+            &track.uri,
+            AUTOPLAY_RECENT,
+        );
         debug!("Asking autoplay for tracks after {}", track.uri);
         self.spotify.request_autoplay(
             format!("spotify:album:{album_id}"),
@@ -1034,6 +1077,7 @@ mod tests {
             failed_in_a_row: RwLock::new(0),
             autoplay_after: RwLock::new(None),
             waiting_for_autoplay: RwLock::new(false),
+            started: RwLock::new(Vec::new()),
             spotify,
             cfg,
             library,
@@ -1128,6 +1172,37 @@ mod tests {
         // What autoplay finds for the current track is taken again.
         q.add_autoplay("spotify:track:id_1", autoplay_tracks());
         assert_eq!(ids(&q), ["id_0", "id_1", "id_10", "id_11"]);
+    }
+
+    fn uris(ids: &[u32]) -> Vec<String> {
+        ids.iter()
+            .map(|id| format!("spotify:track:id_{id}"))
+            .collect()
+    }
+
+    #[test]
+    fn test_autoplay_leaves_out_tracks_started_this_session_wherever_they_were() {
+        // A playlist played through, repeated back to the start, and cleared after it.
+        let started = uris(&[0, 1, 2, 3, 0]);
+        let recent = recent_tracks(&started, &[], "spotify:track:id_0", 50);
+        assert_eq!(recent, uris(&[1, 2, 3, 0]));
+    }
+
+    #[test]
+    fn test_autoplay_leaves_out_the_history_before_this_session_up_to_the_limit() {
+        let recent = recent_tracks(
+            &uris(&[5, 6]),
+            &uris(&[1, 2, 3, 6]),
+            "spotify:track:id_6",
+            4,
+        );
+        assert_eq!(recent, uris(&[2, 3, 5, 6]));
+    }
+
+    #[test]
+    fn test_autoplay_leaves_out_the_current_track_even_if_not_started_this_session() {
+        let recent = recent_tracks(&[], &uris(&[1]), "spotify:track:id_7", 50);
+        assert_eq!(recent, uris(&[1, 7]));
     }
 
     #[test]

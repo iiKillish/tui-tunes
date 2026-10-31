@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1]
+
+### Fixed
+
+- Autoplay leaves out the last 50 songs you listened to, skipped ones too,
+  rather than only those before the current song in the queue, so it no
+  longer picks songs you just heard after the queue repeats, is shuffled or
+  is cleared
+
 ## [0.10.0]
 
 ### Added
