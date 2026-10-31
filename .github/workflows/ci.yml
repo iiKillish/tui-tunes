@@ -33,7 +33,7 @@ jobs:
             target: aarch64-unknown-linux-gnu
             features: ''
           - build_target: macos-aarch64
-            os: macos-14
+            os: macos-15
             target: aarch64-apple-darwin
             features: ''
           - build_target: windows-x86_64

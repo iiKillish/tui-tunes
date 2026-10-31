@@ -47,7 +47,7 @@ jobs:
             target: x86_64-apple-darwin
             features: ''
           - build_target: macos-aarch64
-            os: macos-14
+            os: macos-15
             target: aarch64-apple-darwin
             artifact_suffix: macos-aarch64
             features: ''
