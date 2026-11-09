@@ -13,7 +13,7 @@ use ratatui::Frame;
 use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 
-use crate::command::{Command, GotoMode, JumpMode, MoveAmount, MoveMode, TargetMode};
+use crate::command::{Command, JumpMode, MoveAmount, MoveMode, TargetMode};
 use crate::model::folder;
 use crate::model::playable::Playable;
 use crate::model::track::Track;
@@ -508,41 +508,15 @@ impl<I: ListItem + Clone> ItemList<I> {
                     nav::queue_item(item.as_listitem(), matches!(cmd, Command::PlayNext), ctx);
                 }
             }
-            Command::Save => {
-                if let Some(mut item) = self.selected_item() {
-                    item.save(&ctx.library);
-                }
-            }
-            Command::Add => {
-                if let Some(track) = self.selected_item().and_then(|i| i.track()) {
-                    return nav::pick_playlist_for(vec![track], ctx);
-                }
-            }
             Command::Open(TargetMode::Selected) => return self.open(ctx),
-            Command::Goto(mode) => {
-                let Some(item) = self.selected_item() else {
-                    return Outcome::Consumed;
+            Command::Save
+            | Command::Add
+            | Command::Goto(_)
+            | Command::Share(TargetMode::Selected) => {
+                return match self.selected_item() {
+                    Some(mut item) => nav::item_command(&mut item, cmd, ctx),
+                    None => Outcome::Consumed,
                 };
-                return match mode {
-                    GotoMode::Album => match item.album() {
-                        Some(album) => Outcome::Open(nav::open_target(
-                            crate::traits::OpenTarget::Album(album),
-                            ctx,
-                        )),
-                        None => Outcome::Consumed,
-                    },
-                    GotoMode::Artist => match item.artists() {
-                        Some(artists) => nav::go_to_artists(artists, ctx),
-                        None => Outcome::Consumed,
-                    },
-                };
-            }
-            #[cfg(feature = "share_clipboard")]
-            Command::Share(TargetMode::Selected) => {
-                if let Some(url) = self.selected_item().and_then(|i| i.share_url()) {
-                    let _ = crate::sharing::write_share(url);
-                    return Outcome::Message("Link copied".into());
-                }
             }
             Command::Jump(mode) => self.jump(mode, ctx),
             _ => return Outcome::Ignored,

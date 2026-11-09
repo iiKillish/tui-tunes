@@ -1240,6 +1240,57 @@ fn test_command_line_suggests_and_completes() {
 }
 
 #[test]
+fn test_up_next_acts_on_the_selected_song_like_other_lists() {
+    use crate::command::{GotoMode, JumpMode};
+    use crate::tui::page::{Outcome, Page};
+
+    images::force_supported(false);
+    let app = app();
+    let ctx = app.ctx.clone();
+    let songs: Vec<Playable> = tracks(4)
+        .into_iter()
+        .map(|mut track| {
+            track.album_id = Some("album1".into());
+            Playable::Track(track)
+        })
+        .collect();
+    ctx.queue.append_next(&songs);
+    ctx.queue.play(0, false, false);
+    let mut page = pages::queue::new(&ctx);
+    let mut terminal = Terminal::new(TestBackend::new(80, 30)).unwrap();
+    terminal
+        .draw(|frame| page.draw(frame, frame.area(), &ctx, true))
+        .unwrap();
+    page.command(&Command::Move(MoveMode::Down, MoveAmount::Integer(1)), &ctx);
+    let mut run = |cmd: Command| page.command(&cmd, &ctx);
+    assert!(matches!(
+        run(Command::Goto(GotoMode::Album)),
+        Outcome::Open(_)
+    ));
+    // Two artists: which one?
+    assert!(matches!(
+        run(Command::Goto(GotoMode::Artist)),
+        Outcome::Overlay(_)
+    ));
+    assert!(!matches!(run(Command::Save), Outcome::Ignored));
+    assert!(!matches!(
+        run(Command::Share(TargetMode::Selected)),
+        Outcome::Ignored
+    ));
+    // `/` finds a song, `n` the next match, going round.
+    run(Command::Jump(JumpMode::Query("song number".into())));
+    run(Command::Jump(JumpMode::Next));
+    run(Command::Play);
+    assert_eq!(ctx.queue.get_current_index(), Some(2));
+    run(Command::Jump(JumpMode::Query("number 4".into())));
+    run(Command::Play);
+    assert_eq!(ctx.queue.get_current_index(), Some(3));
+    run(Command::Jump(JumpMode::Previous));
+    run(Command::Play);
+    assert_eq!(ctx.queue.get_current_index(), Some(3), "only one match");
+}
+
+#[test]
 fn test_mac_option_characters_are_alt_only_on_a_mac() {
     use crate::tui::keys::Key;
 

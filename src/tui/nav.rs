@@ -1,7 +1,7 @@
 //! Where things lead: the page an item opens, its context menu, the playlist picker. Kept in one
 //! place so lists, cards and menus all open things the same way.
 
-use crate::command::Command;
+use crate::command::{Command, GotoMode};
 use crate::model::artist::Artist;
 use crate::model::playable::Playable;
 use crate::model::playlist::Playlist;
@@ -106,6 +106,39 @@ pub fn go_to_artists(artists: Vec<Artist>, ctx: &Ctx) -> Outcome {
                 .collect(),
         ))),
     }
+}
+
+/// What a list does with its selected `item` for `cmd`: save it (`s`), add it to a playlist,
+/// go to its album or artist (`a`, `A`) or copy its link (`x`). [Outcome::Ignored] for other
+/// commands.
+pub fn item_command(item: &mut dyn ListItem, cmd: &Command, ctx: &Ctx) -> Outcome {
+    match cmd {
+        Command::Save => item.save(&ctx.library),
+        Command::Add => {
+            if let Some(track) = item.track() {
+                return pick_playlist_for(vec![track], ctx);
+            }
+        }
+        Command::Goto(GotoMode::Album) => {
+            if let Some(album) = item.album() {
+                return Outcome::Open(open_target(OpenTarget::Album(album), ctx));
+            }
+        }
+        Command::Goto(GotoMode::Artist) => {
+            if let Some(artists) = item.artists() {
+                return go_to_artists(artists, ctx);
+            }
+        }
+        #[cfg(feature = "share_clipboard")]
+        Command::Share(crate::command::TargetMode::Selected) => {
+            if let Some(url) = item.share_url() {
+                let _ = crate::sharing::write_share(url);
+                return Outcome::Message("Link copied".into());
+            }
+        }
+        _ => return Outcome::Ignored,
+    }
+    Outcome::Consumed
 }
 
 /// The menu for a track or episode (`o`, or a right click).
