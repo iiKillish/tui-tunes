@@ -457,7 +457,7 @@ impl Library {
 
             artists.extend(items);
 
-            if page.next.is_some() {
+            if page.next.is_some() && !page.items.is_empty() {
                 last = artists.last().unwrap().id.as_deref();
             } else {
                 break;
