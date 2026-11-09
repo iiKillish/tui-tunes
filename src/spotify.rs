@@ -480,6 +480,13 @@ impl Spotify {
         *self.loading.read().unwrap()
     }
 
+    /// Whether `event` is about the track before the one being loaded, so is to be ignored: when
+    /// another track is picked in the last moments of one, the player can say that one finished
+    /// after the other was loaded. Every track says it's playing or paused before it can finish.
+    pub fn is_stale(&self, event: &PlayerEvent) -> bool {
+        *event == PlayerEvent::FinishedTrack && self.loading().is_some()
+    }
+
     /// The track being loaded won't be (it can't be played): no word of it will come from the
     /// player.
     pub fn cancel_loading(&self) {

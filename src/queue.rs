@@ -1197,6 +1197,22 @@ mod tests {
     }
 
     #[test]
+    fn test_the_end_of_the_track_before_is_ignored_while_the_next_loads() {
+        let q = make_queue(make_tracks(3), Some(0));
+        let _worker = q.spotify.connect_for_test();
+        q.spotify
+            .update_status(PlayerEvent::Playing(std::time::SystemTime::now()));
+        assert!(!q.spotify.is_stale(&PlayerEvent::FinishedTrack));
+        // Picked in the last moments of the one playing, which then says it finished.
+        q.play(1, false, false);
+        assert!(q.spotify.is_stale(&PlayerEvent::FinishedTrack));
+        // Once the one picked plays, its end is its end.
+        q.spotify
+            .update_status(PlayerEvent::Playing(std::time::SystemTime::now()));
+        assert!(!q.spotify.is_stale(&PlayerEvent::FinishedTrack));
+    }
+
+    #[test]
     fn test_tracks_failing_one_after_another_stop_playback() {
         let q = make_queue((0..10).map(make_track).collect(), None);
         q.play(0, false, false);
