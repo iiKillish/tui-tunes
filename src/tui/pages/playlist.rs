@@ -88,19 +88,34 @@ impl PlaylistPage {
         ctx.library.user_id.as_deref() == Some(self.playlist.owner_id.as_str())
     }
 
-    /// Move the selected track up or down `amount` places (negative turns the direction around).
-    fn shift(&mut self, mode: &ShiftMode, amount: Option<i32>, ctx: &Ctx) -> Outcome {
-        if !nav::can_edit(&self.playlist, ctx) {
-            return Outcome::Error("Only your own playlists can be changed".into());
-        }
-        if ctx
-            .library
+    /// Whether the list is sorted with `:sort` rather than in the playlist's own order.
+    fn is_sorted(&self, ctx: &Ctx) -> bool {
+        ctx.library
             .cfg
             .state()
             .playlist_orders
             .contains_key(&self.playlist.id)
-        {
-            return Outcome::Error("Songs can't be moved while sorted: :sort original".into());
+    }
+
+    /// Why songs can't be moved, if they can't.
+    fn cant_move(&self, ctx: &Ctx) -> Option<Outcome> {
+        if !nav::can_edit(&self.playlist, ctx) {
+            return Some(Outcome::Error(
+                "Only your own playlists can be changed".into(),
+            ));
+        }
+        if self.is_sorted(ctx) {
+            return Some(Outcome::Error(
+                "Songs can't be moved while sorted: :sort original".into(),
+            ));
+        }
+        None
+    }
+
+    /// Move the selected track up or down `amount` places (negative turns the direction around).
+    fn shift(&mut self, mode: &ShiftMode, amount: Option<i32>, ctx: &Ctx) -> Outcome {
+        if let Some(outcome) = self.cant_move(ctx) {
+            return outcome;
         }
         let (from, len) = (self.list.selected(), self.list.len());
         let amount = amount.unwrap_or(1);
@@ -113,6 +128,14 @@ impl PlaylistPage {
         };
         if to == from || from >= len {
             return Outcome::Consumed;
+        }
+        self.move_track(from, to, ctx)
+    }
+
+    /// Move the track at `from` to `to`, here and on Spotify (with Shift+Up/Down, or dragged).
+    fn move_track(&mut self, from: usize, to: usize, ctx: &Ctx) -> Outcome {
+        if let Some(outcome) = self.cant_move(ctx) {
+            return outcome;
         }
         if !self
             .playlist
@@ -183,6 +206,9 @@ impl Page for PlaylistPage {
             );
             return;
         }
+        // Songs can be dragged to other places in the user's own playlists, in their own order.
+        self.list
+            .set_reorderable(nav::can_edit(&self.playlist, ctx) && !self.is_sorted(ctx));
         self.list.draw(frame, area, ctx, focused);
     }
 
@@ -234,6 +260,14 @@ impl Page for PlaylistPage {
     }
 
     fn mouse(&mut self, event: MouseEvent, ctx: &Ctx) -> Outcome {
-        self.list.mouse(event, ctx)
+        let outcome = self.list.mouse(event, ctx);
+        match self.list.take_drop() {
+            Some((from, to)) => self.move_track(from, to, ctx),
+            None => outcome,
+        }
+    }
+
+    fn dragging(&self) -> bool {
+        self.list.dragging()
     }
 }

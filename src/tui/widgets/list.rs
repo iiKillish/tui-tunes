@@ -19,6 +19,7 @@ use crate::model::playable::Playable;
 use crate::model::track::Track;
 use crate::pagination::Pagination;
 use crate::traits::{ListItem, OpenTarget};
+use crate::tui::drag::Drag;
 use crate::tui::hints;
 use crate::tui::images;
 use crate::tui::nav;
@@ -58,6 +59,13 @@ pub struct ItemList<I: ListItem + Clone> {
     search: String,
     matches: Vec<usize>,
     match_index: usize,
+    /// Whether rows can be dragged to another place (the user's own playlists): the page that
+    /// says so moves them, see [Self::take_drop].
+    reorderable: bool,
+    /// The row pressed, while it is, and where it's been dragged to.
+    drag: Option<Drag>,
+    /// A row dragged from one place to another and let go, for the page to move.
+    dropped: Option<(usize, usize)>,
 }
 
 impl<I: ListItem + Clone> ItemList<I> {
@@ -76,7 +84,30 @@ impl<I: ListItem + Clone> ItemList<I> {
             search: String::new(),
             matches: Vec::new(),
             match_index: 0,
+            reorderable: false,
+            drag: None,
+            dropped: None,
         }
+    }
+
+    /// Let rows be dragged to other places (or not), for the page to move them (see
+    /// [Self::take_drop]).
+    pub fn set_reorderable(&mut self, reorderable: bool) {
+        self.reorderable = reorderable;
+        if !reorderable {
+            self.drag = None;
+        }
+    }
+
+    /// Whether a row is pressed, maybe being dragged.
+    pub fn dragging(&self) -> bool {
+        self.drag.is_some()
+    }
+
+    /// The row dragged and let go since the last look, as (from, to) positions: the page moves it
+    /// there.
+    pub fn take_drop(&mut self) -> Option<(usize, usize)> {
+        self.dropped.take()
     }
 
     pub fn numbered(mut self) -> Self {
@@ -184,12 +215,28 @@ impl<I: ListItem + Clone> ItemList<I> {
         let (len, thumb, visible) = {
             let content = self.content.read().unwrap();
             let len = content.len();
+            // A row dragged to the top or bottom edge scrolls the list, and goes where the
+            // pointer is.
+            if let Some(mut drag) = self.drag.filter(|d| d.moved && len > 0) {
+                let step = drag.scroll_step(area);
+                let last_first = len.saturating_sub(rows);
+                self.first = self.first.saturating_add_signed(step).min(last_first);
+                drag.to = self.row_position(drag.row).min(len - 1);
+                self.selected = drag.to;
+                self.drag = Some(drag);
+            }
             self.selected = min(self.selected, len.saturating_sub(1));
             self.first = scroll_to(self.first, self.selected, rows);
             self.first = min(self.first, (len + paginator).saturating_sub(rows));
             let thumb = self.thumbnail_width(&content, area.width);
             let end = min(len, self.first + rows);
-            (len, thumb, content[self.first.min(end)..end].to_vec())
+            let visible = match self.drag.filter(|d| d.moved && d.from < len && d.to < len) {
+                Some(drag) => (self.first.min(end)..end)
+                    .map(|position| content[drag.shown_at(position)].clone())
+                    .collect(),
+                None => content[self.first.min(end)..end].to_vec(),
+            };
+            (len, thumb, visible)
         };
 
         let number_width = if self.numbered {
@@ -516,7 +563,43 @@ impl<I: ListItem + Clone> ItemList<I> {
                 };
             }
             Command::Jump(mode) => self.jump(mode, ctx),
+            // Esc while dragging a row leaves it where it was.
+            Command::Back if self.drag.is_some() => {
+                if let Some(drag) = self.drag.take() {
+                    self.selected = drag.from;
+                }
+            }
             _ => return Outcome::Ignored,
+        }
+        Outcome::Consumed
+    }
+
+    /// The position shown at screen row `row` (the first or last row's, for rows above or below
+    /// the list), which may be past the end.
+    fn row_position(&self, row: u16) -> usize {
+        let offset = row
+            .saturating_sub(self.area.y)
+            .min(self.area.height.saturating_sub(1));
+        self.first + usize::from(offset)
+    }
+
+    /// A click on the item at `index`: the selected track plays (or any track opens its menu,
+    /// with `track_click`), an album or playlist opens. `already` is whether it was selected
+    /// before.
+    fn click(&mut self, index: usize, already: bool, ctx: &Ctx) -> Outcome {
+        self.selected = index;
+        // Albums and playlists are playable too, but they open: only what has no page of its
+        // own is a track here.
+        let is_track = self.selected_item().is_some_and(|i| i.target().is_none());
+        if !is_track {
+            return self.open(ctx);
+        }
+        let menu = ctx.config.values().track_click.as_deref() == Some("menu");
+        if menu && let Some(item) = self.selected_item() {
+            return Outcome::Overlay(nav::context_menu(item.as_listitem(), ctx));
+        }
+        if already {
+            return self.play(ctx);
         }
         Outcome::Consumed
     }
@@ -532,6 +615,10 @@ impl<I: ListItem + Clone> ItemList<I> {
     }
 
     pub fn mouse(&mut self, event: MouseEvent, ctx: &Ctx) -> Outcome {
+        // A press while one is held means the release was missed: forget that one.
+        if let MouseEventKind::Down(_) = event.kind {
+            self.drag = None;
+        }
         match event.kind {
             MouseEventKind::ScrollDown => {
                 let len = self.len();
@@ -563,23 +650,37 @@ impl<I: ListItem + Clone> ItemList<I> {
                 let Some(index) = self.row_at(&event) else {
                     return Outcome::Consumed;
                 };
-                // Clicking the selected track plays it (or any track opens its menu, with
-                // `track_click`); clicking an album or playlist opens it.
                 let already = index == self.selected;
-                self.selected = index;
-                // Albums and playlists are playable too, but they open: only what has no page of
-                // its own is a track here.
-                let is_track = self.selected_item().is_some_and(|i| i.target().is_none());
-                if is_track {
-                    let menu = ctx.config.values().track_click.as_deref() == Some("menu");
-                    if menu && let Some(item) = self.selected_item() {
-                        return Outcome::Overlay(nav::context_menu(item.as_listitem(), ctx));
+                // Where rows can be moved, a press may start a drag: it's a click only if it's let
+                // go without moving to another row.
+                if self.reorderable {
+                    self.drag = Some(Drag::new(index, event.row, already));
+                    self.selected = index;
+                    return Outcome::Consumed;
+                }
+                return self.click(index, already, ctx);
+            }
+            MouseEventKind::Drag(MouseButton::Left) if self.drag.is_some() => {
+                let len = self.len();
+                let position = self.row_position(event.row);
+                if let Some(drag) = self.drag.as_mut() {
+                    drag.move_to(event.row);
+                    if drag.moved && len > 0 {
+                        drag.to = position.min(len - 1);
+                        self.selected = drag.to;
                     }
-                    if already {
-                        return self.play(ctx);
-                    }
-                } else {
-                    return self.open(ctx);
+                }
+            }
+            MouseEventKind::Up(_) if self.drag.is_some() => {
+                let Some(drag) = self.drag.take() else {
+                    return Outcome::Consumed;
+                };
+                if !drag.moved {
+                    return self.click(drag.from, drag.was_selected, ctx);
+                }
+                self.selected = drag.to;
+                if drag.to != drag.from {
+                    self.dropped = Some((drag.from, drag.to));
                 }
             }
             _ => return Outcome::Ignored,
