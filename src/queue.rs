@@ -104,7 +104,8 @@ pub struct Queue {
     /// loading, as ones that fail to play do; see [Queue::failing].
     loaded_at: RwLock<Option<Instant>>,
     failed_in_a_row: RwLock<u32>,
-    /// The URI of the track autoplay was last asked to follow, so it's asked once per track.
+    /// The URI of the track autoplay is being asked to follow, until its answer arrives (used or
+    /// not), so it isn't asked twice at once.
     autoplay_after: RwLock<Option<String>>,
     /// The queue ran out while autoplay was still looking: play what it finds.
     waiting_for_autoplay: RwLock<bool>,
@@ -390,8 +391,7 @@ impl Queue {
             q.truncate(current + 1);
             sources.truncate(current + 1);
         }
-        // Ask again, even if it was asked for this track already: what it found is gone too.
-        *self.autoplay_after.write().unwrap() = None;
+        // Unless it's being asked for this track already: that answer is used.
         self.request_autoplay(current);
     }
 
@@ -645,8 +645,8 @@ impl Queue {
     }
 
     /// When the track at `index` is the last one to play, ask autoplay for tracks to follow it,
-    /// based on its album and the tracks listened to lately (see [recent_tracks]). Asked once per
-    /// track, unless what it found went unused.
+    /// based on its album and the tracks listened to lately (see [recent_tracks]). Not asked
+    /// again while it's being asked for this track.
     fn request_autoplay(&self, index: usize) {
         if !self.autoplay_enabled() || self.next_index().is_some() {
             return;
@@ -728,20 +728,35 @@ impl Queue {
         tracks: Vec<Playable>,
         manual: bool,
     ) -> Option<Result<String, String>> {
+        // Answered, whether what it found is used or not: if `after` is the last to play again
+        // (say the tracks it added are removed), it's asked again.
+        {
+            let mut asked = self.autoplay_after.write().unwrap();
+            if asked.as_deref() == Some(after) {
+                *asked = None;
+            }
+        }
+        if tracks.is_empty() {
+            warn!("Autoplay found nothing to follow {after}");
+        }
+
         if manual {
             let last = self.queue.read().unwrap().last().map(Playable::uri);
             if last.as_deref() != Some(after) {
+                // The end of the queue changed meanwhile.
                 return None;
             }
+            // The queue ran out at `after`, the last track, while this was asked.
+            let waiting = std::mem::take(&mut *self.waiting_for_autoplay.write().unwrap());
             if tracks.is_empty() {
                 return Some(Err("Autoplay found nothing: try again in a bit".into()));
             }
             let count = tracks.len();
-            let stopped = self.get_current_index().is_none()
+            let stopped = waiting
+                || self.get_current_index().is_none()
                 || (self.spotify.get_current_status() == PlayerEvent::Stopped
                     && self.spotify.loading().is_none());
             let first = self.append_autoplay(tracks);
-            *self.waiting_for_autoplay.write().unwrap() = false;
             if stopped {
                 self.play(first, false, false);
             }
@@ -750,16 +765,12 @@ impl Queue {
 
         let still_last = self.next_index().is_none()
             && self.get_current().map(|t| t.uri()).as_deref() == Some(after);
+        if !still_last {
+            // Whatever's waiting is waiting for another track's answer.
+            return None;
+        }
         let waiting = std::mem::take(&mut *self.waiting_for_autoplay.write().unwrap());
-        if !still_last || !self.autoplay_enabled() || tracks.is_empty() {
-            // Unused: it's asked again if this track is ever the last to play.
-            let mut asked = self.autoplay_after.write().unwrap();
-            if asked.as_deref() == Some(after) {
-                *asked = None;
-            }
-            if tracks.is_empty() {
-                warn!("Autoplay found nothing to follow {after}");
-            }
+        if !self.autoplay_enabled() || tracks.is_empty() {
             return None;
         }
         let first = self.append_autoplay(tracks);
@@ -1227,6 +1238,68 @@ mod tests {
             Some("spotify:track:id_1")
         );
         // What it finds this time plays.
+        q.add_autoplay("spotify:track:id_1", autoplay_tracks(), false);
+        assert_eq!(q.get_current_index(), Some(2));
+    }
+
+    #[test]
+    fn test_autoplay_is_asked_again_when_what_it_added_is_removed() {
+        let q = make_queue(make_tracks(2), Some(1));
+        q.autoplay_if_last();
+        assert_eq!(
+            q.autoplay_after.read().unwrap().as_deref(),
+            Some("spotify:track:id_1")
+        );
+        q.add_autoplay("spotify:track:id_1", autoplay_tracks(), false);
+        assert_eq!(*q.autoplay_after.read().unwrap(), None);
+        q.remove(3);
+        q.remove(2);
+        // Asked again, so the queue doesn't run out with nothing coming.
+        assert_eq!(
+            q.autoplay_after.read().unwrap().as_deref(),
+            Some("spotify:track:id_1")
+        );
+    }
+
+    #[test]
+    fn test_manual_autoplay_that_found_nothing_or_was_dropped_is_asked_again() {
+        let q = make_queue(make_tracks(2), Some(1));
+        assert!(q.autoplay_now().is_ok());
+        q.add_autoplay("spotify:track:id_1", Vec::new(), true);
+        assert_eq!(*q.autoplay_after.read().unwrap(), None);
+
+        assert!(q.autoplay_now().is_ok());
+        // The queue changed meanwhile, then went back.
+        q.append(make_track(2));
+        q.add_autoplay("spotify:track:id_1", autoplay_tracks(), true);
+        q.remove(2);
+        assert_eq!(
+            q.autoplay_after.read().unwrap().as_deref(),
+            Some("spotify:track:id_1")
+        );
+    }
+
+    #[test]
+    fn test_manual_autoplay_plays_when_the_queue_ran_out_waiting_for_it() {
+        let q = make_queue(make_tracks(2), Some(1));
+        q.spotify
+            .update_status(PlayerEvent::Playing(std::time::SystemTime::now()));
+        assert!(q.autoplay_now().is_ok());
+        // The track ends before the answer arrives (the player hasn't said it's stopped yet).
+        q.next(false);
+        assert!(*q.waiting_for_autoplay.read().unwrap());
+        q.add_autoplay("spotify:track:id_1", autoplay_tracks(), true);
+        assert_eq!(q.get_current_index(), Some(2));
+    }
+
+    #[test]
+    fn test_autoplay_for_another_track_leaves_the_queue_waiting() {
+        let q = make_queue(make_tracks(2), Some(1));
+        q.next(false);
+        assert!(*q.waiting_for_autoplay.read().unwrap());
+        // An answer for a track played before arrives first.
+        q.add_autoplay("spotify:track:id_0", autoplay_tracks(), false);
+        assert_eq!(ids(&q), ["id_0", "id_1"]);
         q.add_autoplay("spotify:track:id_1", autoplay_tracks(), false);
         assert_eq!(q.get_current_index(), Some(2));
     }
