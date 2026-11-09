@@ -903,12 +903,6 @@ impl Queue {
         self.cfg.state().shuffle
     }
 
-    /// The separate play order older versions kept for shuffle, for saving the queue between
-    /// sessions: always `None`, as shuffling reorders the queue itself.
-    pub fn get_random_order(&self) -> Option<Vec<usize>> {
-        None
-    }
-
     /// Shuffle the queue: reorder `self.queue` so the current item comes first, followed by the
     /// rest in random order. Reordering the queue itself (rather than keeping a separate play
     /// order) means the queue view shows the order things will actually play in. The order
@@ -1641,7 +1635,6 @@ mod tests {
         q.append_next(&[make_track(7)]);
         assert_eq!(q.next_index(), Some(1));
         assert_eq!(q.handle_event(QueueEvent::PreloadTrackRequest), None);
-        assert_eq!(q.get_random_order(), None);
     }
 
     #[test]
@@ -1928,7 +1921,6 @@ mod tests {
         let q = make_queue(vec![make_track(0), make_track(1)], Some(0));
         q.set_shuffle(true);
         q.set_shuffle(false);
-        assert!(q.get_random_order().is_none());
         assert_eq!(ids(&q), ["id_0", "id_1"]);
     }
 
@@ -1959,7 +1951,6 @@ mod tests {
         q.clear();
         assert_eq!(q.len(), 0);
         // Shuffling reorders the queue itself, so there's no separate play order.
-        assert_eq!(q.get_random_order(), None);
         assert!(q.unshuffled.read().unwrap().is_none());
     }
 
@@ -1985,7 +1976,6 @@ mod tests {
 
         assert_eq!(q.get_current_index(), Some(0));
         assert_eq!(track_id(&q.get_current().unwrap()), "id_7");
-        assert_eq!(q.get_random_order(), None);
 
         let mut sorted = ids(&q);
         sorted.sort();

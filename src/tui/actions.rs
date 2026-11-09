@@ -24,7 +24,8 @@ use crate::tui::page::{Ctx, Outcome, Overlay};
 
 /// Save the queue and playback position for next time.
 pub fn save_state(ctx: &Ctx) {
-    let queue = ctx.queue.queue.read().unwrap();
+    // A copy, so no queue lock is held while asking the queue for the rest.
+    let queue = ctx.queue.queue.read().unwrap().clone();
     ctx.config.with_state_mut(|s| {
         debug!(
             "saving state, {} items, current track: {:?}",
@@ -32,7 +33,8 @@ pub fn save_state(ctx: &Ctx) {
             ctx.queue.get_current_index()
         );
         s.queuestate.queue.clone_from(&queue);
-        s.queuestate.random_order = ctx.queue.get_random_order();
+        // Shuffling reorders the queue itself: there's no separate play order to save.
+        s.queuestate.random_order = None;
         s.queuestate.sources = ctx.queue.sources();
         s.queuestate.current_track = ctx.queue.get_current_index();
         s.queuestate.track_progress = ctx.spotify.get_current_progress();

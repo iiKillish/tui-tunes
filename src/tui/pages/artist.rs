@@ -256,11 +256,9 @@ impl Page for ArtistPage {
 
     fn header_action(&mut self, action: HeaderAction, ctx: &Ctx) -> Outcome {
         match action {
-            HeaderAction::Play | HeaderAction::Shuffle => {
-                ctx.queue.set_shuffle(action == HeaderAction::Shuffle);
-                self.top_tracks.play_all(ctx);
-                Outcome::Consumed
-            }
+            HeaderAction::Play | HeaderAction::Shuffle => self
+                .top_tracks
+                .play_header(action == HeaderAction::Shuffle, ctx),
             HeaderAction::Like => {
                 if ctx.library.is_followed_artist(&self.artist) {
                     ctx.library.unfollow_artist(&self.artist);
