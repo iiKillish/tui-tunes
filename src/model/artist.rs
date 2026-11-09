@@ -82,7 +82,12 @@ fn save_pictures() {
         serde_json::to_string(&pictures.known)
     };
     let saved = json.map_err(|e| e.to_string()).and_then(|json| {
-        std::fs::write(crate::config::cache_path(PICTURES_FILE), json).map_err(|e| e.to_string())
+        crate::serialization::write_atomically(
+            &crate::config::cache_path(PICTURES_FILE),
+            json.as_bytes(),
+            false,
+        )
+        .map_err(|e| e.to_string())
     });
     if let Err(e) = saved {
         error!("Couldn't save artist pictures: {e}");

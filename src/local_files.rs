@@ -78,6 +78,7 @@ pub fn scan(dirs: &[PathBuf]) -> Scan {
 /// [scan], saving the pictures in the files to `covers` (see [embedded_cover]).
 fn scan_saving_covers(dirs: &[PathBuf], covers: &Path) -> Scan {
     let mut seen = HashSet::new();
+    let mut visited = HashSet::new();
     let mut skipped = 0;
     let mut roots = Vec::new();
     for dir in dirs {
@@ -85,8 +86,11 @@ fn scan_saving_covers(dirs: &[PathBuf], covers: &Path) -> Scan {
             warn!("Music folder {} isn't a folder", dir.display());
             continue;
         }
+        if !first_visit(dir, &mut visited) {
+            continue;
+        }
         // librespot gives up on a folder at the first entry it can't read, as here.
-        match visit(dir, None, &mut seen, &mut skipped, covers) {
+        match visit(dir, None, &mut seen, &mut visited, &mut skipped, covers) {
             Ok(folder) if !folder.entries.is_empty() => roots.push(folder),
             Ok(_) => {}
             Err(e) => warn!("Couldn't read music folder {}: {e}", dir.display()),
@@ -102,14 +106,22 @@ fn scan_saving_covers(dirs: &[PathBuf], covers: &Path) -> Scan {
     Scan { entries, skipped }
 }
 
+/// Whether the folder `dir` hasn't been listed yet (see [visit]), and it's now counted as listed.
+/// One whose real path can't be found is listed, but not counted.
+fn first_visit(dir: &Path, visited: &mut HashSet<PathBuf>) -> bool {
+    fs::canonicalize(dir).map_or(true, |real| visited.insert(real))
+}
+
 /// The folder `dir`, leaving out subfolders without songs. Files with the same tags and length
 /// have the same URI, one song to librespot: `seen` keeps them from being listed twice. Music files
 /// that can't be played are counted in `skipped`. Without a picture of its own, a folder has
-/// `parent_cover`, its parent's.
+/// `parent_cover`, its parent's. `visited` holds the folders listed already (their real paths),
+/// so a symlink to a folder that's listed, such as one of its parents, isn't followed.
 fn visit(
     dir: &Path,
     parent_cover: Option<&str>,
     seen: &mut HashSet<String>,
+    visited: &mut HashSet<PathBuf>,
     skipped: &mut usize,
     covers: &Path,
 ) -> io::Result<Folder> {
@@ -119,7 +131,11 @@ fn visit(
     for entry in fs::read_dir(dir)? {
         let path = entry?.path();
         if path.is_dir() {
-            let folder = visit(&path, cover.as_deref(), seen, skipped, covers)?;
+            if !first_visit(&path, visited) {
+                debug!("{} is listed already, not following it", path.display());
+                continue;
+            }
+            let folder = visit(&path, cover.as_deref(), seen, visited, skipped, covers)?;
             if !folder.entries.is_empty() {
                 folders.push(folder);
             }
@@ -397,6 +413,21 @@ mod tests {
                 Entry::Track(track) => track.title.clone(),
             })
             .collect()
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_back_to_a_parent_folder_arent_followed() {
+        let dir = MusicDir::new("symlink-loop", &[("jazz/one.mp3", "one.mp3")]);
+        std::os::unix::fs::symlink(&dir.0, dir.0.join("jazz/back to the top")).unwrap();
+        std::os::unix::fs::symlink(dir.0.join("jazz"), dir.0.join("jazz again")).unwrap();
+        let Scan { entries, .. } = scan(std::slice::from_ref(&dir.0));
+        // Listed once, under whichever name came first.
+        assert_eq!(entries.len(), 1);
+        let Entry::Folder(jazz) = &entries[0] else {
+            unreachable!()
+        };
+        assert_eq!(names(&jazz.entries), ["Song one"]);
     }
 
     #[test]

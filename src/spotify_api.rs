@@ -213,8 +213,8 @@ impl WebApi {
     }
 
     /// Renew the authentication token if it expires within 5 minutes. The returned handle
-    /// finishes once it's renewed (or renewing failed), however long that takes: the first
-    /// token may need the user to log in in their browser.
+    /// finishes once it's renewed (or renewing failed). It never asks the user to log in: that
+    /// happens at startup, before this (see [crate::authentication::get_rspotify_token]).
     pub fn update_token(&self) -> Option<JoinHandle<()>> {
         let left = self.token_time_left();
         if left.num_seconds() > RENEW_TOKEN_BEFORE_SECS {
@@ -276,7 +276,9 @@ impl WebApi {
         let api_token_expiration = self.token_expiration.clone();
         let shared = self.token_renewal.clone();
         let renew = move || {
-            match crate::authentication::get_rspotify_token(now) {
+            // Never a login in the browser from here: it would wait on a thread of its own for an
+            // answer nobody's asked for. A failed renewal is tried again by a later request.
+            match crate::authentication::refresh_rspotify_token(now) {
                 Ok(token) => {
                     let expires_at = token
                         .expires_at
@@ -286,6 +288,10 @@ impl WebApi {
                 }
                 Err(e) => {
                     error!("Failed to update token: {e}");
+                    crate::tui::report_error(format!(
+                        "Couldn't renew the Spotify login ({e}); trying again shortly, or restart \
+                         ttunes to log in again"
+                    ));
                 }
             }
             let mut state = shared.state.lock().unwrap();
@@ -306,8 +312,8 @@ impl WebApi {
     }
 
     /// Wait until `renewal` renewals of the token have finished, but no longer than `timeout`
-    /// after the running one started, so a renewal that hangs (a login waiting for the browser)
-    /// holds up each request only once.
+    /// after the running one started, so a renewal that hangs (on a network that's gone) holds
+    /// up each request only once.
     fn wait_for_token_renewal(&self, renewal: u64, timeout: Option<Duration>) {
         let state = self.token_renewal.state.lock().unwrap();
         let unfinished = |state: &mut TokenRenewalState| state.finished < renewal;
@@ -426,17 +432,17 @@ impl WebApi {
         playables: &[Playable],
     ) -> Result<PlaylistResult, ()> {
         self.api_with_retry(move |api| {
-            let playable_ids: Vec<PlayableId> = playables
+            // Paired before those without an ID (local files) are left out, so each keeps its
+            // own position.
+            let ids_and_positions: Vec<(PlayableId, [u32; 1])> = playables
                 .iter()
-                .filter_map(|playable| playable.into())
+                .filter_map(|playable| {
+                    let id: Option<PlayableId> = playable.into();
+                    id.map(|id| (id, [playable.list_index() as u32]))
+                })
                 .collect();
-            let positions = playables
+            let item_pos: Vec<ItemPositions> = ids_and_positions
                 .iter()
-                .map(|playable| [playable.list_index() as u32])
-                .collect::<Vec<_>>();
-            let item_pos: Vec<ItemPositions> = playable_ids
-                .iter()
-                .zip(positions.iter())
                 .map(|(id, positions)| ItemPositions {
                     id: id.as_ref(),
                     positions,
@@ -575,7 +581,10 @@ impl WebApi {
         let saved = std::fs::create_dir_all(cache.parent().unwrap())
             .map_err(|e| e.to_string())
             .and_then(|()| serde_json::to_string(&playlist).map_err(|e| e.to_string()))
-            .and_then(|json| std::fs::write(&cache, json).map_err(|e| e.to_string()));
+            .and_then(|json| {
+                crate::serialization::write_atomically(&cache, json.as_bytes(), false)
+                    .map_err(|e| e.to_string())
+            });
         if let Err(e) = saved {
             error!("Couldn't cache playlist {id}: {e}");
         }
@@ -787,27 +796,23 @@ impl WebApi {
                     Ok(page) => Ok(ApiPage {
                         offset: page.offset,
                         total: page.total,
+                        // Numbered before the items that can't be shown are left out, so each
+                        // keeps its position in the playlist on Spotify, which edits refer to.
                         items: page
                             .items
                             .iter()
-                            .filter(|pt| {
-                                if let Some(t) = pt.item.as_ref()
-                                    && !t.is_unknown()
-                                {
-                                    true
-                                } else {
-                                    error!("Could not process item {pt:?}, ignoring");
-                                    false
-                                }
-                            })
                             .enumerate()
-                            .flat_map(|(index, pt)| {
-                                pt.item.as_ref().map(|t| {
+                            .filter_map(|(index, pt)| match pt.item.as_ref() {
+                                Some(t) if !t.is_unknown() => {
                                     let mut playable: Playable = t.into();
                                     playable.set_added_at(pt.added_at);
                                     playable.set_list_index(page.offset as usize + index);
-                                    playable
-                                })
+                                    Some(playable)
+                                }
+                                _ => {
+                                    error!("Could not process item {pt:?}, ignoring");
+                                    None
+                                }
                             })
                             .collect(),
                     }),

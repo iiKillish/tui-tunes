@@ -309,7 +309,8 @@ impl Config {
     }
 
     /// Change the configuration file with `change` (keeping its comments and layout) and load
-    /// it, as the settings page does.
+    /// it, as the settings page does. If the changed file wouldn't load, it's left as it was and
+    /// the error returned.
     pub fn edit(
         &self,
         change: impl FnOnce(&mut toml_edit::DocumentMut),
@@ -317,20 +318,19 @@ impl Config {
         #[cfg(test)]
         {
             let mut file = self.test_file.write().unwrap();
-            let mut doc: toml_edit::DocumentMut = file.parse()?;
-            change(&mut doc);
-            *file = doc.to_string();
-            *self.values.write().unwrap() = toml::from_str(&file)?;
+            let (text, values) = edited(&file, change)?;
+            *file = text;
+            *self.values.write().unwrap() = values;
             Ok(())
         }
         #[cfg(not(test))]
         {
             let path = config_path(&self.filename);
             let text = fs::read_to_string(&path).unwrap_or_default();
-            let mut doc: toml_edit::DocumentMut = text.parse()?;
-            change(&mut doc);
-            fs::write(&path, doc.to_string())?;
-            self.reload()
+            let (text, values) = edited(&text, change)?;
+            crate::serialization::write_atomically(&path, text.as_bytes(), false)?;
+            *self.values.write().unwrap() = values;
+            Ok(())
         }
     }
 
@@ -343,6 +343,19 @@ impl Config {
         *self.values.write().unwrap() = cfg;
         Ok(())
     }
+}
+
+/// The configuration file `text` after `change`, and the values it holds then, or why it
+/// wouldn't load.
+fn edited(
+    text: &str,
+    change: impl FnOnce(&mut toml_edit::DocumentMut),
+) -> Result<(String, ConfigValues), Box<dyn Error>> {
+    let mut doc: toml_edit::DocumentMut = text.parse()?;
+    change(&mut doc);
+    let text = doc.to_string();
+    let values = toml::from_str(&text)?;
+    Ok((text, values))
 }
 
 /// Parse the configuration file with name `filename` at the configuration base path.
@@ -605,6 +618,26 @@ pub fn set_configuration_base_path(base_path: Option<PathBuf>) {
             fs::create_dir_all(&basepath).expect("could not create basepath directory");
         }
         *BASE_PATH.write().unwrap() = Some(basepath);
+    }
+}
+
+#[cfg(test)]
+mod edit_tests {
+    use super::Config;
+
+    #[test]
+    fn an_edit_that_wouldnt_load_leaves_the_file() {
+        let config = Config::new_for_test();
+        config
+            .edit(|doc| doc["shuffle"] = toml_edit::value(true))
+            .unwrap();
+        assert_eq!(config.values().shuffle, Some(true));
+        let before = config.test_file.read().unwrap().clone();
+
+        let result = config.edit(|doc| doc["shuffle"] = toml_edit::value("sometimes"));
+        assert!(result.is_err());
+        assert_eq!(*config.test_file.read().unwrap(), before);
+        assert_eq!(config.values().shuffle, Some(true));
     }
 }
 

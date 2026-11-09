@@ -147,11 +147,26 @@ pub fn create_credentials() -> Result<RespotCredentials, String> {
 /// Renew the Web API token when it expires within this many seconds.
 pub const RENEW_TOKEN_BEFORE_SECS: i64 = 5 * 60;
 
+/// The Web API token, as [refresh_rspotify_token] gets it; without a usable one the user has to
+/// log in again in their browser. Only for startup, before the UI takes over the terminal.
+pub fn get_rspotify_token(renew: bool) -> Result<rspotify::Token, String> {
+    match refresh_rspotify_token(renew) {
+        Ok(token) => Ok(token),
+        Err(e) => {
+            info!("No usable Web API token ({e}), logging in");
+            let t = create_rspotify_token()?;
+            write_token(&rspotify_token_path(), &t);
+            Ok(t)
+        }
+    }
+}
+
 /// The Web API token: the saved one while it has more than [RENEW_TOKEN_BEFORE_SECS] left
 /// (unless `renew`, e.g. because Spotify refused it), else a refreshed one. If refreshing fails
-/// the saved one is kept while it's still valid; only without a usable token does the user have
-/// to log in again in their browser.
-pub fn get_rspotify_token(renew: bool) -> Result<rspotify::Token, String> {
+/// the saved one is kept while it's still valid. Never asks the user to log in, so it's safe in
+/// the background: an error means there's no usable token (none saved, or refreshing failed and
+/// it has expired), and refreshing can be tried again later.
+pub fn refresh_rspotify_token(renew: bool) -> Result<rspotify::Token, String> {
     let path = rspotify_token_path();
     let token = if let Ok(token_json) = fs::read_to_string(&path) {
         serde_json::from_str::<rspotify::Token>(&token_json).ok()
@@ -194,11 +209,13 @@ pub fn get_rspotify_token(renew: bool) -> Result<rspotify::Token, String> {
         if !t.is_expired() {
             return Ok(t);
         }
+        if refresh_token.is_none() {
+            return Err("the saved token has expired and can't be refreshed".into());
+        }
+        return Err("the saved token has expired and refreshing it failed".into());
     }
 
-    let t = create_rspotify_token()?;
-    write_token(&path, &t);
-    Ok(t)
+    Err("no saved token".into())
 }
 
 pub fn create_rspotify_token() -> Result<rspotify::Token, String> {
@@ -235,33 +252,11 @@ fn write_token(path: &Path, token: &rspotify::Token) {
     }
 }
 
-/// Replace `path` with `contents`, readable only by the current user on unix.
-///
-/// The contents go to a temporary file in the same directory, created with those permissions
-/// from the start so no other user can open it in between, and then take the place of `path`,
-/// so a crash can't leave a truncated file behind.
+/// Replace `path` with `contents`, readable only by the current user on unix: created with those
+/// permissions from the start so no other user can open it in between, and written in a way a
+/// crash can't leave a truncated file behind (see [crate::serialization::write_atomically]).
 fn write_private_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-
-    let mut temp_name = path.file_name().unwrap_or_default().to_os_string();
-    temp_name.push(format!(".{}.tmp", std::process::id()));
-    let temp_path = path.with_file_name(temp_name);
-    // A file left by a crash would keep its permissions, so start over.
-    let _ = fs::remove_file(&temp_path);
-
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let written = options.open(&temp_path).and_then(|mut file| {
-        file.write_all(contents)?;
-        file.sync_all()
-    });
-    let result = written.and_then(|()| fs::rename(&temp_path, path));
-    if result.is_err() {
-        let _ = fs::remove_file(&temp_path);
-    }
-    result
+    crate::serialization::write_atomically(path, contents, true)
 }
 
 /// Forget the saved logins: librespot's, and the Web API tokens of every client ID.

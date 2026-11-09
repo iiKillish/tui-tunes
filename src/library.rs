@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io::Write;
 use std::iter::Iterator;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
@@ -156,30 +155,25 @@ impl Library {
         if saved.get(cache_path) == Some(&hash) {
             return;
         }
-        let temp = cache_path.with_extension("db.tmp");
-        let written = std::fs::File::create(&temp)
-            .and_then(|mut file| file.write_all(&json))
-            .and_then(|()| std::fs::rename(&temp, cache_path));
-        match written {
+        match crate::serialization::write_atomically(cache_path, &json, false) {
             Ok(()) => {
                 saved.insert(cache_path.to_path_buf(), hash);
             }
             Err(e) => {
                 error!("could not write cache {}: {e}", cache_path.display());
-                let _ = std::fs::remove_file(&temp);
             }
         }
     }
 
     /// Check whether the `remote` [Playlist] is newer than its locally saved version. Returns
-    /// `true` if it is or if a local version isn't found.
+    /// `true` if it is, if a local version isn't found or if its tracks didn't all load.
     fn needs_download(&self, remote: &Playlist) -> bool {
         self.playlists
             .read()
             .unwrap()
             .iter()
             .find(|local| local.id == remote.id)
-            .map(|local| local.snapshot_id != remote.snapshot_id)
+            .map(|local| local.snapshot_id != remote.snapshot_id || local.tracks.is_none())
             .unwrap_or(true)
     }
 
@@ -345,91 +339,90 @@ impl Library {
         debug!("loading shows");
 
         let mut saved_shows: Vec<Show> = Vec::new();
-        let mut shows_result = self.spotify.api.get_saved_shows(0).ok();
-
-        while let Some(shows) = shows_result {
+        let mut offset = 0;
+        loop {
+            let Ok(shows) = self.spotify.api.get_saved_shows(offset) else {
+                // What's there already beats some of them.
+                error!("Failed to fetch shows.");
+                return;
+            };
             saved_shows.extend(shows.items.iter().map(|show| (&show.show).into()));
-
-            // load next batch if necessary
-            shows_result = match shows.next {
-                Some(_) => {
-                    debug!("requesting shows again..");
-                    self.spotify
-                        .api
-                        .get_saved_shows(shows.offset + shows.items.len() as u32)
-                        .ok()
-                }
-                None => None,
+            if shows.next.is_none() || shows.items.is_empty() {
+                break;
             }
+            debug!("requesting shows again..");
+            offset = shows.offset + shows.items.len() as u32;
         }
 
         *self.shows.write().unwrap() = saved_shows;
     }
 
     /// Fetch the playlists from the web API and save them to the local library. This synchronizes
-    /// the local version with the remote, pruning removed playlists in the process.
-    fn fetch_playlists(&self) {
+    /// the local version with the remote, pruning removed playlists in the process. Returns
+    /// whether the list of playlists loaded in full: if it didn't, nothing is pruned or
+    /// reordered (what didn't load isn't known to be gone) and the cache shouldn't be saved.
+    fn fetch_playlists(&self) -> bool {
         debug!("loading playlists");
-        let mut stale_lists = self.playlists.read().unwrap().clone();
-        let mut list_order = Vec::new();
+        let mut lists_page = self.spotify.api.current_user_playlist();
+        let complete = lists_page.fetch_all();
+        if !complete {
+            error!("Failed to fetch all the playlists, keeping the cached ones");
+        }
+        let lists = std::mem::take(&mut *lists_page.items.write().unwrap());
 
-        let lists_page = self.spotify.api.current_user_playlist();
-        let mut lists_batch = Some(lists_page.items.read().unwrap().clone());
-        while let Some(lists) = lists_batch {
-            for (index, remote) in lists.iter().enumerate() {
-                list_order.push(remote.id.clone());
-
-                // remove from stale playlists so we won't prune it later on
-                if let Some(index) = stale_lists.iter().position(|x| x.id == remote.id) {
-                    stale_lists.remove(index);
-                }
-
-                if self.needs_download(remote) {
-                    info!("updating playlist {} (index: {})", remote.name, index);
-                    let mut playlist: Playlist = remote.clone();
+        for (index, remote) in lists.iter().enumerate() {
+            if self.needs_download(remote) {
+                info!("updating playlist {} (index: {})", remote.name, index);
+                let mut playlist: Playlist = remote.clone();
+                playlist.tracks = None;
+                if !playlist.load_tracks(&self.spotify) {
+                    error!("Failed to fetch all the tracks of playlist {}", remote.name);
+                    if self.has_cached_tracks(&remote.id) {
+                        // Better the tracks as they were than some of them.
+                        continue;
+                    }
+                    // Loaded again when it's opened, or at the next update.
                     playlist.tracks = None;
-                    playlist.load_tracks(&self.spotify);
-                    self.append_or_update(playlist);
-                    // trigger redraw
-                    self.trigger_redraw();
-                } else if let Some(cached) = self
-                    .playlists
-                    .write()
-                    .unwrap()
-                    .iter_mut()
-                    .find(|p| p.id == remote.id)
-                {
-                    // Unchanged, but caches from before covers were kept lack the cover.
-                    cached.cover_url.clone_from(&remote.cover_url);
                 }
+                self.append_or_update(playlist);
+                self.trigger_redraw();
+            } else if let Some(cached) = self
+                .playlists
+                .write()
+                .unwrap()
+                .iter_mut()
+                .find(|p| p.id == remote.id)
+            {
+                // Unchanged, but caches from before covers were kept lack the cover.
+                cached.cover_url.clone_from(&remote.cover_url);
             }
-            lists_batch = lists_page.next();
         }
 
-        // remove stale playlists
-        for stale in stale_lists {
-            let index = self
-                .playlists
-                .read()
-                .unwrap()
-                .iter()
-                .position(|x| x.id == stale.id);
-            if let Some(index) = index {
-                debug!("removing stale list: {:?}", stale.name);
-                self.playlists.write().unwrap().remove(index);
-            }
+        if complete {
+            let list_order: Vec<&str> = lists.iter().map(|p| p.id.as_str()).collect();
+            let mut playlists = self.playlists.write().unwrap();
+            playlists.retain(|p| {
+                let keep = list_order.contains(&p.id.as_str());
+                if !keep {
+                    debug!("removing stale list: {:?}", p.name);
+                }
+                keep
+            });
+            playlists.sort_by_key(|p| list_order.iter().position(|id| *id == p.id));
         }
         self.index_playlists();
 
-        // sort by remote order
-        self.playlists.write().unwrap().sort_by(|a, b| {
-            let a_index = list_order.iter().position(|x| x == &a.id);
-            let b_index = list_order.iter().position(|x| x == &b.id);
-            a_index.cmp(&b_index)
-        });
-
-        // trigger redraw
         self.trigger_redraw();
+        complete
+    }
+
+    /// Whether the playlist with `id` is in the library with its tracks.
+    fn has_cached_tracks(&self, id: &str) -> bool {
+        self.playlists
+            .read()
+            .unwrap()
+            .iter()
+            .any(|p| p.id == id && p.tracks.is_some())
     }
 
     /// Fetch the followed artists from the web API and save them to the local library. Stops
@@ -464,26 +457,14 @@ impl Library {
 
             artists.extend(items);
 
-            if page.next.is_some() {
+            if page.next.is_some() && !page.items.is_empty() {
                 last = artists.last().unwrap().id.as_deref();
             } else {
                 break;
             }
         }
 
-        let mut store = self.artists.write().unwrap();
-
-        for mut artist in artists {
-            let pos = store.iter().position(|a| a.id == artist.id);
-            if let Some(i) = pos {
-                store[i].is_followed = true;
-                continue;
-            }
-
-            artist.is_followed = true;
-
-            store.push(artist);
-        }
+        mark_followed(&mut self.artists.write().unwrap(), artists);
     }
 
     /// Add the artist with `id` and `name` to the user library, but don't sync with the API.
@@ -518,7 +499,7 @@ impl Library {
 
             if page.is_err() {
                 error!("Failed to fetch albums.");
-                return true;
+                return false;
             }
 
             let page = page.unwrap();
@@ -533,7 +514,8 @@ impl Library {
 
             albums.extend(items);
 
-            if page.next.is_none() {
+            // An empty page would be asked for again and again.
+            if page.next.is_none() || page.items.is_empty() {
                 break;
             }
         }
@@ -561,7 +543,7 @@ impl Library {
 
             if page.is_err() {
                 error!("Failed to fetch tracks.");
-                return true;
+                return false;
             }
             let page = page.unwrap();
             let items: Vec<Track> = page.items.iter().map(|t| t.into()).collect();
@@ -575,7 +557,7 @@ impl Library {
 
             tracks.extend(items);
 
-            if page.next.is_none() {
+            if page.next.is_none() || page.items.is_empty() {
                 break;
             }
         }
@@ -1009,7 +991,10 @@ impl Library {
             return;
         }
 
-        playlist.load_tracks(&self.spotify);
+        if !playlist.load_tracks(&self.spotify) {
+            // Loaded again when it's opened, or at the next update.
+            playlist.tracks = None;
+        }
 
         {
             let mut store = self.playlists.write().unwrap();
@@ -1100,6 +1085,22 @@ fn remove_artist_tracks(artists: &mut Vec<Artist>, removed: &[&Track]) {
     artists.retain(|a| a.is_followed || a.tracks.as_ref().is_some_and(|t| !t.is_empty()));
 }
 
+/// Bring the artists in `store` in line with `followed`, all those Spotify says the user follows:
+/// they're marked followed (and added if they're new), and the others no longer are (unfollowed
+/// elsewhere). [Library::populate_artists] then drops those that are left with no saved tracks.
+fn mark_followed(store: &mut Vec<Artist>, followed: Vec<Artist>) {
+    let ids: HashSet<String> = followed.iter().filter_map(|a| a.id.clone()).collect();
+    for artist in store.iter_mut() {
+        artist.is_followed = artist.id.as_ref().is_some_and(|id| ids.contains(id));
+    }
+    for mut artist in followed {
+        if !store.iter().any(|a| a.id == artist.id) {
+            artist.is_followed = true;
+            store.push(artist);
+        }
+    }
+}
+
 /// See [Library::saved_ids].
 #[derive(Default)]
 struct SavedIds {
@@ -1149,9 +1150,8 @@ fn sort_albums(albums: &mut [Album]) -> bool {
 }
 
 fn album_sort_key(album: &Album) -> String {
-    let album_artist = album.artists[0]
-        .strip_prefix("The ")
-        .unwrap_or(&album.artists[0]);
+    let first_artist = album.artists.first().map_or("", String::as_str);
+    let album_artist = first_artist.strip_prefix("The ").unwrap_or(first_artist);
     let album_title = album.title.strip_prefix("The ").unwrap_or(&album.title);
     format!(
         "{}{}{}",
@@ -1164,8 +1164,8 @@ fn album_sort_key(album: &Album) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        add_artist_tracks, albums_unchanged, followed_unchanged, remove_artist_tracks, sort_albums,
-        tracks_unchanged,
+        add_artist_tracks, albums_unchanged, followed_unchanged, mark_followed,
+        remove_artist_tracks, sort_albums, tracks_unchanged,
     };
     use crate::model::album::Album;
     use crate::model::artist::Artist;
@@ -1322,6 +1322,44 @@ mod tests {
             &cached
         ));
         assert!(!followed_unchanged(None, &followed(&["b", "a"]), &cached));
+    }
+
+    #[test]
+    fn artists_unfollowed_elsewhere_are_no_longer_followed() {
+        let mut store = followed(&["a", "b"]);
+        store.push(Artist::new("c".into(), "c".into()));
+        let mut remote = followed(&["b", "d"]);
+        for artist in &mut remote {
+            artist.is_followed = false;
+        }
+        mark_followed(&mut store, remote);
+        let state: Vec<_> = store
+            .iter()
+            .map(|a| (a.id.as_deref().unwrap(), a.is_followed))
+            .collect();
+        assert_eq!(
+            state,
+            [("a", false), ("b", true), ("c", false), ("d", true)]
+        );
+        // Now they match, they count as unchanged.
+        assert!(followed_unchanged(Some(2), &followed(&["d"]), &store));
+    }
+
+    #[test]
+    fn albums_without_artists_sort() {
+        let mut list = vec![
+            album("1", "b", "x", None),
+            serde_json::from_value(serde_json::json!({
+                "id": "2",
+                "title": "y",
+                "artists": [],
+                "artist_ids": [],
+                "year": "2000",
+            }))
+            .unwrap(),
+        ];
+        assert!(sort_albums(&mut list));
+        assert_eq!(list[0].id.as_deref(), Some("2"));
     }
 
     #[test]
