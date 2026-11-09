@@ -10,6 +10,7 @@ use ratatui::crossterm::event::{
     KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind,
 };
 use ratatui::layout::{Position, Rect};
+use unicode_width::UnicodeWidthChar;
 
 use crate::command::{Command, InsertSource, JumpMode, TargetMode};
 use crate::spotify::UriType;
@@ -17,7 +18,7 @@ use crate::spotify_url::SpotifyUrl;
 use crate::tui::page::{Ctx, Outcome, Page};
 use crate::tui::pages::search_results;
 use crate::tui::pointer;
-use crate::tui::style::{Styles, put, width};
+use crate::tui::style::{Styles, put};
 
 const PLACEHOLDER: &str = "What do you want to listen to?";
 const HINT: &str =
@@ -27,6 +28,8 @@ pub struct SearchPage {
     text: String,
     /// Cursor position in characters.
     cursor: usize,
+    /// The first character shown, when the text is wider than the field.
+    scroll: usize,
     focused: bool,
     /// Where the field was drawn last, for clicks.
     field: Rect,
@@ -36,6 +39,7 @@ pub fn new(_ctx: &Ctx) -> SearchPage {
     SearchPage {
         text: String::new(),
         cursor: 0,
+        scroll: 0,
         focused: true,
         field: Rect::default(),
     }
@@ -93,6 +97,11 @@ impl SearchPage {
     }
 }
 
+/// Columns `chars` take on screen.
+fn columns(chars: &[char]) -> usize {
+    chars.iter().map(|c| c.width().unwrap_or(0)).sum()
+}
+
 /// The Spotify item `query` links to, if it's a `spotify:` URI or an open.spotify.com link.
 fn parse_link(query: &str) -> Option<SpotifyUrl> {
     if let Ok(uri_type) = query.parse::<UriType>() {
@@ -119,10 +128,15 @@ impl Page for SearchPage {
         pointer::text(self.field);
         let buf = frame.buffer_mut();
 
-        // The text, scrolled so the cursor stays in view.
+        // The text, scrolled so the cursor stays in view, with a column for it after the text.
         let chars: Vec<char> = self.text.chars().collect();
+        self.cursor = self.cursor.min(chars.len());
         let visible = usize::from(room.saturating_sub(1));
-        let skip = self.cursor.saturating_sub(visible);
+        self.scroll = self.scroll.min(self.cursor);
+        while columns(&chars[self.scroll..self.cursor]) > visible {
+            self.scroll += 1;
+        }
+        let skip = self.scroll;
         if chars.is_empty() {
             put(
                 buf,
@@ -170,8 +184,8 @@ impl Page for SearchPage {
         }
 
         if active {
-            let before: String = chars[skip..self.cursor].iter().collect();
-            let cursor_x = (x + width(&before) as u16).min(x + room.saturating_sub(1));
+            let before = columns(&chars[skip..self.cursor]) as u16;
+            let cursor_x = (x + before).min(x + room.saturating_sub(1));
             frame.set_cursor_position((cursor_x, area.y));
         }
     }
@@ -201,8 +215,18 @@ impl Page for SearchPage {
         if let MouseEventKind::Down(MouseButton::Left) = event.kind {
             self.focused = self.field.contains(Position::new(event.column, event.row));
             if self.focused {
+                // Before the character clicked, counting columns from the first one shown.
                 let column = usize::from(event.column.saturating_sub(self.field.x));
-                self.cursor = column.min(self.text.chars().count());
+                let chars: Vec<char> = self.text.chars().collect();
+                let mut used = 0;
+                self.cursor = chars.len();
+                for (i, c) in chars.iter().enumerate().skip(self.scroll) {
+                    used += c.width().unwrap_or(0);
+                    if used > column {
+                        self.cursor = i;
+                        break;
+                    }
+                }
             }
             return Outcome::Consumed;
         }
@@ -263,6 +287,7 @@ mod tests {
         let mut page = SearchPage {
             text: String::new(),
             cursor: 0,
+            scroll: 0,
             focused: true,
             field: Rect::default(),
         };
@@ -278,5 +303,53 @@ mod tests {
         page.edit(KeyEvent::new(KeyCode::Char('u'), KeyModifiers::CONTROL));
         assert_eq!(page.text, "d");
         assert!(!page.edit(key(KeyCode::Up)));
+    }
+
+    #[test]
+    fn test_wide_text_scrolls_and_clicks_by_column() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        let ctx = crate::tui::tests::app().ctx.clone();
+        let mut page = new(&ctx);
+        // Ten characters two columns wide each, in a field ten columns wide.
+        for c in "日本語の歌を探しています".chars() {
+            page.edit(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE));
+        }
+        let mut terminal = Terminal::new(TestBackend::new(14, 4)).unwrap();
+        let mut draw = |page: &mut SearchPage| {
+            terminal
+                .draw(|frame| page.draw(frame, frame.area(), &ctx, true))
+                .unwrap();
+            let buffer = terminal.backend().buffer().clone();
+            // Wide characters leave a blank in the cell after them.
+            let row: String = (0..14).map(|x| buffer[(x, 0)].symbol()).collect();
+            let row = row.replace(" ", "");
+            let cursor = terminal.get_cursor_position().unwrap();
+            (row, cursor.x)
+        };
+        // What was typed last shows, with the cursor after it.
+        let (row, cursor) = draw(&mut page);
+        assert!(row.contains("います"), "{row:?}");
+        assert_eq!(cursor, 2 + 8, "{row:?}");
+        // A click on the second character shown puts the cursor before it.
+        let first_shown = page.scroll;
+        page.mouse(
+            MouseEvent {
+                kind: MouseEventKind::Down(MouseButton::Left),
+                column: 2 + 3,
+                row: 0,
+                modifiers: KeyModifiers::NONE,
+            },
+            &ctx,
+        );
+        assert_eq!(page.cursor, first_shown + 1);
+        let (_, cursor) = draw(&mut page);
+        assert_eq!(cursor, 2 + 2);
+        // Home scrolls back to the start.
+        page.edit(KeyEvent::new(KeyCode::Home, KeyModifiers::NONE));
+        let (row, cursor) = draw(&mut page);
+        assert!(row.contains("日本語"), "{row:?}");
+        assert_eq!(cursor, 2);
     }
 }
