@@ -104,6 +104,8 @@ pub struct Queue {
     /// loading, as ones that fail to play do; see [Queue::failing].
     loaded_at: RwLock<Option<Instant>>,
     failed_in_a_row: RwLock<u32>,
+    /// How many tracks in a row were skipped as unplayable; see [Queue::skip_unplayable].
+    unplayable_in_a_row: RwLock<usize>,
     /// The URI of the track autoplay is being asked to follow, until its answer arrives (used or
     /// not), so it isn't asked twice at once.
     autoplay_after: RwLock<Option<String>>,
@@ -147,6 +149,7 @@ impl Queue {
             sleep_timer: RwLock::new(None),
             loaded_at: RwLock::new(None),
             failed_in_a_row: RwLock::new(0),
+            unplayable_in_a_row: RwLock::new(0),
             autoplay_after: RwLock::new(None),
             waiting_for_autoplay: RwLock::new(false),
             started: RwLock::new(Vec::new()),
@@ -484,8 +487,20 @@ impl Queue {
     }
 
     /// [Queue::play], but the track only starts playing if `start_playing`.
-    fn load(&self, mut index: usize, reshuffle: bool, shuffle_index: bool, start_playing: bool) {
+    fn load(&self, index: usize, reshuffle: bool, shuffle_index: bool, start_playing: bool) {
         self.record_listened();
+        *self.unplayable_in_a_row.write().unwrap() = 0;
+        self.load_unrecorded(index, reshuffle, shuffle_index, start_playing);
+    }
+
+    /// [Queue::load], without noting the current track in the listening history.
+    fn load_unrecorded(
+        &self,
+        mut index: usize,
+        reshuffle: bool,
+        shuffle_index: bool,
+        start_playing: bool,
+    ) {
         *self.loaded_at.write().unwrap() = Some(Instant::now());
         let queue_length = self.queue.read().unwrap().len();
         // The length of the queue must be bigger than 0 or gen_range panics!
@@ -619,15 +634,46 @@ impl Queue {
         } else if repeat == RepeatSetting::RepeatPlaylist && any_playable {
             self.load(0, false, false, start_playing);
         } else {
-            // Autoplay may still be looking for what comes next: it plays it when it's found. If
-            // it wasn't asked yet (or found nothing last time), it's asked now.
-            if !manual && let Some(index) = current {
-                self.request_autoplay(index);
-            }
-            *self.waiting_for_autoplay.write().unwrap() = !manual
-                && current_uri.is_some()
-                && *self.autoplay_after.read().unwrap() == current_uri;
-            self.spotify.stop();
+            self.run_out(current, current_uri, manual);
+        }
+    }
+
+    /// The queue ran out after the track at `current` (with URI `current_uri`): stop. Autoplay
+    /// may still be looking for what comes next: it plays it when it's found. Unless `manual`, if
+    /// it wasn't asked yet (or found nothing last time), it's asked now.
+    fn run_out(&self, current: Option<usize>, current_uri: Option<String>, manual: bool) {
+        if !manual && let Some(index) = current {
+            self.request_autoplay(index);
+        }
+        *self.waiting_for_autoplay.write().unwrap() =
+            !manual && current_uri.is_some() && *self.autoplay_after.read().unwrap() == current_uri;
+        self.spotify.stop();
+    }
+
+    /// Go on from the current track, with URI `uri`, which can't be played (greyed out in
+    /// Spotify, say for being unavailable in this country): to the next, starting it if
+    /// `start_playing`, whatever the repeat setting. It isn't noted in the listening history, nor
+    /// counted as a failure to play (see [Queue::failing]). Once every track in the queue was
+    /// skipped in a row, it stops.
+    pub fn skip_unplayable(&self, uri: &str, start_playing: bool) {
+        // Another track was picked meanwhile.
+        if !self.is_current_uri(uri) {
+            return;
+        }
+        // No word of it will come from the player.
+        self.spotify.cancel_loading();
+        let skipped = {
+            let mut skipped = self.unplayable_in_a_row.write().unwrap();
+            *skipped += 1;
+            *skipped
+        };
+        let len = self.len();
+        let next = self.next_index().or_else(|| {
+            (self.get_repeat() == RepeatSetting::RepeatPlaylist && skipped < len).then_some(0)
+        });
+        match next {
+            Some(index) => self.load_unrecorded(index, false, false, start_playing),
+            None => self.run_out(self.get_current_index(), Some(uri.to_string()), false),
         }
     }
 
@@ -1119,6 +1165,7 @@ mod tests {
             sleep_timer: RwLock::new(None),
             loaded_at: RwLock::new(None),
             failed_in_a_row: RwLock::new(0),
+            unplayable_in_a_row: RwLock::new(0),
             autoplay_after: RwLock::new(None),
             waiting_for_autoplay: RwLock::new(false),
             started: RwLock::new(Vec::new()),
@@ -1163,6 +1210,104 @@ mod tests {
         // Skipping by hand still works.
         q.next(true);
         assert_eq!(q.get_current_index(), Some(3));
+    }
+
+    // --- unplayable tracks ---
+
+    fn make_unplayable_track(id: u32) -> Playable {
+        let Playable::Track(mut track) = make_track(id) else {
+            unreachable!()
+        };
+        track.is_playable = Some(false);
+        Playable::Track(track)
+    }
+
+    /// Load the track at `index` as by hand and, if it can't be played, skip it as the player has
+    /// it.
+    fn play_and_skip_unplayable(q: &Queue, index: usize) {
+        q.play(index, false, false);
+        while let Some(current) = q.get_current().filter(|t| !t.is_playable()) {
+            let before = q.get_current_index();
+            q.skip_unplayable(&current.uri(), true);
+            if q.get_current_index() == before {
+                break;
+            }
+        }
+    }
+
+    #[test]
+    fn test_unplayable_tracks_are_skipped_without_being_noted_or_stopping_playback() {
+        let q = make_queue(
+            vec![
+                make_track(0),
+                make_unplayable_track(1),
+                make_unplayable_track(2),
+                make_unplayable_track(3),
+                make_track(4),
+            ],
+            Some(0),
+        );
+        listened_for(&q, 60);
+        // Picked by hand moments after loading, so a failure would count as quick.
+        *q.loaded_at.write().unwrap() = Some(Instant::now());
+        play_and_skip_unplayable(&q, 1);
+        // Three in a row aren't taken for Spotify refusing songs.
+        assert_eq!(q.get_current_index(), Some(4));
+        assert_eq!(*q.failed_in_a_row.read().unwrap(), 0);
+        // Only the track listened to is noted.
+        let noted: Vec<String> = recorded().into_iter().map(|(uri, _)| uri).collect();
+        assert_eq!(noted, ["spotify:track:id_0"]);
+    }
+
+    #[test]
+    fn test_unplayable_track_skip_for_a_track_no_longer_current_is_ignored() {
+        let q = make_queue(
+            vec![make_track(0), make_unplayable_track(1), make_track(2)],
+            None,
+        );
+        q.play(1, false, false);
+        q.play(0, false, false);
+        q.skip_unplayable("spotify:track:id_1", true);
+        assert_eq!(q.get_current_index(), Some(0));
+    }
+
+    #[test]
+    fn test_unplayable_tracks_at_the_end_stop() {
+        let q = make_queue(vec![make_track(0), make_unplayable_track(1)], Some(0));
+        q.spotify.update_status(PlayerEvent::Stopped);
+        play_and_skip_unplayable(&q, 1);
+        assert_eq!(q.get_current_index(), Some(1));
+        // The player's status isn't touched: stopped, it stays stopped, so play plays.
+        assert_eq!(q.spotify.get_current_status(), PlayerEvent::Stopped);
+        assert!(recorded().is_empty());
+    }
+
+    #[test]
+    fn test_a_queue_of_only_unplayable_tracks_on_repeat_doesnt_skip_forever() {
+        let q = make_queue(
+            vec![make_unplayable_track(0), make_unplayable_track(1)],
+            None,
+        );
+        q.set_repeat(RepeatSetting::RepeatPlaylist);
+        let mut skips = 0;
+        q.play(0, false, false);
+        while let Some(current) = q.get_current() {
+            let index = q.get_current_index();
+            q.skip_unplayable(&current.uri(), true);
+            skips += 1;
+            if q.get_current_index() == index || skips > 10 {
+                break;
+            }
+        }
+        assert!(skips <= 3);
+    }
+
+    #[test]
+    fn test_unplayable_tracks_wrap_around_on_repeat() {
+        let q = make_queue(vec![make_track(0), make_unplayable_track(1)], Some(0));
+        q.set_repeat(RepeatSetting::RepeatPlaylist);
+        play_and_skip_unplayable(&q, 1);
+        assert_eq!(q.get_current_index(), Some(0));
     }
 
     // --- autoplay ---

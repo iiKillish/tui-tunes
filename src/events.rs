@@ -8,6 +8,12 @@ use crate::spotify::PlayerEvent;
 /// Events that can be sent to and handled by the main event loop (the one drawing the TUI).
 pub enum Event {
     Player(PlayerEvent),
+    /// The track with URI `uri` was to be loaded but can't be played (greyed out in Spotify, say
+    /// for being unavailable in this country): it's skipped. `start_playing` as it was loaded.
+    Unplayable {
+        uri: String,
+        start_playing: bool,
+    },
     Queue(QueueEvent),
     SessionDied,
     IpcInput(String),

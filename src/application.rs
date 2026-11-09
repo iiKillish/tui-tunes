@@ -282,6 +282,9 @@ impl Application {
                     self.queue.next(false);
                 }
             }
+            Event::Unplayable { uri, start_playing } => {
+                self.queue.skip_unplayable(&uri, start_playing);
+            }
             Event::Queue(event) => {
                 if let Some(message) = self.queue.handle_event(event) {
                     app.set_message(message);

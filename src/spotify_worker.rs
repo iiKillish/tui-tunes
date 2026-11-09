@@ -237,6 +237,10 @@ impl Worker {
                         loading = None;
                         preload = None;
                         loading_title = title(&playable);
+                        let unplayable = Event::Unplayable {
+                            uri: playable.uri(),
+                            start_playing,
+                        };
                         match SpotifyUri::from_uri(&playable.uri()) {
                             Ok(uri) => {
                                 info!("player loading track: {uri:?}");
@@ -245,7 +249,7 @@ impl Worker {
                                     crate::tui::report_error(format!(
                                         "{loading_title} can't be played"
                                     ));
-                                    self.events.send(Event::Player(PlayerEvent::FinishedTrack));
+                                    self.events.send(unplayable);
                                 } else {
                                     // What the sink has of the track before isn't to be heard,
                                     // unless that played to its end and runs into this one.
@@ -268,7 +272,7 @@ impl Worker {
                             }
                             Err(e) => {
                                 error!("error parsing uri: {e:?}");
-                                self.events.send(Event::Player(PlayerEvent::FinishedTrack));
+                                self.events.send(unplayable);
                             }
                         }
                     }
