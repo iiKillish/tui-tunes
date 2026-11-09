@@ -145,7 +145,7 @@ fn print_layout() {
 // ---------------------------------------------------------------------------------------------
 // Layout at many sizes, with and without images, over a library with some content.
 
-fn track(n: usize) -> Track {
+pub(crate) fn track(n: usize) -> Track {
     serde_json::from_value(serde_json::json!({
         "id": format!("test{n}"),
         "uri": format!("spotify:track:test{n}"),
@@ -1240,6 +1240,150 @@ fn test_command_line_suggests_and_completes() {
 }
 
 #[test]
+fn test_up_next_acts_on_the_selected_song_like_other_lists() {
+    use crate::command::{GotoMode, JumpMode};
+    use crate::tui::page::{Outcome, Page};
+
+    images::force_supported(false);
+    let app = app();
+    let ctx = app.ctx.clone();
+    let songs: Vec<Playable> = tracks(4)
+        .into_iter()
+        .map(|mut track| {
+            track.album_id = Some("album1".into());
+            Playable::Track(track)
+        })
+        .collect();
+    ctx.queue.append_next(&songs);
+    ctx.queue.play(0, false, false);
+    let mut page = pages::queue::new(&ctx);
+    let mut terminal = Terminal::new(TestBackend::new(80, 30)).unwrap();
+    terminal
+        .draw(|frame| page.draw(frame, frame.area(), &ctx, true))
+        .unwrap();
+    page.command(&Command::Move(MoveMode::Down, MoveAmount::Integer(1)), &ctx);
+    let mut run = |cmd: Command| page.command(&cmd, &ctx);
+    assert!(matches!(
+        run(Command::Goto(GotoMode::Album)),
+        Outcome::Open(_)
+    ));
+    // Two artists: which one?
+    assert!(matches!(
+        run(Command::Goto(GotoMode::Artist)),
+        Outcome::Overlay(_)
+    ));
+    assert!(!matches!(run(Command::Save), Outcome::Ignored));
+    // Sharing too, but that would copy to the real clipboard.
+    #[cfg(feature = "share_clipboard")]
+    assert!(crate::tui::nav::is_item_command(&Command::Share(
+        TargetMode::Selected
+    )));
+    // `/` finds a song, `n` the next match, going round.
+    run(Command::Jump(JumpMode::Query("song number".into())));
+    run(Command::Jump(JumpMode::Next));
+    run(Command::Play);
+    assert_eq!(ctx.queue.get_current_index(), Some(2));
+    run(Command::Jump(JumpMode::Query("number 4".into())));
+    run(Command::Play);
+    assert_eq!(ctx.queue.get_current_index(), Some(3));
+    run(Command::Jump(JumpMode::Previous));
+    run(Command::Play);
+    assert_eq!(ctx.queue.get_current_index(), Some(3), "only one match");
+}
+
+#[test]
+fn test_clicking_a_card_opens_the_one_drawn_there() {
+    use crate::tui::page::{Outcome, Page};
+    use crate::tui::widgets::cards::{Card, CardGrid, CardLayout, Section};
+    use std::sync::RwLock;
+
+    images::force_supported(false);
+    let ctx = app().ctx.clone();
+    let named = |n: usize| {
+        let mut album = album();
+        album.title = format!("Album {n}");
+        album
+    };
+    let albums = Arc::new(RwLock::new(vec![named(1), named(2), named(3)]));
+    let source = {
+        let albums = albums.clone();
+        Box::new(move || {
+            let cards: Vec<Card> = albums
+                .read()
+                .unwrap()
+                .iter()
+                .cloned()
+                .map(Card::album)
+                .collect();
+            Some(vec![Section::new("", cards)])
+        })
+    };
+    let mut grid = CardGrid::new("Albums", CardLayout::Grid, source);
+    let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
+    terminal
+        .draw(|frame| grid.draw(frame, frame.area(), &ctx, true))
+        .unwrap();
+    let second = find(&terminal, "Album 2").expect("the second album");
+    // The cards change before the click is handled, as when they're loaded again.
+    albums.write().unwrap().insert(0, named(9));
+    match grid.mouse(click(second.x, second.y), &ctx) {
+        Outcome::Open(page) => assert_eq!(page.title(), "Album 2"),
+        _ => panic!("nothing opened"),
+    }
+}
+
+#[test]
+fn test_a_click_after_scrolling_waits_for_a_draw() {
+    use crate::events::Event;
+    use crate::tui::Terminal as Tui;
+    use ratatui::crossterm::event::Event as InputEvent;
+
+    let mouse = |kind| {
+        Event::Input(InputEvent::Mouse(MouseEvent {
+            kind,
+            ..click(1, 1)
+        }))
+    };
+    let wheel = mouse(MouseEventKind::ScrollDown);
+    let down = mouse(MouseEventKind::Down(MouseButton::Left));
+    assert!(Tui::may_change_screen(&wheel) && !Tui::is_click(&wheel));
+    assert!(Tui::is_click(&down));
+    assert!(Tui::may_change_screen(&Event::Redraw));
+    assert!(!Tui::may_change_screen(&mouse(MouseEventKind::Moved)));
+}
+
+#[test]
+fn test_mac_option_characters_are_alt_only_on_a_mac() {
+    use crate::tui::keys::Key;
+
+    let app = app();
+    // Option+l on a Mac, Shift+` on a UK keyboard.
+    let not = Key::parse("¬").unwrap();
+    let alt_l = Key::parse("Alt+l").unwrap();
+    assert!(app.binding(&alt_l).is_some(), "Alt+l isn't bound");
+    if cfg!(target_os = "macos") {
+        assert!(app.binding(&not).is_some());
+    } else {
+        assert!(app.binding(&not).is_none(), "¬ ran an Alt+l binding");
+    }
+}
+
+#[test]
+fn test_command_line_cursor_follows_wide_characters() {
+    let mut app = app();
+    let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+    key(&mut app, KeyCode::Char('/'));
+    for c in "日本".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let typed = find(&terminal, "/日").expect("the command line");
+    // After the two characters, two columns each.
+    let cursor = terminal.get_cursor_position().unwrap();
+    assert_eq!((cursor.x, cursor.y), (typed.x + 1 + 4, typed.y));
+}
+
+#[test]
 fn test_ctrl_c_quits_even_while_typing() {
     let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
     let mut app = app();
@@ -1489,4 +1633,37 @@ fn test_a_wheel_notch_sent_as_several_events_scrolls_up_next_by_one_song() {
     assert_eq!(shown(&terminal), [4]);
     notch(MouseEventKind::ScrollUp, &mut terminal);
     assert_eq!(shown(&terminal), [3]);
+}
+
+#[test]
+fn test_playing_a_list_with_nothing_loaded_keeps_the_queue() {
+    use crate::tui::header::HeaderAction;
+    use crate::tui::page::{Outcome, Page};
+
+    images::force_supported(false);
+    let app = full_app();
+    let ctx = app.ctx.clone();
+    let mut empty_album = album();
+    empty_album.tracks = Some(Vec::new());
+    let mut empty_playlist = playlist();
+    empty_playlist.tracks = Some(Vec::new());
+    let pages: Vec<Box<dyn Page>> = vec![
+        Box::new(pages::album::AlbumPage::new(empty_album, &ctx)),
+        Box::new(pages::playlist::PlaylistPage::new(empty_playlist, &ctx)),
+    ];
+    for mut page in pages {
+        let name = page.title();
+        let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
+        terminal
+            .draw(|frame| page.draw(frame, frame.area(), &ctx, true))
+            .unwrap();
+        let outcome = page.command(&Command::Play, &ctx);
+        assert!(matches!(outcome, Outcome::Message(_)), "{name}");
+        for action in [HeaderAction::Play, HeaderAction::Shuffle] {
+            page.header_action(action, &ctx);
+        }
+        assert_eq!(ctx.queue.len(), 25, "{name}: the queue was cleared");
+        assert_eq!(ctx.queue.get_current_index(), Some(0), "{name}");
+        assert!(!ctx.queue.get_shuffle(), "{name}: shuffle was left on");
+    }
 }

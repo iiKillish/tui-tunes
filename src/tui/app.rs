@@ -587,14 +587,21 @@ impl App {
                 return;
             }
         }
-        let bound = self.bindings.get(&key).or_else(|| {
-            key.as_mac_option_alt()
-                .and_then(|alt| self.bindings.get(&alt))
-        });
-        match bound.cloned() {
+        match self.binding(&key).cloned() {
             Some(commands) => self.run_binding(commands),
             None => self.count = 0,
         }
+    }
+
+    /// The commands bound to `key`. On a Mac, a character typed with Option is also taken as
+    /// Alt with that key; elsewhere those characters (`¬` on a UK keyboard, `ß`, `ç`) are just
+    /// typed, so they don't run Alt bindings.
+    pub(crate) fn binding(&self, key: &Key) -> Option<&Vec<Command>> {
+        self.bindings.get(key).or_else(|| {
+            key.as_mac_option_alt()
+                .filter(|_| cfg!(target_os = "macos"))
+                .and_then(|alt| self.bindings.get(&alt))
+        })
     }
 
     /// Open the command line (`prefix` is `:` or `/`) with `text` typed.
@@ -1135,15 +1142,9 @@ impl App {
                 usize::MAX,
                 style,
             );
-            let cursor_x = full.x
-                + 1
-                + line
-                    .text
-                    .chars()
-                    .take(line.cursor)
-                    .collect::<String>()
-                    .chars()
-                    .count() as u16;
+            // In columns, which wide characters (日本, emoji) take two of.
+            let before: String = line.text.chars().take(line.cursor).collect();
+            let cursor_x = full.x + 1 + width(&before) as u16;
             frame.set_cursor_position((cursor_x.min(full.right().saturating_sub(1)), row));
             if let Some(cell) = frame.buffer_mut().cell_mut((cursor_x, row)) {
                 cell.modifier.insert(Modifier::REVERSED);

@@ -13,7 +13,7 @@ use ratatui::Frame;
 use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 
-use crate::command::{Command, GotoMode, JumpMode, MoveAmount, MoveMode, TargetMode};
+use crate::command::{Command, JumpMode, MoveAmount, MoveMode, TargetMode};
 use crate::model::folder;
 use crate::model::playable::Playable;
 use crate::model::track::Track;
@@ -29,6 +29,11 @@ use crate::utils::search_text;
 
 /// Narrowest list that shows covers before its items.
 const MIN_WIDTH_FOR_THUMBNAILS: u16 = 50;
+
+/// What playing an empty list says, e.g. a playlist whose songs are still loading.
+pub fn nothing_to_play() -> Outcome {
+    Outcome::Message("Nothing to play yet".into())
+}
 
 pub struct ItemList<I: ListItem + Clone> {
     content: Arc<RwLock<Vec<I>>>,
@@ -349,19 +354,29 @@ impl<I: ListItem + Clone> ItemList<I> {
     /// Play from the selected item: for lists of tracks, the whole list from there (so the rest
     /// follows in the queue); otherwise the item itself (an album, a playlist…). In a folder, its
     /// songs from the selected one, without its subfolders.
-    fn play(&self, ctx: &Ctx) {
-        self.play_from(ctx, false);
+    fn play(&self, ctx: &Ctx) -> Outcome {
+        self.play_from(ctx, false)
     }
 
-    /// Play all of the list's tracks, from the first, or from a random one with shuffle on (the
-    /// header's Play and Shuffle).
-    pub fn play_all(&mut self, ctx: &Ctx) {
+    /// The header's Play and Shuffle: all of the list's tracks, from the first, or with
+    /// `shuffle` from a random one with shuffle on. Leaves the queue and shuffle alone if there's
+    /// nothing to play yet, e.g. while the tracks are loading.
+    pub fn play_header(&mut self, shuffle: bool, ctx: &Ctx) -> Outcome {
+        if self.is_empty() {
+            return nothing_to_play();
+        }
+        ctx.queue.set_shuffle(shuffle);
+        self.play_all(ctx)
+    }
+
+    /// Play all of the list's tracks, from the first, or from a random one with shuffle on.
+    pub fn play_all(&mut self, ctx: &Ctx) -> Outcome {
         self.select(0);
-        self.play_from(ctx, true);
+        self.play_from(ctx, true)
     }
 
     /// [Self::play], from a random track with shuffle on if `random_start`.
-    fn play_from(&self, ctx: &Ctx, random_start: bool) {
+    fn play_from(&self, ctx: &Ctx, random_start: bool) -> Outcome {
         // The tracks, and where the selected one is among them.
         let tracks: Option<(Vec<Playable>, usize)> = {
             let content = self.content.read().unwrap();
@@ -390,6 +405,8 @@ impl<I: ListItem + Clone> ItemList<I> {
             }
         };
         match tracks {
+            // Nothing loaded yet (or nothing found): the queue stays as it is.
+            Some((tracks, selected)) if selected >= tracks.len() => return nothing_to_play(),
             Some((tracks, selected)) => {
                 ctx.queue.clear();
                 let index = ctx.queue.append_next_from(&tracks, self.source.as_deref());
@@ -398,12 +415,12 @@ impl<I: ListItem + Clone> ItemList<I> {
                     crate::tui::pages::home::started(target, &tracks);
                 }
             }
-            None => {
-                if let Some(item) = self.selected_item() {
-                    nav::play_item(item.as_listitem(), ctx);
-                }
-            }
+            None => match self.selected_item() {
+                Some(item) => nav::play_item(item.as_listitem(), ctx),
+                None => return nothing_to_play(),
+            },
         }
+        Outcome::Consumed
     }
 
     /// Open the selected item: its page, or for tracks and episodes, a menu.
@@ -485,47 +502,18 @@ impl<I: ListItem + Clone> ItemList<I> {
             {
                 return self.open(ctx);
             }
-            Command::Play => self.play(ctx),
+            Command::Play => return self.play(ctx),
             Command::PlayNext | Command::Queue => {
                 if let Some(item) = self.selected_item() {
                     nav::queue_item(item.as_listitem(), matches!(cmd, Command::PlayNext), ctx);
                 }
             }
-            Command::Save => {
-                if let Some(mut item) = self.selected_item() {
-                    item.save(&ctx.library);
-                }
-            }
-            Command::Add => {
-                if let Some(track) = self.selected_item().and_then(|i| i.track()) {
-                    return nav::pick_playlist_for(vec![track], ctx);
-                }
-            }
             Command::Open(TargetMode::Selected) => return self.open(ctx),
-            Command::Goto(mode) => {
-                let Some(item) = self.selected_item() else {
-                    return Outcome::Consumed;
+            cmd if nav::is_item_command(cmd) => {
+                return match self.selected_item() {
+                    Some(mut item) => nav::item_command(&mut item, cmd, ctx),
+                    None => Outcome::Consumed,
                 };
-                return match mode {
-                    GotoMode::Album => match item.album() {
-                        Some(album) => Outcome::Open(nav::open_target(
-                            crate::traits::OpenTarget::Album(album),
-                            ctx,
-                        )),
-                        None => Outcome::Consumed,
-                    },
-                    GotoMode::Artist => match item.artists() {
-                        Some(artists) => nav::go_to_artists(artists, ctx),
-                        None => Outcome::Consumed,
-                    },
-                };
-            }
-            #[cfg(feature = "share_clipboard")]
-            Command::Share(TargetMode::Selected) => {
-                if let Some(url) = self.selected_item().and_then(|i| i.share_url()) {
-                    let _ = crate::sharing::write_share(url);
-                    return Outcome::Message("Link copied".into());
-                }
             }
             Command::Jump(mode) => self.jump(mode, ctx),
             _ => return Outcome::Ignored,
@@ -574,7 +562,7 @@ impl<I: ListItem + Clone> ItemList<I> {
                         return Outcome::Overlay(nav::context_menu(item.as_listitem(), ctx));
                     }
                     if already {
-                        self.play(ctx);
+                        return self.play(ctx);
                     }
                 } else {
                     return self.open(ctx);

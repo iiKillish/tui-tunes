@@ -240,6 +240,9 @@ pub struct CardGrid {
     cover: u16,
     /// Where each card was drawn last, with its section and index, for clicks.
     card_areas: Vec<(Rect, usize, usize)>,
+    /// The sections drawn last, which clicks go by: the source may have changed since (Home
+    /// refreshing), and a click is on what was on screen.
+    drawn: Vec<Section>,
     /// Matches of the last `/` search (section, card), and which one is selected.
     jump_matches: Vec<(usize, usize)>,
     jump_index: usize,
@@ -262,6 +265,7 @@ impl CardGrid {
             visible: 1,
             cover: COVER_ROWS,
             card_areas: Vec::new(),
+            drawn: Vec::new(),
             jump_matches: Vec::new(),
             jump_index: 0,
         }
@@ -663,6 +667,7 @@ impl Page for CardGrid {
 
     fn draw(&mut self, frame: &mut Frame, area: Rect, ctx: &Ctx, focused: bool) {
         self.card_areas.clear();
+        self.drawn.clear();
         let styles = Styles(&ctx.palette);
         let message = |frame: &mut Frame, text: &str| {
             put(
@@ -701,6 +706,7 @@ impl Page for CardGrid {
                 }
             }
         }
+        self.drawn = sections;
     }
 
     fn command(&mut self, cmd: &Command, ctx: &Ctx) -> Outcome {
@@ -791,7 +797,6 @@ impl Page for CardGrid {
     }
 
     fn mouse(&mut self, event: MouseEvent, ctx: &Ctx) -> Outcome {
-        let sections = self.sections();
         match event.kind {
             MouseEventKind::Down(MouseButton::Left) => {
                 let at = Position::new(event.column, event.row);
@@ -802,15 +807,17 @@ impl Page for CardGrid {
                 {
                     self.section = section;
                     self.card = card;
-                    return self.activate(&sections, ctx);
+                    return self.activate(&self.drawn, ctx);
                 }
             }
             MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
                 if !wheel::moves(&event, self.rows_shown()) => {}
             MouseEventKind::ScrollDown => {
+                let sections = self.sections();
                 self.move_selection(&sections, &MoveMode::Down, &MoveAmount::Integer(1));
             }
             MouseEventKind::ScrollUp => {
+                let sections = self.sections();
                 self.move_selection(&sections, &MoveMode::Up, &MoveAmount::Integer(1));
             }
             _ => return Outcome::Ignored,

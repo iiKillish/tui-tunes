@@ -15,8 +15,9 @@ use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 
-use crate::command::{Command, MoveAmount, MoveMode, ShiftMode, TargetMode};
+use crate::command::{Command, JumpMode, MoveAmount, MoveMode, ShiftMode, TargetMode};
 use crate::model::playable::Playable;
+use crate::traits::ListItem;
 use crate::tui::hints;
 use crate::tui::images;
 use crate::tui::nav;
@@ -26,6 +27,7 @@ use crate::tui::style::{
     SELECTION_MARKER, Styles, bold, duration, fill, put, songs_and_length, width,
 };
 use crate::tui::wheel;
+use crate::utils::search_text;
 
 /// Most upcoming items looked at; more than ever fit on screen.
 const MAX_UPCOMING: usize = 200;
@@ -56,6 +58,8 @@ pub struct QueuePage {
     upcoming_shown: usize,
     /// "12 songs, 45 min" for what's coming up, worked out while drawing.
     subtitle: String,
+    /// The last `/` search, which `n` and `N` find again.
+    search: String,
 }
 
 pub fn new(_ctx: &Ctx) -> QueuePage {
@@ -69,6 +73,7 @@ pub fn new(_ctx: &Ctx) -> QueuePage {
         button: None,
         upcoming_shown: 0,
         subtitle: String::new(),
+        search: String::new(),
     }
 }
 
@@ -194,6 +199,33 @@ impl QueuePage {
         {
             ctx.queue.shift(from, to);
             self.select(target, &items);
+        }
+    }
+
+    /// Select the next item (or with `back`, the previous one) after the selected one, or the
+    /// selected one itself if `here`, whose title has the last `/` search in it, going round.
+    fn find(&mut self, back: bool, here: bool, ctx: &Ctx) {
+        let items = Items::load(ctx);
+        let count = items.last() + 1;
+        if self.search.is_empty() || items.get(0).is_none() {
+            return;
+        }
+        let from = self.selected.min(items.last());
+        let found = (usize::from(!here)..=count)
+            .map(|step| {
+                if back {
+                    (from + count - step % count) % count
+                } else {
+                    (from + step) % count
+                }
+            })
+            .find(|&position| {
+                items.get(position).is_some_and(|item| {
+                    search_text(&item.display_left(&ctx.library)).contains(&self.search)
+                })
+            });
+        if let Some(position) = found {
+            self.select(position, &items);
         }
     }
 
@@ -461,6 +493,18 @@ impl Page for QueuePage {
                     None => Outcome::Consumed,
                 };
             }
+            // Like in other lists of songs.
+            cmd if nav::is_item_command(cmd) => {
+                return match Items::load(ctx).get(self.selected) {
+                    Some(item) => nav::item_command(&mut item.clone(), cmd, ctx),
+                    None => Outcome::Consumed,
+                };
+            }
+            Command::Jump(JumpMode::Query(query)) => {
+                self.search = search_text(query);
+                self.find(false, true, ctx);
+            }
+            Command::Jump(mode) => self.find(matches!(mode, JumpMode::Previous), false, ctx),
             _ => return Outcome::Ignored,
         }
         Outcome::Consumed

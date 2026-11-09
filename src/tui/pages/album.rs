@@ -102,9 +102,7 @@ impl Page for AlbumPage {
     fn header_action(&mut self, action: HeaderAction, ctx: &Ctx) -> Outcome {
         match action {
             HeaderAction::Play | HeaderAction::Shuffle => {
-                ctx.queue.set_shuffle(action == HeaderAction::Shuffle);
-                self.list.play_all(ctx);
-                Outcome::Consumed
+                self.list.play_header(action == HeaderAction::Shuffle, ctx)
             }
             HeaderAction::Like => {
                 if ctx.library.is_saved_album(&self.album) {
