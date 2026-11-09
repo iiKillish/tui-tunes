@@ -591,10 +591,17 @@ impl Spotify {
     }
 
     /// Ask Spotify's autoplay for tracks to follow the track `after`, seeded with `context_uri`
-    /// (its album) and leaving out the `recent` track URIs. Runs in the background: the tracks
-    /// arrive as [QueueEvent::Autoplay]. Uses the same private endpoint as Spotify's own apps, as
-    /// the Web API no longer offers recommendations.
-    pub fn request_autoplay(&self, context_uri: String, recent: Vec<String>, after: String) {
+    /// (its album, or the track itself) and leaving out the `recent` track URIs. Runs in the
+    /// background: the tracks arrive as [QueueEvent::Autoplay], `manual` if asked for by hand.
+    /// Uses the same private endpoint as Spotify's own apps, as the Web API no longer offers
+    /// recommendations.
+    pub fn request_autoplay(
+        &self,
+        context_uri: String,
+        recent: Vec<String>,
+        after: String,
+        manual: bool,
+    ) {
         let (reply, uris) = oneshot::channel();
         let request = AutoplayContextRequest {
             context_uri: Some(context_uri),
@@ -614,7 +621,11 @@ impl Spotify {
                 .into_iter()
                 .map(Playable::Track)
                 .collect();
-            events.send(Event::Queue(QueueEvent::Autoplay { after, tracks }));
+            events.send(Event::Queue(QueueEvent::Autoplay {
+                after,
+                tracks,
+                manual,
+            }));
         });
     }
 

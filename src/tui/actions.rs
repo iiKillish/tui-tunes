@@ -119,6 +119,12 @@ pub fn run(cmd: &Command, ctx: &Ctx) -> Outcome {
                 ],
             )));
         }
+        Command::Autoplay => {
+            return match queue.autoplay_now() {
+                Ok(()) => Outcome::Message("Asking autoplay for songs…".into()),
+                Err(e) => Outcome::Error(e.into()),
+            };
+        }
         Command::UpdateLibrary => ctx.library.update_library(true),
         Command::TogglePlay => queue.toggleplayback(),
         Command::Shuffle(mode) => queue.set_shuffle(mode.unwrap_or_else(|| !queue.get_shuffle())),

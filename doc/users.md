@@ -209,6 +209,7 @@ When pressing <kbd>O</kbd>:
 | Key                          | Command                              |
 |------------------------------|--------------------------------------|
 | <kbd>C</kbd>                 | Clear the queue: everything, or only what's up next (the current song keeps playing, then autoplay picks what follows). |
+| <kbd>Shift</kbd>+<kbd>R</kbd> | Autoplay now: add songs like the last one in the queue to the end of it (even with the `autoplay` setting off), and play them if nothing's playing. Also the **↻ Autoplay** button in Up next when nothing's up next. |
 | <kbd>D</kbd>                 | Delete the currently selected track. |
 | <kbd>Shift</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> | Move the selected track up or down. |
 | <kbd>Ctrl</kbd>+<kbd>S</kbd> | Save the current queue.              |
@@ -282,6 +283,7 @@ Note: \<FOO\> - mandatory arg; [BAR] - optional arg
 | `shuffle` [`on`\|`off`] | Enable or disable shuffle. Omit argument to toggle. |
 | `sleep` [\<TIME\>\|`track`\|`off`] | Set the sleep timer, which pauses playback. `track` pauses when the current track ends, and the next one waits paused; `off` turns the timer off. Omit the argument to toggle `track`.<br/>\* TIME is a number of minutes, or a duration such as `1h 30m`, `45m` or `90s` (units: `ms`, `s`, `m`, `h`). |
 | `clear` | Clear the queue: asks whether to clear everything, or only what's up next and keep the current song playing, with autoplay after it. |
+| `autoplay` | Ask autoplay for songs like the last one in the queue now, and add them to the end of it, whatever the `autoplay` setting. Plays them if nothing's playing. |
 
 #### Library and playlists
 
@@ -425,7 +427,9 @@ Possible configuration values are:
 4. When the last song in the queue starts, ttunes asks Spotify's autoplay for songs like it (based
    on its album and the songs played before it) and adds them to the end of the queue, shown as
    "Next from: Autoplay". Songs you queue go ahead of them. Not with repeat on, and not for
-   podcasts.
+   podcasts. It's asked again when the queue runs out if it found nothing, and when what's up
+   next is removed or repeat is turned off. To ask for more by hand, use <kbd>Shift</kbd>+<kbd>R</kbd>
+   (`autoplay`).
 5. See [local files](#local-files). Read when ttunes starts.
 
 ### Custom Keybindings

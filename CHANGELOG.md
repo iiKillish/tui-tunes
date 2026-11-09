@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0]
+
+### Added
+
+- Autoplay on demand: <kbd>Shift</kbd>+<kbd>R</kbd>, the `autoplay` command or
+  the Autoplay button in Up next adds songs like the last one in the queue,
+  even with the setting off, and plays them if nothing's playing
+
+### Fixed
+
+- Autoplay that found nothing, or whose songs arrived after something was
+  queued, is asked again rather than never: when the queue runs out, when
+  what's up next is removed, or when repeat or the setting is turned back on
+- Songs without a known album get autoplay too, seeded with the song itself
+
 ## [0.10.1]
 
 ### Fixed

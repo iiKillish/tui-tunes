@@ -49,8 +49,9 @@ pub struct QueuePage {
     /// there (for clicks).
     area: Rect,
     row_items: Vec<Option<usize>>,
-    /// Where the Clear button was drawn last, if it was.
-    clear_button: Option<Rect>,
+    /// Where the button at the top (Clear, or Autoplay when nothing's up next) was drawn last,
+    /// if it was, and what it runs.
+    button: Option<(Rect, Command)>,
     /// Upcoming items drawn last.
     upcoming_shown: usize,
     /// "12 songs, 45 min" for what's coming up, worked out while drawing.
@@ -65,7 +66,7 @@ pub fn new(_ctx: &Ctx) -> QueuePage {
         max_scroll: 0,
         area: Rect::default(),
         row_items: Vec::new(),
-        clear_button: None,
+        button: None,
         upcoming_shown: 0,
         subtitle: String::new(),
     }
@@ -295,21 +296,30 @@ impl Page for QueuePage {
         let mut y = 0;
         let buf = frame.buffer_mut();
 
-        // Clear, on the top row at the right, while there's anything to clear.
-        self.clear_button = None;
-        if !items.upcoming.is_empty() && height >= 3 {
-            let label = " ✕ Clear ";
+        // On the top row at the right: Clear while there's anything to clear, otherwise Autoplay
+        // to fill what's up next.
+        self.button = None;
+        let button = if !items.upcoming.is_empty() {
+            Some((" ✕ Clear ", Command::Clear))
+        } else if ctx.queue.len() > 0 {
+            Some((" ↻ Autoplay ", Command::Autoplay))
+        } else {
+            None
+        };
+        if let Some((label, command)) = button
+            && height >= 3
+        {
             let bx = area.right().saturating_sub(INDENT + width(label) as u16);
             if bx >= x + 16 {
                 let written = put(buf, bx, area.y, label, usize::MAX, styles.primary());
-                let button = Rect::new(bx, area.y, written as u16, 1);
-                pointer::clickable(button);
-                hints::add(button, Command::Clear);
-                self.clear_button = Some(button);
+                let rect = Rect::new(bx, area.y, written as u16, 1);
+                pointer::clickable(rect);
+                hints::add(rect, command.clone());
+                self.button = Some((rect, command));
             }
         }
-        let heading_width = match self.clear_button {
-            Some(button) => usize::from(button.x.saturating_sub(x + 1)),
+        let heading_width = match &self.button {
+            Some((button, _)) => usize::from(button.x.saturating_sub(x + 1)),
             None => text_width,
         };
 
@@ -459,11 +469,10 @@ impl Page for QueuePage {
     fn mouse(&mut self, event: MouseEvent, ctx: &Ctx) -> Outcome {
         match event.kind {
             MouseEventKind::Down(MouseButton::Left)
-                if self
-                    .clear_button
-                    .is_some_and(|r| r.contains((event.column, event.row).into())) =>
+                if let Some((rect, command)) = &self.button
+                    && rect.contains((event.column, event.row).into()) =>
             {
-                return Outcome::Run(vec![Command::Clear]);
+                return Outcome::Run(vec![command.clone()]);
             }
             MouseEventKind::Down(MouseButton::Left) => {
                 let row = event.row.checked_sub(self.area.y).map(usize::from);

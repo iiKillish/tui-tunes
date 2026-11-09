@@ -774,6 +774,12 @@ fn test_the_queues_clear_button_can_keep_the_current_track() {
         find(&terminal, "✕ Clear").is_none(),
         "nothing left to clear"
     );
+    // Instead, autoplay can be asked for songs to follow it.
+    assert!(
+        find(&terminal, "↻ Autoplay").is_some(),
+        "\n{}",
+        screen_text(&terminal)
+    );
 }
 
 #[test]

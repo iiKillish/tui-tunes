@@ -11,6 +11,7 @@ const STOP_CMD: &str = "stop";
 const PREVIOUS_CMD: &str = "previous";
 const NEXT_CMD: &str = "next";
 const CLEAR_CMD: &str = "clear";
+const AUTOPLAY_CMD: &str = "autoplay";
 const QUEUE_CMD: &str = "queue";
 const PLAY_NEXT_CMD: &str = "playnext";
 const PLAY: &str = "play";
@@ -122,6 +123,12 @@ pub const COMMANDS: &[CommandInfo] = &[
     info(QUEUE_CMD, "", "Add the selected item to the queue", &[]),
     info(PLAY_NEXT_CMD, "", "Play the selected item next", &[]),
     info(CLEAR_CMD, "", "Clear the queue", &[]),
+    info(
+        AUTOPLAY_CMD,
+        "",
+        "Autoplay: add songs like the last one in the queue now",
+        &[],
+    ),
     info(
         SAVE_CMD,
         "[current|queue]",
@@ -419,6 +426,7 @@ pub enum Command {
     Previous,
     Next,
     Clear,
+    Autoplay,
     Queue,
     PlayNext,
     Play,
@@ -522,6 +530,7 @@ impl fmt::Display for Command {
             | Self::Previous
             | Self::Next
             | Self::Clear
+            | Self::Autoplay
             | Self::Queue
             | Self::PlayNext
             | Self::Play
@@ -557,6 +566,7 @@ impl Command {
             Self::Previous => PREVIOUS_CMD,
             Self::Next => NEXT_CMD,
             Self::Clear => CLEAR_CMD,
+            Self::Autoplay => AUTOPLAY_CMD,
             Self::Queue => QUEUE_CMD,
             Self::PlayNext => PLAY_NEXT_CMD,
             Self::Play => PLAY,
@@ -751,6 +761,7 @@ pub fn parse(input: &str) -> Result<Vec<Command>, CommandParseError> {
                 PREVIOUS_CMD => Command::Previous,
                 NEXT_CMD => Command::Next,
                 CLEAR_CMD => Command::Clear,
+                AUTOPLAY_CMD => Command::Autoplay,
                 QUEUE_CMD => Command::Queue,
                 PLAY_NEXT_CMD => Command::PlayNext,
                 PLAY => Command::Play,

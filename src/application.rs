@@ -282,7 +282,11 @@ impl Application {
                     self.queue.next(false);
                 }
             }
-            Event::Queue(event) => self.queue.handle_event(event),
+            Event::Queue(event) => {
+                if let Some(message) = self.queue.handle_event(event) {
+                    app.set_message(message);
+                }
+            }
             Event::SessionDied => {
                 if self.spotify.start_worker(None).is_err() {
                     app.run(&Command::Quit);

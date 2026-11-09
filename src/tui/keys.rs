@@ -213,6 +213,7 @@ pub fn default_keybindings() -> HashMap<String, Vec<Command>> {
     kb.insert("<".into(), vec![Command::Previous]);
     kb.insert(">".into(), vec![Command::Next]);
     kb.insert("c".into(), vec![Command::Clear]);
+    kb.insert("Shift+r".into(), vec![Command::Autoplay]);
     // Play/pause like Spotify's apps; `e` (enqueue) queues.
     kb.insert("Space".into(), vec![Command::TogglePlay]);
     kb.insert(

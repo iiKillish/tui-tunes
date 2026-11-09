@@ -119,6 +119,7 @@ pub fn group(commands: &[Command]) -> Group {
             | Command::PlayNext
             | Command::Play
             | Command::Clear
+            | Command::Autoplay
             | Command::Save
             | Command::SaveCurrent
             | Command::SaveQueue
@@ -158,6 +159,7 @@ pub fn describe(commands: &[Command]) -> String {
         Command::Previous => "Previous song".into(),
         Command::Next => "Next song".into(),
         Command::Clear => "Clear the queue".into(),
+        Command::Autoplay => "Autoplay: add songs like the last one".into(),
         Command::Queue => "Add to the queue".into(),
         Command::PlayNext => "Play next".into(),
         Command::Play => "Play / open".into(),

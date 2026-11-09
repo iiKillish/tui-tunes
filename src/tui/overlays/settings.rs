@@ -375,6 +375,10 @@ fn toggle(switch: Switch, ctx: &Ctx) -> Outcome {
             doc[switch_key(switch)] = toml_edit::value(!on);
         }),
     };
+    // Turned on during the last song, autoplay follows it.
+    if switch == Switch::Autoplay && !on && result.is_ok() {
+        ctx.queue.autoplay_if_last();
+    }
     saved(result, restart_note(switch_label(switch).1))
 }
 

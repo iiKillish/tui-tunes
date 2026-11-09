@@ -3,7 +3,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
-use log::{debug, info};
+use log::{debug, info, warn};
 #[cfg(feature = "notify")]
 use notify_rust::Notification;
 
@@ -13,6 +13,7 @@ use strum_macros::Display;
 use crate::config::Config;
 use crate::library::Library;
 use crate::model::playable::Playable;
+use crate::model::track::Track;
 use crate::spotify::PlayerEvent;
 use crate::spotify::Spotify;
 use crate::traits::ListItem;
@@ -44,9 +45,11 @@ pub enum QueueEvent {
     /// transitions between tracks can be uninterrupted.
     PreloadTrackRequest,
     /// Tracks from autoplay to follow the track with URI `after`; see [Queue::request_autoplay].
+    /// `manual` if asked for with [Queue::autoplay_now].
     Autoplay {
         after: String,
         tracks: Vec<Playable>,
+        manual: bool,
     },
 }
 
@@ -395,6 +398,9 @@ impl Queue {
 
         // Shuffling reorders the queue itself, so a removal leaves the remaining (already
         // shuffled) order intact rather than reshuffling everything.
+
+        // What was up next may be gone: autoplay follows the current track instead.
+        self.autoplay_if_last();
     }
 
     /// Clear all the items from the queue and stop playback.
@@ -648,8 +654,13 @@ impl Queue {
                 start_playing,
             );
         } else {
-            // Autoplay may still be looking for what comes next: it plays it when it's found.
+            // Autoplay may still be looking for what comes next: it plays it when it's found. If
+            // it wasn't asked yet (or found nothing last time), it's asked now.
             let current_uri = current.and_then(|i| q.get(i)).map(Playable::uri);
+            drop(q);
+            if !manual && let Some(index) = current {
+                self.request_autoplay(index);
+            }
             *self.waiting_for_autoplay.write().unwrap() = !manual
                 && current_uri.is_some()
                 && *self.autoplay_after.read().unwrap() == current_uri;
@@ -662,21 +673,28 @@ impl Queue {
         self.cfg.values().autoplay.unwrap_or(true) && self.cfg.state().repeat == RepeatSetting::None
     }
 
+    /// Ask autoplay for tracks to follow the current one if it's the last to play, as when it
+    /// started: after the queue or the settings change.
+    pub fn autoplay_if_last(&self) {
+        if let Some(index) = self.get_current_index() {
+            self.request_autoplay(index);
+        }
+    }
+
     /// When the track at `index` is the last one to play, ask autoplay for tracks to follow it,
     /// based on its album and the tracks listened to lately (see [recent_tracks]). Asked once per
-    /// track.
+    /// track, unless what it found went unused.
     fn request_autoplay(&self, index: usize) {
         if !self.autoplay_enabled() || self.next_index().is_some() {
             return;
         }
-        let q = self.queue.read().unwrap();
-        // Podcasts have no autoplay.
-        let Some(Playable::Track(track)) = q.get(index) else {
+        // Podcasts and local files have no autoplay.
+        let Some(Playable::Track(track)) = self.queue.read().unwrap().get(index).cloned() else {
             return;
         };
-        let Some(album_id) = &track.album_id else {
+        if track.is_local {
             return;
-        };
+        }
         {
             let mut after = self.autoplay_after.write().unwrap();
             if after.as_deref() == Some(track.uri.as_str()) {
@@ -684,6 +702,32 @@ impl Queue {
             }
             *after = Some(track.uri.clone());
         }
+        self.ask_autoplay(&track, false);
+    }
+
+    /// Ask autoplay for tracks to follow the last song in the queue, now: whatever the setting,
+    /// and even if it was asked already. Plays them if nothing's playing. The tracks arrive as
+    /// [QueueEvent::Autoplay]; the error says why it can't be asked.
+    pub fn autoplay_now(&self) -> Result<(), &'static str> {
+        let (last, len) = {
+            let q = self.queue.read().unwrap();
+            (q.last().cloned(), q.len())
+        };
+        let track = match last {
+            Some(Playable::Track(track)) if !track.is_local => track,
+            Some(Playable::Track(_)) => return Err("Autoplay can't follow a local file"),
+            Some(Playable::Episode(_)) => return Err("Autoplay can't follow a podcast"),
+            None => return Err("Play a song first: autoplay follows it"),
+        };
+        // So it isn't asked again for the same track when it starts.
+        if self.get_current_index() == Some(len - 1) {
+            *self.autoplay_after.write().unwrap() = Some(track.uri.clone());
+        }
+        self.ask_autoplay(&track, true);
+        Ok(())
+    }
+
+    fn ask_autoplay(&self, track: &Track, manual: bool) {
         // The tracks listened to lately, so autoplay doesn't repeat them: the ones started this
         // session, skipped or not and wherever they are in the queue (it may have been cleared,
         // shuffled or repeated), then the listening history from before.
@@ -701,40 +745,81 @@ impl Queue {
             &track.uri,
             AUTOPLAY_RECENT,
         );
-        debug!("Asking autoplay for tracks after {}", track.uri);
-        self.spotify.request_autoplay(
-            format!("spotify:album:{album_id}"),
-            recent,
-            track.uri.clone(),
-        );
+        // Seeded with its album, or the track itself when that isn't known.
+        let context = match &track.album_id {
+            Some(album_id) => format!("spotify:album:{album_id}"),
+            None => track.uri.clone(),
+        };
+        debug!("Asking autoplay for tracks after {} ({context})", track.uri);
+        self.spotify
+            .request_autoplay(context, recent, track.uri.clone(), manual);
     }
 
-    /// Add `tracks` from autoplay after the track `after`, if it's still the last one to play.
-    /// Plays the first if playback stopped at the end of the queue meanwhile.
-    fn add_autoplay(&self, after: &str, tracks: Vec<Playable>) {
+    /// Add `tracks` from autoplay after the track `after`. Asked for by itself, only if `after`
+    /// is still the last one to play, and it plays the first if playback stopped at the end of
+    /// the queue meanwhile. Asked for by hand (`manual`), after the end of the queue, and it
+    /// plays the first if nothing's playing. Returns a message for the latter.
+    fn add_autoplay(
+        &self,
+        after: &str,
+        tracks: Vec<Playable>,
+        manual: bool,
+    ) -> Option<Result<String, String>> {
+        if manual {
+            let last = self.queue.read().unwrap().last().map(Playable::uri);
+            if last.as_deref() != Some(after) {
+                return None;
+            }
+            if tracks.is_empty() {
+                return Some(Err("Autoplay found nothing: try again in a bit".into()));
+            }
+            let count = tracks.len();
+            let stopped = self.get_current_index().is_none()
+                || (self.spotify.get_current_status() == PlayerEvent::Stopped
+                    && self.spotify.loading().is_none());
+            let first = self.append_autoplay(tracks);
+            *self.waiting_for_autoplay.write().unwrap() = false;
+            if stopped {
+                self.play(first, false, false);
+            }
+            return Some(Ok(format!("Autoplay added {count} songs")));
+        }
+
         let still_last = self.next_index().is_none()
             && self.get_current().map(|t| t.uri()).as_deref() == Some(after);
         let waiting = std::mem::take(&mut *self.waiting_for_autoplay.write().unwrap());
         if !still_last || !self.autoplay_enabled() || tracks.is_empty() {
-            return;
+            // Unused: it's asked again if this track is ever the last to play.
+            let mut asked = self.autoplay_after.write().unwrap();
+            if asked.as_deref() == Some(after) {
+                *asked = None;
+            }
+            if tracks.is_empty() {
+                warn!("Autoplay found nothing to follow {after}");
+            }
+            return None;
         }
-        let first = {
-            let mut q = self.queue.write().unwrap();
-            let mut sources = self.sources.write().unwrap();
-            if let Some(order) = self.random_order.write().unwrap().as_mut() {
-                order.extend(q.len()..q.len() + tracks.len());
-            }
-            let first = q.len();
-            for track in tracks {
-                q.push(track);
-                let len = q.len();
-                insert_source(&mut sources, len - 1, Some(Arc::from(AUTOPLAY_SOURCE)));
-            }
-            first
-        };
+        let first = self.append_autoplay(tracks);
         if waiting {
             self.play(first, false, false);
         }
+        None
+    }
+
+    /// Add `tracks` to the end of the queue, from autoplay. Returns the index of the first.
+    fn append_autoplay(&self, tracks: Vec<Playable>) -> usize {
+        let mut q = self.queue.write().unwrap();
+        let mut sources = self.sources.write().unwrap();
+        if let Some(order) = self.random_order.write().unwrap().as_mut() {
+            order.extend(q.len()..q.len() + tracks.len());
+        }
+        let first = q.len();
+        for track in tracks {
+            q.push(track);
+            let len = q.len();
+            insert_source(&mut sources, len - 1, Some(Arc::from(AUTOPLAY_SOURCE)));
+        }
+        first
     }
 
     pub fn sleep_timer(&self) -> Option<SleepTimer> {
@@ -801,6 +886,8 @@ impl Queue {
     /// Set the current repeat behavior and save it to the configuration.
     pub fn set_repeat(&self, new: RepeatSetting) {
         self.cfg.with_state_mut(|s| s.repeat = new);
+        // Autoplay is off with repeat on: back on, it follows the current track.
+        self.autoplay_if_last();
     }
 
     /// Get the current shuffle behavior.
@@ -934,8 +1021,8 @@ impl Queue {
         }
     }
 
-    /// Handle events that are specific to the queue.
-    pub fn handle_event(&self, event: QueueEvent) {
+    /// Handle events that are specific to the queue. Returns a message to show, if any.
+    pub fn handle_event(&self, event: QueueEvent) -> Option<Result<String, String>> {
         match event {
             QueueEvent::PreloadTrackRequest => {
                 if let Some(next_index) = self.next_index() {
@@ -943,8 +1030,13 @@ impl Queue {
                     debug!("Preloading track {track} as requested by librespot");
                     self.spotify.preload(&track);
                 }
+                None
             }
-            QueueEvent::Autoplay { after, tracks } => self.add_autoplay(&after, tracks),
+            QueueEvent::Autoplay {
+                after,
+                tracks,
+                manual,
+            } => self.add_autoplay(&after, tracks, manual),
         }
     }
 
@@ -1027,7 +1119,6 @@ mod tests {
     use crate::config::Config;
     use crate::events::EventManager;
     use crate::library::Library;
-    use crate::model::track::Track;
     use crate::spotify::Spotify;
 
     fn make_track(id: u32) -> Playable {
@@ -1130,7 +1221,7 @@ mod tests {
     #[test]
     fn test_autoplay_adds_tracks_after_the_last_one() {
         let q = make_queue(vec![make_track(0), make_track(1)], Some(1));
-        q.add_autoplay("spotify:track:id_1", autoplay_tracks());
+        q.add_autoplay("spotify:track:id_1", autoplay_tracks(), false);
         assert_eq!(ids(&q), ["id_0", "id_1", "id_10", "id_11"]);
         assert_eq!(source_of(&q, "id_10").as_deref(), Some(AUTOPLAY_SOURCE));
         // Still on the same track: nothing started playing.
@@ -1141,7 +1232,7 @@ mod tests {
     fn test_autoplay_is_dropped_when_no_longer_last() {
         let q = make_queue(vec![make_track(0), make_track(1)], Some(1));
         q.append(make_track(2));
-        q.add_autoplay("spotify:track:id_1", autoplay_tracks());
+        q.add_autoplay("spotify:track:id_1", autoplay_tracks(), false);
         assert_eq!(ids(&q), ["id_0", "id_1", "id_2"]);
     }
 
@@ -1149,14 +1240,14 @@ mod tests {
     fn test_autoplay_plays_when_the_queue_ran_out() {
         let q = make_queue(vec![make_track(0), make_track(1)], Some(1));
         *q.waiting_for_autoplay.write().unwrap() = true;
-        q.add_autoplay("spotify:track:id_1", autoplay_tracks());
+        q.add_autoplay("spotify:track:id_1", autoplay_tracks(), false);
         assert_eq!(q.get_current_index(), Some(2));
     }
 
     #[test]
     fn test_queued_tracks_go_ahead_of_autoplay() {
         let q = make_queue(vec![make_track(0), make_track(1)], Some(1));
-        q.add_autoplay("spotify:track:id_1", autoplay_tracks());
+        q.add_autoplay("spotify:track:id_1", autoplay_tracks(), false);
         q.append(make_track(2));
         assert_eq!(ids(&q), ["id_0", "id_1", "id_2", "id_10", "id_11"]);
         assert_eq!(source_of(&q, "id_2"), None);
@@ -1170,8 +1261,77 @@ mod tests {
         assert_eq!(ids(&q), ["id_0", "id_1"]);
         assert_eq!(q.get_current_index(), Some(1));
         // What autoplay finds for the current track is taken again.
-        q.add_autoplay("spotify:track:id_1", autoplay_tracks());
+        q.add_autoplay("spotify:track:id_1", autoplay_tracks(), false);
         assert_eq!(ids(&q), ["id_0", "id_1", "id_10", "id_11"]);
+    }
+
+    #[test]
+    fn test_autoplay_is_asked_again_when_what_it_found_went_unused() {
+        let q = make_queue(make_tracks(3), Some(1));
+        *q.autoplay_after.write().unwrap() = Some("spotify:track:id_1".into());
+        q.add_autoplay("spotify:track:id_1", autoplay_tracks(), false);
+        assert_eq!(*q.autoplay_after.read().unwrap(), None);
+    }
+
+    #[test]
+    fn test_autoplay_that_found_nothing_is_asked_again_when_the_queue_runs_out() {
+        let q = make_queue(make_tracks(2), Some(1));
+        *q.autoplay_after.write().unwrap() = Some("spotify:track:id_1".into());
+        q.add_autoplay("spotify:track:id_1", Vec::new(), false);
+        assert_eq!(*q.autoplay_after.read().unwrap(), None);
+        q.next(false);
+        assert_eq!(
+            q.autoplay_after.read().unwrap().as_deref(),
+            Some("spotify:track:id_1")
+        );
+        // What it finds this time plays.
+        q.add_autoplay("spotify:track:id_1", autoplay_tracks(), false);
+        assert_eq!(q.get_current_index(), Some(2));
+    }
+
+    #[test]
+    fn test_removing_whats_up_next_lets_autoplay_follow_the_current_track() {
+        let q = make_queue(make_tracks(3), Some(1));
+        q.remove(2);
+        assert_eq!(
+            q.autoplay_after.read().unwrap().as_deref(),
+            Some("spotify:track:id_1")
+        );
+    }
+
+    #[test]
+    fn test_manual_autoplay_follows_the_end_of_the_queue_without_interrupting() {
+        let q = make_queue(make_tracks(3), Some(0));
+        q.spotify
+            .update_status(PlayerEvent::Playing(std::time::SystemTime::now()));
+        assert!(q.autoplay_now().is_ok());
+        let message = q.add_autoplay("spotify:track:id_2", autoplay_tracks(), true);
+        assert_eq!(message, Some(Ok("Autoplay added 2 songs".into())));
+        assert_eq!(ids(&q), ["id_0", "id_1", "id_2", "id_10", "id_11"]);
+        assert_eq!(source_of(&q, "id_10").as_deref(), Some(AUTOPLAY_SOURCE));
+        assert_eq!(q.get_current_index(), Some(0));
+    }
+
+    #[test]
+    fn test_manual_autoplay_works_with_the_setting_off_and_plays_when_stopped() {
+        let q = make_queue(make_tracks(2), None);
+        q.cfg
+            .edit(|doc| doc["autoplay"] = toml_edit::value(false))
+            .unwrap();
+        assert!(!q.autoplay_enabled());
+        q.add_autoplay("spotify:track:id_1", autoplay_tracks(), true);
+        assert_eq!(q.get_current_index(), Some(2));
+    }
+
+    #[test]
+    fn test_manual_autoplay_says_when_it_found_nothing_or_cant_ask() {
+        let q = make_queue(make_tracks(2), None);
+        assert!(matches!(
+            q.add_autoplay("spotify:track:id_1", Vec::new(), true),
+            Some(Err(_))
+        ));
+        assert_eq!(ids(&q), ["id_0", "id_1"]);
+        assert!(make_queue(Vec::new(), None).autoplay_now().is_err());
     }
 
     fn uris(ids: &[u32]) -> Vec<String> {
