@@ -212,8 +212,8 @@ impl WebApi {
     }
 
     /// Renew the authentication token if it expires within 5 minutes. The returned handle
-    /// finishes once it's renewed (or renewing failed), however long that takes: the first
-    /// token may need the user to log in in their browser.
+    /// finishes once it's renewed (or renewing failed). It never asks the user to log in: that
+    /// happens at startup, before this (see [crate::authentication::get_rspotify_token]).
     pub fn update_token(&self) -> Option<JoinHandle<()>> {
         let left = self.token_time_left();
         if left.num_seconds() > RENEW_TOKEN_BEFORE_SECS {
@@ -275,7 +275,9 @@ impl WebApi {
         let api_token_expiration = self.token_expiration.clone();
         let shared = self.token_renewal.clone();
         let renew = move || {
-            match crate::authentication::get_rspotify_token(now) {
+            // Never a login in the browser from here: it would wait on a thread of its own for an
+            // answer nobody's asked for. A failed renewal is tried again by a later request.
+            match crate::authentication::refresh_rspotify_token(now) {
                 Ok(token) => {
                     let expires_at = token
                         .expires_at
@@ -285,6 +287,10 @@ impl WebApi {
                 }
                 Err(e) => {
                     error!("Failed to update token: {e}");
+                    crate::tui::report_error(format!(
+                        "Couldn't renew the Spotify login ({e}); trying again shortly, or restart \
+                         ttunes to log in again"
+                    ));
                 }
             }
             let mut state = shared.state.lock().unwrap();
@@ -305,8 +311,8 @@ impl WebApi {
     }
 
     /// Wait until `renewal` renewals of the token have finished, but no longer than `timeout`
-    /// after the running one started, so a renewal that hangs (a login waiting for the browser)
-    /// holds up each request only once.
+    /// after the running one started, so a renewal that hangs (on a network that's gone) holds
+    /// up each request only once.
     fn wait_for_token_renewal(&self, renewal: u64, timeout: Option<Duration>) {
         let state = self.token_renewal.state.lock().unwrap();
         let unfinished = |state: &mut TokenRenewalState| state.finished < renewal;
