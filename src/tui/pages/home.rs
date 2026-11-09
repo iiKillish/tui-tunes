@@ -1175,6 +1175,11 @@ impl Page for HomePage {
                     },
                 };
             }
+            Command::Radio => {
+                if let Some(item) = self.selected_item() {
+                    return crate::tui::actions::radio(item.as_listitem().as_ref(), ctx);
+                }
+            }
             #[cfg(feature = "share_clipboard")]
             Command::Share(TargetMode::Selected) => {
                 if let Some(url) = self

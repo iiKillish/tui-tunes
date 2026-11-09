@@ -520,6 +520,11 @@ impl<I: ListItem + Clone> ItemList<I> {
                     },
                 };
             }
+            Command::Radio => {
+                if let Some(item) = self.selected_item() {
+                    return crate::tui::actions::radio(&item, ctx);
+                }
+            }
             #[cfg(feature = "share_clipboard")]
             Command::Share(TargetMode::Selected) => {
                 if let Some(url) = self.selected_item().and_then(|i| i.share_url()) {

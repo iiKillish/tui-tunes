@@ -29,13 +29,16 @@ use crate::events::{Event, EventManager};
 use crate::model::playable::Playable;
 #[cfg(feature = "mpris")]
 use crate::mpris::{MprisCommand, MprisManager};
-use crate::queue::QueueEvent;
+use crate::queue::{QueueEvent, RadioSeed};
 use crate::spotify_api::WebApi;
 use crate::spotify_worker::{Worker, WorkerCommand};
 use crate::traits::ListItem;
 
 /// How many tracks autoplay adds at a time.
 const AUTOPLAY_TRACKS: usize = 20;
+
+/// How many tracks a radio starts with; autoplay continues it when they run out.
+const RADIO_TRACKS: usize = 50;
 
 /// One percent of the maximum supported [Player] volume, used when setting the volume to a certain
 /// percent.
@@ -602,6 +605,36 @@ impl Spotify {
         after: String,
         manual: bool,
     ) {
+        self.autoplay_tracks(context_uri, recent, AUTOPLAY_TRACKS, move |tracks| {
+            QueueEvent::Autoplay {
+                after,
+                tracks,
+                manual,
+            }
+        });
+    }
+
+    /// Ask Spotify for a radio seeded with `seed` (a track, album or artist), leaving out the
+    /// `recent` track URIs. Runs in the background: the tracks arrive as [QueueEvent::Radio].
+    /// Spotify's apps make a radio from the same autoplay endpoint, with the item as its context.
+    pub fn request_radio(&self, seed: RadioSeed, recent: Vec<String>) {
+        self.autoplay_tracks(seed.uri.clone(), recent, RADIO_TRACKS, move |tracks| {
+            QueueEvent::Radio {
+                seed: Box::new(seed),
+                tracks,
+            }
+        });
+    }
+
+    /// Ask the autoplay endpoint for up to `limit` tracks to follow `context_uri`, leaving out the
+    /// `recent` track URIs, and send the event `event` makes of them.
+    fn autoplay_tracks(
+        &self,
+        context_uri: String,
+        recent: Vec<String>,
+        limit: usize,
+        event: impl FnOnce(Vec<Playable>) -> QueueEvent + Send + 'static,
+    ) {
         let (reply, uris) = oneshot::channel();
         let request = AutoplayContextRequest {
             context_uri: Some(context_uri),
@@ -615,17 +648,13 @@ impl Spotify {
             let mut uris = futures::executor::block_on(uris).unwrap_or_default();
             // More are asked for when these run out. They're loaded through the session, like
             // the tracks of the playlists Spotify makes, so autoplay needs no Web API requests.
-            uris.truncate(AUTOPLAY_TRACKS);
+            uris.truncate(limit);
             let tracks = api
                 .session_tracks_by_uri(&uris)
                 .into_iter()
                 .map(Playable::Track)
                 .collect();
-            events.send(Event::Queue(QueueEvent::Autoplay {
-                after,
-                tracks,
-                manual,
-            }));
+            events.send(Event::Queue(event(tracks)));
         });
     }
 

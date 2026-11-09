@@ -125,6 +125,8 @@ pub fn group(commands: &[Command]) -> Group {
             | Command::SaveQueue
             | Command::Add
             | Command::AddCurrent
+            | Command::Radio
+            | Command::RadioCurrent
             | Command::Delete
             | Command::Shift(..)
             | Command::NewPlaylist(_)
@@ -169,6 +171,8 @@ pub fn describe(commands: &[Command]) -> String {
         Command::SaveQueue => "Save the queue as a playlist".into(),
         Command::Add => "Add the selected song to a playlist".into(),
         Command::AddCurrent => "Add the playing song to a playlist".into(),
+        Command::Radio => "Radio of the selected item".into(),
+        Command::RadioCurrent => "Radio of the playing song".into(),
         Command::Delete => "Remove the selected item".into(),
         Command::Focus(screen) => format!("Go to {}", screen.label()),
         Command::Seek(SeekDirection::Relative(ms)) if *ms >= 0 => {

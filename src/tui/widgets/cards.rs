@@ -768,6 +768,11 @@ impl Page for CardGrid {
                     },
                 };
             }
+            Command::Radio => {
+                if let Some(item) = selected.as_ref().and_then(Card::as_listitem) {
+                    return crate::tui::actions::radio(item.as_ref(), ctx);
+                }
+            }
             #[cfg(feature = "share_clipboard")]
             Command::Share(TargetMode::Selected) => {
                 if let Some(url) = selected

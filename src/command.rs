@@ -21,6 +21,8 @@ const SAVE_CURRENT_CMD: &str = "save current";
 const SAVE_QUEUE_CMD: &str = "save queue";
 const ADD: &str = "add";
 const ADD_CURRENT_CMD: &str = "add current";
+const RADIO_CMD: &str = "radio";
+const RADIO_CURRENT_CMD: &str = "radio current";
 const DELETE_CMD: &str = "delete";
 const FOCUS: &str = "focus";
 const SEEK: &str = "seek";
@@ -139,6 +141,12 @@ pub const COMMANDS: &[CommandInfo] = &[
         ADD,
         "[current]",
         "Add the selected (or playing) song to a playlist",
+        &["current"],
+    ),
+    info(
+        RADIO_CMD,
+        "[current]",
+        "Radio: play songs like the selected (or playing) song, album or artist",
         &["current"],
     ),
     info(DELETE_CMD, "", "Remove the selected item", &[]),
@@ -436,6 +444,10 @@ pub enum Command {
     SaveQueue,
     Add,
     AddCurrent,
+    /// Replace the queue with a radio of the selected song, album or artist.
+    Radio,
+    /// Replace the queue with a radio of the playing song.
+    RadioCurrent,
     Delete,
     Focus(ScreenId),
     Seek(SeekDirection),
@@ -540,6 +552,8 @@ impl fmt::Display for Command {
             | Self::SaveQueue
             | Self::Add
             | Self::AddCurrent
+            | Self::Radio
+            | Self::RadioCurrent
             | Self::Delete
             | Self::Back
             | Self::Help
@@ -576,6 +590,8 @@ impl Command {
             Self::SaveQueue => SAVE_QUEUE_CMD,
             Self::Add => ADD,
             Self::AddCurrent => ADD_CURRENT_CMD,
+            Self::Radio => RADIO_CMD,
+            Self::RadioCurrent => RADIO_CURRENT_CMD,
             Self::Delete => DELETE_CMD,
             Self::Focus(_) => FOCUS,
             Self::Seek(_) => SEEK,
@@ -774,6 +790,15 @@ pub fn parse(input: &str) -> Result<Vec<Command>, CommandParseError> {
                         optional: true,
                     }),
                     None => Ok(Command::Add),
+                }?,
+                RADIO_CMD => match args.first().cloned() {
+                    Some("current") => Ok(Command::RadioCurrent),
+                    Some(arg) => Err(E::BadEnumArg {
+                        arg: arg.into(),
+                        accept: vec!["current".into()],
+                        optional: true,
+                    }),
+                    None => Ok(Command::Radio),
                 }?,
                 SAVE_CMD => match args.first().cloned() {
                     Some("queue") => Ok(Command::SaveQueue),
@@ -1405,5 +1430,26 @@ mod tests {
                 .scaled(3)
                 .is_none()
         );
+    }
+
+    #[test]
+    fn radio_takes_an_optional_current() {
+        assert!(matches!(parse("radio").as_deref(), Ok([Command::Radio])));
+        assert!(matches!(
+            parse("radio current").as_deref(),
+            Ok([Command::RadioCurrent])
+        ));
+        assert!(matches!(
+            parse("radio elsewhere").as_deref(),
+            Err(CommandParseError::BadEnumArg { .. })
+        ));
+        for command in [Command::Radio, Command::RadioCurrent] {
+            let line = command.to_string();
+            assert!(
+                matches!(parse(&line).as_deref(), Ok([parsed]) if parsed.to_string() == line),
+                "{line}"
+            );
+        }
+        assert_eq!(Command::RadioCurrent.to_string(), "radio current");
     }
 }
