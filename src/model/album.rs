@@ -2,7 +2,7 @@ use rspotify::model::Id;
 use std::fmt;
 
 use chrono::{DateTime, Utc};
-use log::debug;
+use log::{debug, error};
 use rspotify::model::album::{FullAlbum, SavedAlbum, SimplifiedAlbum};
 
 use crate::library::Library;
@@ -80,6 +80,7 @@ impl Album {
         if let Some(album_id) = self.id.clone() {
             let album_id = &album_id;
             let mut collected_tracks = Vec::new();
+            let mut complete = false;
             if let Ok(full_album) = spotify.api.album(album_id) {
                 if self.year.is_empty() {
                     let full = Self::from(&full_album);
@@ -99,23 +100,31 @@ impl Album {
 
                     // load next batch if necessary
                     tracks_result = match tracks.next {
-                        Some(_) => {
+                        Some(_) if !tracks.items.is_empty() => {
                             debug!("requesting tracks again..");
-                            spotify
+                            let next = spotify
                                 .api
                                 .album_tracks(
                                     album_id,
                                     50,
                                     tracks.offset + tracks.items.len() as u32,
                                 )
-                                .ok()
+                                .ok();
+                            if next.is_none() {
+                                error!("Failed to fetch all the tracks of album {album_id}");
+                            }
+                            next
                         }
-                        None => None,
+                        _ => {
+                            complete = true;
+                            None
+                        }
                     }
                 }
             }
 
-            self.total_tracks = Some(collected_tracks.len());
+            // Without all of them it isn't done, and they're asked for again next time.
+            self.total_tracks = complete.then_some(collected_tracks.len());
             self.tracks = Some(collected_tracks);
         }
     }
