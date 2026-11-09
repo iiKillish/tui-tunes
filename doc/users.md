@@ -103,7 +103,10 @@ playlist, an artist) stack on top of it; the `‹ name` link above them goes bac
 | <kbd>/</kbd>                                                | Find in the current page (See [specific commands](#vim-like-search-bar)).     |
 | <kbd>:</kbd>                                                | Open a Vim-like command prompt (See [specific commands](#vim-like-commands)). |
 | <kbd>Q</kbd> / <kbd>Ctrl</kbd>+<kbd>C</kbd>                 | Quit `ttunes` (<kbd>Ctrl</kbd>+<kbd>C</kbd> even while typing).               |
-| <kbd>g</kbd> / <kbd>G</kbd>                                 | Go to the top / bottom of the current page.                                   |
+| <kbd>g</kbd> / <kbd>G</kbd>                                 | Go to the top / bottom of the current page (also <kbd>Home</kbd> / <kbd>End</kbd>). |
+| Arrows, <kbd>h</kbd><kbd>j</kbd><kbd>k</kbd><kbd>l</kbd>    | Move the selection (also <kbd>Ctrl</kbd>+<kbd>P</kbd>/<kbd>N</kbd> up and down, <kbd>Ctrl</kbd>+<kbd>A</kbd>/<kbd>E</kbd> left and right). |
+| <kbd>PageUp</kbd> / <kbd>PageDown</kbd>                     | Move the selection 5 rows up / down.                                          |
+| <kbd>Ctrl</kbd>+<kbd>L</kbd>                                | Redraw the screen.                                                            |
 
 Everything can be clicked: tabs, cards, rows, the player's buttons, progress bar and volume (drag
 their ● knobs; the song seeks when you let go), and the Play / Shuffle / Like buttons on album,
@@ -120,8 +123,8 @@ things you can click, and a text cursor over text fields.
 | <kbd>E</kbd>                  | Queue track or playlist, then select the next one.             |
 | <kbd>.</kbd>                  | Play the selected item after the currently playing track.      |
 | <kbd>P</kbd>                  | Move to the currently playing track in the list or queue.      |
-| <kbd>S</kbd>                  | Save the currently playing item to your library.               |
-| <kbd>D</kbd>                  | Remove the currently playing item from your library.           |
+| <kbd>S</kbd>                  | Save the selected item to your library (or like the selected song). |
+| <kbd>D</kbd>                  | Remove the selected song from the playlist or the queue, or delete the selected playlist. |
 | <kbd>Shift</kbd>+<kbd>P</kbd> | Play / pause, like <kbd>Space</kbd>.                           |
 | <kbd>Shift</kbd>+<kbd>S</kbd> | Stop playback.                                                 |
 | <kbd>Shift</kbd>+<kbd>U</kbd> | Update the library cache (tracks, artists, albums, playlists). |
@@ -211,8 +214,8 @@ When pressing <kbd>O</kbd>:
 | <kbd>C</kbd>                 | Clear the queue: everything, or only what's up next (the current song keeps playing, then autoplay picks what follows). |
 | <kbd>Shift</kbd>+<kbd>R</kbd> | Autoplay now: add songs like the last one in the queue to the end of it (even with the `autoplay` setting off), and play them if nothing's playing. Also the **↻ Autoplay** button in Up next when nothing's up next. |
 | <kbd>D</kbd>                 | Delete the currently selected track. |
-| <kbd>Shift</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> | Move the selected track up or down. |
-| <kbd>Ctrl</kbd>+<kbd>S</kbd> | Save the current queue.              |
+| <kbd>Shift</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> (or <kbd>Shift</kbd>+<kbd>K</kbd>/<kbd>J</kbd>) | Move the selected track up or down. |
+| <kbd>Ctrl</kbd>+<kbd>S</kbd> | Save the current queue as a playlist. |
 
 ### Library
 Playlists (with a _Liked Songs_ card first), albums and artists are shown as grids of covers:
@@ -251,8 +254,8 @@ one song to librespot: only one of them is listed.
 ### Vim-Like Search Bar
 | Key          | Command                     |
 |--------------|-----------------------------|
-| <kbd>n</kbd> | Previous search occurrence. |
-| <kbd>N</kbd> | Next search occurrence.     |
+| <kbd>n</kbd> | Next search occurrence.     |
+| <kbd>N</kbd> | Previous search occurrence. |
 
 ### Vim-Like Commands
 You can open a Vim-style command prompt using <kbd>:</kbd>
@@ -290,7 +293,7 @@ Note: \<FOO\> - mandatory arg; [BAR] - optional arg
 | Command | Action |
 |---------|--------|
 | `like` | Save the currently playing track to your library, or remove it if it's saved. |
-| `save [current]` | Save selected item, if `current` is passed the currently playing item will be saved |
+| `save` [`current`\|`queue`] | Save the selected item; `current` saves the playing item, `queue` saves the queue as a playlist. |
 | `add [current]` | Add selected track to playlist, if `current` is passed the currently playing track will be added |
 | `delete` | Remove the selected track from the playlist or the queue, or delete the selected playlist. |
 | `newplaylist` \<NAME\> | Create a new playlist. |
@@ -304,10 +307,10 @@ Note: \<FOO\> - mandatory arg; [BAR] - optional arg
 | Command | Action |
 |---------|--------|
 | `focus` \<SCREEN\> | Switch to a different view.<br/>\* Valid values for SCREEN: `home`, `search`, `library`, `queue`, `lyrics`, `stats` |
-| `screen` [`next`\|`previous`] | Switch to the next (default) or previous main screen. |
-| `tab` [`next`\|`previous`] | Switch to the next (default) or previous tab, e.g. from Playlists to Albums in the library. |
+| `screen` [`next`\|`previous`] (alias `prev`) | Switch to the next (default) or previous main screen. |
+| `tab` [`next`\|`previous`] (alias `prev`) | Switch to the next (default) or previous tab, e.g. from Playlists to Albums in the library. |
 | `panel` `queue`\|`lyrics` | `queue` shows the _Up next_ screen, `lyrics` shows the _Lyrics_ screen (or goes back to the previous screen if it's showing). |
-| `move` \<DIRECTION\> \<STEP_SIZE\> | Scroll the current view `up`/`down`/`left`/`right` with integer step sizes, or `pageup`/`pagedown`/`pageleft`/`pageright` with float step sizes. |
+| `move` \<DIRECTION\> [STEP_SIZE] | Scroll the current view `up`/`down`/`left`/`right` by an integer number of rows (default 1), or `pageup`/`pagedown`/`pageleft`/`pageright` by a fraction of a page (default a whole page). `playing` goes to the playing track, `top`/`bottom`/`leftmost`/`rightmost` to the ends. |
 | `open` `selected`\|`current` | Open the selected item, or the context menu of the currently playing track. |
 | `goto` `album`\|`artist` | Open the album or artist of the selected item. |
 | `back` | Close the open page and go back to the one under it. |
@@ -336,11 +339,14 @@ Note: \<FOO\> - mandatory arg; [BAR] - optional arg
 ## Remote control (IPC)
 Apart from MPRIS, ttunes will also create a domain socket on UNIX platforms (Linux, macOS, *BSD).
 The socket will be created in the platform's runtime directory. Run `ttunes info` to show the
-location of this directory on your platform. Applications or scripts can connect to this socket to
-send commands or be notified of the currently playing track, i.e. with `netcat`:
+location of this directory on your platform (`USER_RUNTIME_PATH`); the socket is `ttunes.sock` in
+it. The examples below set `TTUNES_SOCKET` to it first:
+`TTUNES_SOCKET="$(ttunes info | awk '/USER_RUNTIME_PATH/ {print $2}')/ttunes.sock"`.
+Applications or scripts can connect to this socket to send commands or be notified of the
+currently playing track, i.e. with `netcat`:
 
 ```
-% nc -U $TTUNES_CACHE_DIRECTORY/ttunes.sock
+% nc -U "$TTUNES_SOCKET"
 play
 {"mode":{"Playing":{"secs_since_epoch":1672249086,"nanos_since_epoch":547517730}},"playable":{"type":"Track","id":"2wcrQZ7ZJolYEfIaPP9yL4","uri":"spotify:track:2wcrQZ7ZJolYEfIaPP9yL4","title":"Hit Me Where It Hurts","track_number":4,"disc_number":1,"duration":184132,"artists":["Caroline Polachek"],"artist_ids":["4Ge8xMJNwt6EEXOzVXju9a"],"album":"Pang","album_id":"4ClyeVlAKJJViIyfVW0yQD","album_artists":["Caroline Polachek"],"cover_url":"https://i.scdn.co/image/ab67616d0000b2737d983e7bf67c2806218c2759","url":"https://open.spotify.com/track/2wcrQZ7ZJolYEfIaPP9yL4","added_at":"2022-12-19T22:41:05Z","list_index":0}}
 playpause
@@ -364,7 +370,7 @@ as they typically tend to keep the connection to the socket open. OpenBSD's
 specific number of packets have been received.
 
 ```
-% nc -W 1 -U $TTUNES_CACHE_DIRECTORY/ttunes.sock
+% nc -W 1 -U "$TTUNES_SOCKET"
 {"mode":{"Playing":{"secs_since_epoch":1675188934,"nanos_since_epoch":50913345}},"playable":{"type":"Track","id":"5Cp6a1h2VnuOtsh1Nqxfv6","uri":"spotify:track:5Cp6a1h2VnuOtsh1Nqxfv6","title":"New Track","track_number":1,"disc_number":1,"duration":498358,"artists":["Francis Bebey"],"artist_ids":["0mdmrbu5UZ32uRcRp2z6mr"],"album":"African Electronic Music (1975-1982)","album_id":"7w99Aae1tYSTSb1OiDnxYY","album_artists":["Francis Bebey"],"cover_url":"https://i.scdn.co/image/ab67616d0000b2736ab57cedf27177fae1eaed87","url":"https://open.spotify.com/track/5Cp6a1h2VnuOtsh1Nqxfv6","added_at":"2020-12-22T09:57:17Z","list_index":0}}
 ```
 
@@ -373,10 +379,10 @@ For example, you can get the currently playing artist and title in your
 terminal as follows:
 
 ```
-% nc -W 1 -U $TTUNES_CACHE_DIRECTORY/ttunes.sock | jq '.playable.title'
+% nc -W 1 -U "$TTUNES_SOCKET" | jq '.playable.title'
 "PUMPIN' JUMPIN'"
 
-% nc -W 1 -U $TTUNES_CACHE_DIRECTORY/ttunes.sock | jq '.playable.artists[0]'
+% nc -W 1 -U "$TTUNES_SOCKET" | jq '.playable.artists[0]'
 "Hideki Naganuma"
 ```
 
@@ -398,13 +404,13 @@ Possible configuration values are:
 | `audio_cache_size`              | Maximum size of audio cache in MiB                             | Number                                                                                | `5120` (5 GiB)      |
 | `volnorm`                       | Enable volume normalization                                    | `true`, `false`                                                                       | `false`             |
 | `volnorm_pregain`               | Normalization pregain to apply in dB (if enabled)              | Number                                                                                | `0.0`               |
-| `default_keybindings`           | Enable default keybindings                                     | `true`, `false`                                                                       | `false`             |
+| `default_keybindings`           | Enable default keybindings                                     | `true`, `false`                                                                       | `true`              |
 | `notify`<sup>[2]</sup>          | Enable desktop notifications                                   | `true`, `false`                                                                       | `false`             |
 | `bitrate`                       | Audio bitrate to use for streaming                             | `96`, `160`, `320`                                                                    | `320`               |
 | `gapless`                       | Enable gapless playback                                        | `true`, `false`                                                                       | `true`              |
 | `shuffle`                       | Set default shuffle state                                      | `true`, `false`                                                                       | `false`             |
 | `repeat`                        | Set default repeat mode                                        | `"off"`, `"track"`, `"playlist"`                                                      | `"off"`             |
-| `playback_state`                | Set default playback state                                     | `"Stopped"`, `"Paused"`, `"Playing"`, `"Default"`                                     | `"Paused"`          |
+| `playback_state`                | Set default playback state                                     | `"Stopped"`, `"Paused"`, `"Playing"`, `"Default"` (paused, where you left off)       | `"Default"`         |
 | `library_tabs`                  | Tabs to show in library screen                                 | Array of `"tracks"`, `"albums"`, `"artists"`, `"playlists"`, `"podcasts"`, `"browse"`, `"local"` | All tabs |
 | `queue_click`                   | What clicking a song in _Up next_ does: play it, or open its menu | `"play"`, `"menu"`                                                               | `"play"`            |
 | `track_click`                   | What clicking a song in other lists (search, albums, playlists, the library) does: select it and play it on a second click, or open its menu | `"play"`, `"menu"`                                                               | `"play"`            |
@@ -417,10 +423,11 @@ Possible configuration values are:
 | `ap_port`                       | Set ap-port for librespot (for restrictive firewalls)          | `80`, `443`, `4070`                                                                   |                     |
 | `client_id`                     | Client ID of your own Spotify app for Web API requests<sup>[3]</sup> | String                                                                          | The ID saved at first run |
 | `autoplay`                      | Keep playing similar songs when the queue runs out<sup>[4]</sup> | `true`, `false`                                                                     | `true`              |
+| `volume_curve`                  | How the volume slider maps to loudness                         | `"cubic"` (like system mixers), `"log"` (60 dB range, quiet sooner), `"linear"`       | `"cubic"`           |
 | `pick_up_where_you_left_off`    | Show the "Pick up where you left off" card on Home             | `true`, `false`                                                                       | `true`              |
 | `image_protocol`                | How to draw covers; see [cover drawing](#cover-drawing)        | `"auto"`, `"kitty"`, `"sixel"`, `"iterm2"`, `"none"`                                  | `"auto"`            |
 
-1. Run `ttunes -h` for a list of devices.
+1. Run `ttunes -h` for the audio backends; the device names depend on the backend.
 2. If built with the `notify` feature.
 3. Optional: overrides the ID saved by the [first run](#first-run) setup in the `client_id` file
    of the configuration directory. The app needs the redirect URI `http://127.0.0.1:8989/login`.
@@ -444,11 +451,11 @@ where:
   MODIFIER: Shift|Alt|Ctrl
   CHAR: Any printable character
   NAMED_KEY: Enter|Space|Tab|Backspace|Esc|Left|Right|Up|Down
-    |Ins|Del|Home|End|PageUp|PageDown|PauseBreak|NumpadCenter
+    |Ins|Del|Home|End|PageUp|PageDown
     |F0|F1|F2|F3|F4|F5|F6|F7|F8|F9|F10|F11|F12
 ```
 
-For implementation see [commands::CommandManager::parse_key](/src/commands.rs).
+For implementation see `Key::parse` in [src/tui/keys.rs](/src/tui/keys.rs).
 
 Its value is a string that can be parsed as a command. See
 [Vim-Like Commands](#vim-like-commands).

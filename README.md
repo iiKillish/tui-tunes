@@ -5,7 +5,7 @@ A Spotify player for the terminal, written in Rust with
 needs a Spotify Premium account.
 
 - A now-playing view with a big cover, the track, progress, controls and a volume slider, beside
-  or above the _Home_, _Search_, _Library_, _Up next_ and _Lyrics_ screens
+  or above the _Home_, _Search_, _Library_, _Up next_, _Lyrics_ and _Stats_ screens
 - Album, playlist and artist pages, and cover grids for the library and search results
 - Time-synced lyrics from [LRCLIB](https://lrclib.net)
 - Autoplay: similar songs keep playing when the queue runs out
@@ -54,7 +54,7 @@ Spotify logins in your browser, one for playback and one for your app.
 
 ## Keys and configuration
 
-<kbd>?</kbd> shows the keys. <kbd>Tab</kbd> and <kbd>F1</kbd>–<kbd>F5</kbd> switch screens,
+<kbd>?</kbd> shows the keys. <kbd>Tab</kbd> and <kbd>F1</kbd>–<kbd>F6</kbd> switch screens,
 <kbd>Enter</kbd> plays, <kbd>Shift</kbd>+<kbd>P</kbd> pauses, <kbd>:</kbd> opens the command line
 and <kbd>q</kbd> or <kbd>Ctrl</kbd>+<kbd>C</kbd> quits.
 

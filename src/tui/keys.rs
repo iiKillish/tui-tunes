@@ -268,7 +268,7 @@ pub fn default_keybindings() -> HashMap<String, Vec<Command>> {
         kb.insert("Shift+x".into(), vec![Command::Share(TargetMode::Current)]);
     }
 
-    // F1-F5 in the order of the tabs.
+    // F1-F6 in the order of the tabs.
     kb.insert("F1".into(), vec![Command::Focus(ScreenId::Home)]);
     kb.insert("F2".into(), vec![Command::Focus(ScreenId::Search)]);
     kb.insert("F3".into(), vec![Command::Focus(ScreenId::Library)]);
