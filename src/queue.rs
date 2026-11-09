@@ -82,19 +82,21 @@ pub const AUTOPLAY_SOURCE: &str = "Autoplay";
 
 /// The queue determines the playback order of [Playable] items, and is also used to control
 /// playback itself.
+///
+/// It's used from more than one thread (the UI's and MPRIS's), so its locks are only ever taken
+/// in this order, each released before one earlier in it is taken: `queue`, `sources`,
+/// `current_track`, `unshuffled`. The others are only held on their own. A guard is never held
+/// across a call to another method that locks: that could take a lock twice, and a second read
+/// of a `RwLock` waits behind a waiting writer, so even that can deadlock.
 pub struct Queue {
     /// The internal data, which doesn't change with shuffle or repeat. This is
     /// the raw data only.
     pub queue: Arc<RwLock<Vec<Playable>>>,
-    /// The playback order of the queue, as indices into `self.queue`. Shuffling reorders
-    /// `self.queue` itself (see [Queue::generate_random_order]), so this is only set by queue
-    /// state saved by older versions.
-    random_order: RwLock<Option<Vec<usize>>>,
     /// The queue as it was before shuffling, so turning shuffle off can restore that order.
     unshuffled: RwLock<Option<Vec<Playable>>>,
     /// Where each item in `self.queue` was queued from (an album or playlist name), shown as
-    /// "Next from: …" in the queue panel. Kept parallel to `self.queue`; `None` for items queued
-    /// individually or restored from a previous session.
+    /// "Next from: …" in the queue panel. Always as long as `self.queue`; `None` for items
+    /// queued individually or restored from a previous session.
     sources: RwLock<Vec<Option<Arc<str>>>>,
     current_track: RwLock<Option<usize>>,
     sleep_timer: RwLock<Option<SleepTimer>>,
@@ -130,17 +132,23 @@ impl Queue {
             vec![None; queue_state.queue.len()]
         };
 
+        // The play order older versions saved for shuffle (`random_order`) isn't used: shuffling
+        // reorders the queue itself now, and that order fell out of step as the queue changed.
+        // The saved queue plays in the order it's in.
+        let current_track = queue_state
+            .current_track
+            .filter(|&i| i < queue_state.queue.len());
+
         Self {
             queue: Arc::new(RwLock::new(queue_state.queue)),
             spotify: spotify.clone(),
-            current_track: RwLock::new(queue_state.current_track),
+            current_track: RwLock::new(current_track),
             sleep_timer: RwLock::new(None),
             loaded_at: RwLock::new(None),
             failed_in_a_row: RwLock::new(0),
             autoplay_after: RwLock::new(None),
             waiting_for_autoplay: RwLock::new(false),
             started: RwLock::new(Vec::new()),
-            random_order: RwLock::new(queue_state.random_order),
             unshuffled: RwLock::new(None),
             sources: RwLock::new(sources),
             cfg,
@@ -148,48 +156,28 @@ impl Queue {
         }
     }
 
-    /// Position of the current track within the play order (shuffle-aware).
-    /// None if nothing is playing.
-    fn current_order_pos(&self) -> Option<usize> {
-        let current = (*self.current_track.read().unwrap())?;
-        Some(match self.random_order.read().unwrap().as_ref() {
-            Some(order) => order.iter().position(|&i| i == current).unwrap(),
-            None => current,
-        })
-    }
-
-    /// The `self.queue` index at play-order position `pos` (shuffle-aware).
-    fn queue_index_at(&self, pos: usize) -> usize {
-        match self.random_order.read().unwrap().as_ref() {
-            Some(order) => order[pos],
-            None => pos,
-        }
-    }
-
     /// The index of the next item in `self.queue` that should be played. None
-    /// if at the end of the queue.
+    /// if at the end of the queue. Shuffling reorders the queue itself, so the
+    /// play order is the queue's order.
     pub fn next_index(&self) -> Option<usize> {
-        let next = self.current_order_pos()? + 1;
-        (next < self.queue.read().unwrap().len()).then(|| self.queue_index_at(next))
+        let len = self.queue.read().unwrap().len();
+        let next = self.get_current_index()? + 1;
+        (next < len).then_some(next)
     }
 
     /// The index of the previous item in `self.queue` that should be played.
     /// None if at the start of the queue.
     pub fn previous_index(&self) -> Option<usize> {
-        let pos = self.current_order_pos()?;
-        (pos > 0).then(|| self.queue_index_at(pos - 1))
+        self.get_current_index()?.checked_sub(1)
     }
 
     /// The `self.queue` index `offset` items from the current one in play
     /// order (negative = backward), clamped to the queue bounds. None if
     /// nothing is playing or the queue is empty.
     fn skip_index(&self, offset: isize) -> Option<usize> {
-        let pos = self.current_order_pos()?;
         let len = self.queue.read().unwrap().len();
-        (len > 0).then(|| {
-            let target = (pos as isize + offset).clamp(0, len as isize - 1) as usize;
-            self.queue_index_at(target)
-        })
+        let pos = self.get_current_index()?;
+        (len > 0).then(|| (pos as isize + offset).clamp(0, len as isize - 1) as usize)
     }
 
     /// Skip `offset` items forward (positive) or backward (negative) in play
@@ -210,8 +198,8 @@ impl Queue {
 
     /// The currently playing item from `self.queue`.
     pub fn get_current(&self) -> Option<Playable> {
-        self.get_current_index()
-            .map(|index| self.queue.read().unwrap()[index].clone())
+        let index = self.get_current_index()?;
+        self.queue.read().unwrap().get(index).cloned()
     }
 
     /// Whether the current item's ID is `id` (`None` for items without one, like local files).
@@ -258,42 +246,29 @@ impl Queue {
     /// Insert `track` as the item that should logically follow the currently
     /// playing item, taking into account shuffle status.
     pub fn insert_after_current(&self, track: Playable) {
-        if let Some(index) = self.get_current_index() {
-            let mut random_order = self.random_order.write().unwrap();
-            if let Some(order) = random_order.as_mut() {
-                let next_i = order.iter().position(|&i| i == index).unwrap();
-                // shift everything after the insertion in order
-                for item in order.iter_mut() {
-                    if *item > index {
-                        *item += 1;
-                    }
-                }
-                // finally, add the next track index
-                order.insert(next_i + 1, index + 1);
+        let mut q = self.queue.write().unwrap();
+        let mut sources = self.sources.write().unwrap();
+        let current = *self.current_track.read().unwrap();
+        match current {
+            Some(index) if index < q.len() => {
+                q.insert(index + 1, track);
+                insert_source(&mut sources, index + 1, None);
             }
-            let mut q = self.queue.write().unwrap();
-            q.insert(index + 1, track);
-            insert_source(&mut self.sources.write().unwrap(), index + 1, None);
-        } else {
-            self.append(track);
+            _ => {
+                // As `append`.
+                let index = self.autoplay_start(&q, &sources);
+                q.insert(index, track);
+                insert_source(&mut sources, index, None);
+            }
         }
     }
 
     /// Add `track` to the end of the queue.
     pub fn append(&self, track: Playable) {
-        let mut random_order = self.random_order.write().unwrap();
-        if let Some(order) = random_order.as_mut() {
-            order.push(order.len());
-        }
-
         let mut q = self.queue.write().unwrap();
         let mut sources = self.sources.write().unwrap();
-        // Ahead of what autoplay added, as in Spotify's apps (not with the old shuffle order,
-        // which only appends).
-        let index = match random_order.as_ref() {
-            Some(_) => q.len(),
-            None => self.autoplay_start(&q, &sources),
-        };
+        // Ahead of what autoplay added, as in Spotify's apps.
+        let index = self.autoplay_start(&q, &sources);
         q.insert(index, track);
         insert_source(&mut sources, index, None);
     }
@@ -323,21 +298,13 @@ impl Queue {
     /// name) for the queue panel.
     pub fn append_next_from(&self, tracks: &[Playable], source: Option<&str>) -> usize {
         let mut q = self.queue.write().unwrap();
-
-        {
-            let mut random_order = self.random_order.write().unwrap();
-            if let Some(order) = random_order.as_mut() {
-                order.extend((q.len().saturating_sub(1))..(q.len() + tracks.len()));
-            }
-        }
-
+        let mut sources = self.sources.write().unwrap();
         let first = match *self.current_track.read().unwrap() {
-            Some(index) => index + 1,
+            Some(index) => (index + 1).min(q.len()),
             None => q.len(),
         };
 
         let source: Option<Arc<str>> = source.map(Arc::from);
-        let mut sources = self.sources.write().unwrap();
         for (i, track) in (first..).zip(tracks.iter()) {
             q.insert(i, track.clone());
             insert_source(&mut sources, i, source.clone());
@@ -408,14 +375,10 @@ impl Queue {
         self.stop();
 
         let mut q = self.queue.write().unwrap();
+        let mut sources = self.sources.write().unwrap();
         q.clear();
-
-        let mut random_order = self.random_order.write().unwrap();
-        if let Some(o) = random_order.as_mut() {
-            o.clear()
-        }
+        sources.clear();
         *self.unshuffled.write().unwrap() = None;
-        self.sources.write().unwrap().clear();
     }
 
     /// Remove everything after the current item, which keeps playing, and let autoplay pick what
@@ -425,10 +388,10 @@ impl Queue {
             return self.clear();
         };
         {
-            // The old shuffle order could have upcoming items anywhere: drop it with them.
-            *self.random_order.write().unwrap() = None;
-            self.queue.write().unwrap().truncate(current + 1);
-            self.sources.write().unwrap().truncate(current + 1);
+            let mut q = self.queue.write().unwrap();
+            let mut sources = self.sources.write().unwrap();
+            q.truncate(current + 1);
+            sources.truncate(current + 1);
         }
         // Ask again, even if it was asked for this track already: what it found is gone too.
         *self.autoplay_after.write().unwrap() = None;
@@ -534,7 +497,8 @@ impl Queue {
             index = rng.random_range(0..queue_length);
         }
 
-        if let Some(track) = &self.queue.read().unwrap().get(index) {
+        let track = self.queue.read().unwrap().get(index).cloned();
+        if let Some(track) = &track {
             self.spotify.load(track, start_playing, 0);
             self.current_track.write().unwrap().replace(index);
             if let Playable::Track(track) = track {
@@ -625,15 +589,24 @@ impl Queue {
         if !manual && self.failing() {
             return;
         }
-        let q = self.queue.read().unwrap();
-        let current = *self.current_track.read().unwrap();
+        let current = self.get_current_index();
+        // What's needed of the queue, taken before loading, which locks it again.
+        let (current_playable, current_uri, any_playable) = {
+            let q = self.queue.read().unwrap();
+            let current = current.and_then(|i| q.get(i));
+            (
+                current.is_some_and(Playable::is_playable),
+                current.map(Playable::uri),
+                q.iter().any(Playable::is_playable),
+            )
+        };
         let repeat = self.cfg.state().repeat;
         // A track that ended with the sleep timer set to its end loads the next one paused.
         let start_playing = manual || !self.take_sleep_timer(SleepTimer::EndOfTrack);
 
         if repeat == RepeatSetting::RepeatTrack && !manual {
             if let Some(index) = current
-                && q[index].is_playable()
+                && current_playable
             {
                 self.load(index, false, false, start_playing);
             }
@@ -642,22 +615,11 @@ impl Queue {
             if repeat == RepeatSetting::RepeatTrack && manual {
                 self.set_repeat(RepeatSetting::RepeatPlaylist);
             }
-        } else if repeat == RepeatSetting::RepeatPlaylist
-            && !q.is_empty()
-            && q.iter().any(|track| track.is_playable())
-        {
-            let random_order = self.random_order.read().unwrap();
-            self.load(
-                random_order.as_ref().map(|o| o[0]).unwrap_or(0),
-                false,
-                false,
-                start_playing,
-            );
+        } else if repeat == RepeatSetting::RepeatPlaylist && any_playable {
+            self.load(0, false, false, start_playing);
         } else {
             // Autoplay may still be looking for what comes next: it plays it when it's found. If
             // it wasn't asked yet (or found nothing last time), it's asked now.
-            let current_uri = current.and_then(|i| q.get(i)).map(Playable::uri);
-            drop(q);
             if !manual && let Some(index) = current {
                 self.request_autoplay(index);
             }
@@ -810,9 +772,6 @@ impl Queue {
     fn append_autoplay(&self, tracks: Vec<Playable>) -> usize {
         let mut q = self.queue.write().unwrap();
         let mut sources = self.sources.write().unwrap();
-        if let Some(order) = self.random_order.write().unwrap().as_mut() {
-            order.extend(q.len()..q.len() + tracks.len());
-        }
         let first = q.len();
         for track in tracks {
             q.push(track);
@@ -856,23 +815,14 @@ impl Queue {
 
     /// Play the previous item in the queue.
     pub fn previous(&self) {
-        let q = self.queue.read().unwrap();
-        let current = *self.current_track.read().unwrap();
+        let len = self.len();
+        let current = self.get_current_index();
         let repeat = self.cfg.state().repeat;
 
         if let Some(index) = self.previous_index() {
             self.play(index, false, false);
-        } else if repeat == RepeatSetting::RepeatPlaylist && !q.is_empty() {
-            if self.get_shuffle() {
-                let random_order = self.random_order.read().unwrap();
-                self.play(
-                    random_order.as_ref().map(|o| o[q.len() - 1]).unwrap_or(0),
-                    false,
-                    false,
-                );
-            } else {
-                self.play(q.len() - 1, false, false);
-            }
+        } else if repeat == RepeatSetting::RepeatPlaylist && len > 0 {
+            self.play(len - 1, false, false);
         } else if let Some(index) = current {
             self.play(index, false, false);
         }
@@ -895,9 +845,10 @@ impl Queue {
         self.cfg.state().shuffle
     }
 
-    /// Get the current order that is used to shuffle.
+    /// The separate play order older versions kept for shuffle, for saving the queue between
+    /// sessions: always `None`, as shuffling reorders the queue itself.
     pub fn get_random_order(&self) -> Option<Vec<usize>> {
-        self.random_order.read().unwrap().clone()
+        None
     }
 
     /// Shuffle the queue: reorder `self.queue` so the current item comes first, followed by the
@@ -905,16 +856,15 @@ impl Queue {
     /// order) means the queue view shows the order things will actually play in. The order
     /// before the first shuffle is kept so [Queue::set_shuffle] can restore it.
     fn generate_random_order(&self) {
-        let mut random_order = self.random_order.write().unwrap();
         let mut q = self.queue.write().unwrap();
-        let mut current = self.current_track.write().unwrap();
-
-        let mut unshuffled = self.unshuffled.write().unwrap();
-        if unshuffled.is_none() {
-            *unshuffled = Some(q.clone());
-        }
-
         let mut sources = self.sources.write().unwrap();
+        let mut current = self.current_track.write().unwrap();
+        {
+            let mut unshuffled = self.unshuffled.write().unwrap();
+            if unshuffled.is_none() {
+                *unshuffled = Some(q.clone());
+            }
+        }
         sources.resize(q.len(), None);
 
         type Entry = (Playable, Option<Arc<str>>);
@@ -934,17 +884,15 @@ impl Queue {
         if current.is_some() {
             *current = Some(0);
         }
-        *random_order = None;
     }
 
     /// Undo [Queue::generate_random_order]: put the queue back in its order from before
     /// shuffling. Items added while shuffled keep their place at the end, removed ones stay
     /// removed, and the current item keeps playing.
     fn restore_unshuffled_order(&self) {
-        let mut random_order = self.random_order.write().unwrap();
         let mut q = self.queue.write().unwrap();
+        let mut sources = self.sources.write().unwrap();
         let mut current = self.current_track.write().unwrap();
-        *random_order = None;
 
         let Some(original) = self.unshuffled.write().unwrap().take() else {
             return;
@@ -966,7 +914,6 @@ impl Queue {
         order.extend((0..q.len()).filter(|&i| !taken[i]));
 
         *current = current.and_then(|c| order.iter().position(|&i| i == c));
-        let mut sources = self.sources.write().unwrap();
         sources.resize(q.len(), None);
         let mut slots: Vec<Option<(Playable, Option<Arc<str>>)>> =
             q.drain(..).zip(sources.drain(..)).map(Some).collect();
@@ -974,11 +921,15 @@ impl Queue {
     }
 
     /// Where each item was queued from, for saving the queue between sessions.
+    ///
+    /// Doesn't lock `self.queue`, which `sources` is always as long as, so it can be called while
+    /// holding that.
     pub fn sources(&self) -> Vec<Option<String>> {
-        let len = self.queue.read().unwrap().len();
-        let sources = self.sources.read().unwrap();
-        (0..len)
-            .map(|i| sources.get(i).cloned().flatten().map(|s| s.to_string()))
+        self.sources
+            .read()
+            .unwrap()
+            .iter()
+            .map(|s| s.as_deref().map(String::from))
             .collect()
     }
 
@@ -991,23 +942,12 @@ impl Queue {
     /// `self.queue`. Without a current item, the queue from the start.
     pub fn upcoming(&self, count: usize) -> Vec<(usize, Playable)> {
         let q = self.queue.read().unwrap();
-        let random_order = self.random_order.read().unwrap();
-        let order: Vec<usize> = match random_order.as_ref() {
-            Some(order) if order.len() == q.len() => order.clone(),
-            _ => (0..q.len()).collect(),
-        };
-        let start = match *self.current_track.read().unwrap() {
-            Some(current) => order
-                .iter()
-                .position(|&i| i == current)
-                .map_or(0, |p| p + 1),
-            None => 0,
-        };
-        order
-            .iter()
+        let start = self.current_track.read().unwrap().map_or(0, |i| i + 1);
+        q.iter()
+            .enumerate()
             .skip(start)
             .take(count)
-            .filter_map(|&i| q.get(i).map(|t| (i, t.clone())))
+            .map(|(i, t)| (i, t.clone()))
             .collect()
     }
 
@@ -1025,8 +965,10 @@ impl Queue {
     pub fn handle_event(&self, event: QueueEvent) -> Option<Result<String, String>> {
         match event {
             QueueEvent::PreloadTrackRequest => {
-                if let Some(next_index) = self.next_index() {
-                    let track = self.queue.read().unwrap()[next_index].clone();
+                if let Some(track) = self
+                    .next_index()
+                    .and_then(|i| self.queue.read().unwrap().get(i).cloned())
+                {
                     debug!("Preloading track {track} as requested by librespot");
                     self.spotify.preload(&track);
                 }
@@ -1159,7 +1101,6 @@ mod tests {
         let library = Library::new_for_test(ev, spotify.clone(), cfg.clone());
         Queue {
             queue: Arc::new(RwLock::new(tracks)),
-            random_order: RwLock::new(None),
             unshuffled: RwLock::new(None),
             sources: RwLock::new(vec![None; len]),
             current_track: RwLock::new(current),
@@ -1445,42 +1386,74 @@ mod tests {
         assert_eq!(q.previous_index(), None);
     }
 
-    // --- next / previous with shuffle ---
-
     #[test]
-    fn test_next_index_respects_random_order() {
-        // Queue [0,1,2,3], current_track=2, random_order=[2,0,3,1]
-        // Position of 2 in order = 0, next position = 1, order[1] = 0 → Some(0)
-        let q = make_queue(
-            vec![make_track(0), make_track(1), make_track(2), make_track(3)],
-            Some(2),
-        );
-        *q.random_order.write().unwrap() = Some(vec![2, 0, 3, 1]);
-        assert_eq!(q.next_index(), Some(0));
+    fn test_shuffle_order_saved_by_older_versions_is_ignored() {
+        let cfg = Config::new_for_test();
+        let tracks = make_tracks(3);
+        cfg.with_state_mut(|s| {
+            s.queuestate.queue.clone_from(&tracks);
+            s.queuestate.current_track = Some(1);
+            // Out of step with the queue, as it got: one index too many, and repeated.
+            s.queuestate.random_order = Some(vec![1, 1, 0, 2, 3]);
+        });
+        let ev = EventManager::new_for_test();
+        let spotify = Spotify::new_for_test(cfg.clone(), ev.clone());
+        let library = Library::new_for_test(ev, spotify.clone(), cfg.clone());
+        let q = Queue::new(spotify, cfg, library);
+        assert_eq!(q.next_index(), Some(2));
+        assert_eq!(q.previous_index(), Some(0));
+        q.remove(0);
+        q.append_next(&[make_track(7)]);
+        assert_eq!(q.next_index(), Some(1));
+        assert_eq!(q.handle_event(QueueEvent::PreloadTrackRequest), None);
+        assert_eq!(q.get_random_order(), None);
     }
 
     #[test]
-    fn test_previous_index_respects_random_order() {
-        // Queue [0,1,2,3], current_track=0, random_order=[2,0,3,1]
-        // Position of 0 in order = 1, prev position = 0, order[0] = 2 → Some(2)
-        let q = make_queue(
-            vec![make_track(0), make_track(1), make_track(2), make_track(3)],
-            Some(0),
-        );
-        *q.random_order.write().unwrap() = Some(vec![2, 0, 3, 1]);
-        assert_eq!(q.previous_index(), Some(2));
+    fn test_saved_current_track_past_the_end_is_dropped() {
+        let cfg = Config::new_for_test();
+        cfg.with_state_mut(|s| {
+            s.queuestate.queue = make_tracks(2);
+            s.queuestate.current_track = Some(5);
+        });
+        let ev = EventManager::new_for_test();
+        let spotify = Spotify::new_for_test(cfg.clone(), ev.clone());
+        let library = Library::new_for_test(ev, spotify.clone(), cfg.clone());
+        let q = Queue::new(spotify, cfg, library);
+        assert_eq!(q.get_current_index(), None);
+        assert!(q.get_current().is_none());
     }
 
     #[test]
-    fn test_next_index_at_end_of_shuffle_order_returns_none() {
-        // Queue [0,1,2,3], current_track=1, random_order=[2,0,3,1]
-        // Position of 1 in order = 3 (last), next = 4 → None
-        let q = make_queue(
-            vec![make_track(0), make_track(1), make_track(2), make_track(3)],
-            Some(1),
-        );
-        *q.random_order.write().unwrap() = Some(vec![2, 0, 3, 1]);
-        assert_eq!(q.next_index(), None);
+    fn test_queue_used_from_two_threads_at_once_doesnt_deadlock() {
+        // As MPRIS does from its own thread while the UI's goes on.
+        let q = Arc::new(make_queue(make_tracks(30), Some(0)));
+        let other = std::thread::spawn({
+            let q = q.clone();
+            move || {
+                for i in 0..300 {
+                    q.set_shuffle(i % 2 == 0);
+                    let _ = q.next_index();
+                    let _ = q.get_current();
+                    let _ = q.upcoming(5);
+                    q.append(make_track(100 + i));
+                }
+            }
+        });
+        for i in 0..300 {
+            q.next(true);
+            q.previous();
+            q.append_next(&[make_track(1000 + i)]);
+            let _ = q.handle_event(QueueEvent::PreloadTrackRequest);
+        }
+        other.join().unwrap();
+        assert_eq!(q.sources.read().unwrap().len(), q.len());
+    }
+
+    #[test]
+    fn test_get_current_past_the_end_is_none() {
+        let q = make_queue(make_tracks(2), Some(2));
+        assert!(q.get_current().is_none());
     }
 
     // --- skip_index (count-prefixed next/previous) ---
@@ -1506,18 +1479,6 @@ mod tests {
     fn test_skip_index_no_current_returns_none() {
         let q = make_queue(vec![make_track(0), make_track(1)], None);
         assert_eq!(q.skip_index(1), None);
-    }
-
-    #[test]
-    fn test_skip_index_respects_random_order() {
-        // Queue [0,1,2,3], current_track=2, random_order=[2,0,3,1]
-        // Position of 2 in order = 0, +2 = 2, order[2] = 3 → Some(3)
-        let q = make_queue(
-            vec![make_track(0), make_track(1), make_track(2), make_track(3)],
-            Some(2),
-        );
-        *q.random_order.write().unwrap() = Some(vec![2, 0, 3, 1]);
-        assert_eq!(q.skip_index(2), Some(3));
     }
 
     // --- len, get_current ---
