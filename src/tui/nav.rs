@@ -108,6 +108,15 @@ pub fn go_to_artists(artists: Vec<Artist>, ctx: &Ctx) -> Outcome {
     }
 }
 
+/// Whether [item_command] handles `cmd`.
+pub fn is_item_command(cmd: &Command) -> bool {
+    #[cfg(feature = "share_clipboard")]
+    if matches!(cmd, Command::Share(crate::command::TargetMode::Selected)) {
+        return true;
+    }
+    matches!(cmd, Command::Save | Command::Add | Command::Goto(_))
+}
+
 /// What a list does with its selected `item` for `cmd`: save it (`s`), add it to a playlist,
 /// go to its album or artist (`a`, `A`) or copy its link (`x`). [Outcome::Ignored] for other
 /// commands.

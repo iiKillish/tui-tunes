@@ -509,10 +509,7 @@ impl<I: ListItem + Clone> ItemList<I> {
                 }
             }
             Command::Open(TargetMode::Selected) => return self.open(ctx),
-            Command::Save
-            | Command::Add
-            | Command::Goto(_)
-            | Command::Share(TargetMode::Selected) => {
+            cmd if nav::is_item_command(cmd) => {
                 return match self.selected_item() {
                     Some(mut item) => nav::item_command(&mut item, cmd, ctx),
                     None => Outcome::Consumed,

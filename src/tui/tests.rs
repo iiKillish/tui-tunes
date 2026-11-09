@@ -1273,10 +1273,11 @@ fn test_up_next_acts_on_the_selected_song_like_other_lists() {
         Outcome::Overlay(_)
     ));
     assert!(!matches!(run(Command::Save), Outcome::Ignored));
-    assert!(!matches!(
-        run(Command::Share(TargetMode::Selected)),
-        Outcome::Ignored
-    ));
+    // Sharing too, but that would copy to the real clipboard.
+    #[cfg(feature = "share_clipboard")]
+    assert!(crate::tui::nav::is_item_command(&Command::Share(
+        TargetMode::Selected
+    )));
     // `/` finds a song, `n` the next match, going round.
     run(Command::Jump(JumpMode::Query("song number".into())));
     run(Command::Jump(JumpMode::Next));

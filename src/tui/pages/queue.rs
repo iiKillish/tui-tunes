@@ -494,10 +494,7 @@ impl Page for QueuePage {
                 };
             }
             // Like in other lists of songs.
-            Command::Save
-            | Command::Add
-            | Command::Goto(_)
-            | Command::Share(TargetMode::Selected) => {
+            cmd if nav::is_item_command(cmd) => {
                 return match Items::load(ctx).get(self.selected) {
                     Some(item) => nav::item_command(&mut item.clone(), cmd, ctx),
                     None => Outcome::Consumed,
