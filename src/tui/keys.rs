@@ -46,6 +46,8 @@ impl Key {
     /// Alt, unless the terminal is set to send Option as Alt. This turns such a character back
     /// into Alt with the key in the same place on a US keyboard, so bindings work the same as on
     /// Linux. Keys that start an accent (Option+e, i, n, u, `) type nothing and can't be told.
+    /// Only for Macs: elsewhere these characters are typed with other keys (`¬` is Shift+` on a
+    /// UK keyboard), so the app only asks on macOS.
     pub fn as_mac_option_alt(&self) -> Option<Self> {
         let KeyCode::Char(c) = self.code else {
             return None;

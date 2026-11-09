@@ -587,14 +587,21 @@ impl App {
                 return;
             }
         }
-        let bound = self.bindings.get(&key).or_else(|| {
-            key.as_mac_option_alt()
-                .and_then(|alt| self.bindings.get(&alt))
-        });
-        match bound.cloned() {
+        match self.binding(&key).cloned() {
             Some(commands) => self.run_binding(commands),
             None => self.count = 0,
         }
+    }
+
+    /// The commands bound to `key`. On a Mac, a character typed with Option is also taken as
+    /// Alt with that key; elsewhere those characters (`¬` on a UK keyboard, `ß`, `ç`) are just
+    /// typed, so they don't run Alt bindings.
+    pub(crate) fn binding(&self, key: &Key) -> Option<&Vec<Command>> {
+        self.bindings.get(key).or_else(|| {
+            key.as_mac_option_alt()
+                .filter(|_| cfg!(target_os = "macos"))
+                .and_then(|alt| self.bindings.get(&alt))
+        })
     }
 
     /// Open the command line (`prefix` is `:` or `/`) with `text` typed.

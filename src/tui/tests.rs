@@ -1240,6 +1240,22 @@ fn test_command_line_suggests_and_completes() {
 }
 
 #[test]
+fn test_mac_option_characters_are_alt_only_on_a_mac() {
+    use crate::tui::keys::Key;
+
+    let app = app();
+    // Option+l on a Mac, Shift+` on a UK keyboard.
+    let not = Key::parse("¬").unwrap();
+    let alt_l = Key::parse("Alt+l").unwrap();
+    assert!(app.binding(&alt_l).is_some(), "Alt+l isn't bound");
+    if cfg!(target_os = "macos") {
+        assert!(app.binding(&not).is_some());
+    } else {
+        assert!(app.binding(&not).is_none(), "¬ ran an Alt+l binding");
+    }
+}
+
+#[test]
 fn test_command_line_cursor_follows_wide_characters() {
     let mut app = app();
     let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
