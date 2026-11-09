@@ -148,8 +148,19 @@ things you can click, and a text cursor over text fields.
   and artists. <kbd>H</kbd>/<kbd>L</kbd> switch between All, Albums, Playlists, Artists and Songs.
 - **Search**: type and press <kbd>Return</kbd>; results open with an _All_ tab (top result, then
   rows of songs, artists, albums and playlists) and a tab per kind. Spotify links work too.
+  With the field empty it lists your last 10 searches, newest first: click one, or press
+  <kbd>↓</kbd> then <kbd>Return</kbd>, to search it again (<kbd>↑</kbd> from the top goes back to
+  the field). Remove one with the ✕ on its row, <kbd>D</kbd> or <kbd>Delete</kbd>, and all of them
+  with **Clear all** or <kbd>C</kbd>; the ✕ at the end of the field (or <kbd>Ctrl</kbd>+<kbd>U</kbd>)
+  clears what's typed. They're kept in `recent_searches.json` in the data directory.
 - **Library**: playlists (with _Liked Songs_ first), albums and artists as grids of covers, then
-  saved tracks, podcasts and Spotify's categories.
+  saved tracks, podcasts and Spotify's categories. (Spotify stopped giving apps the playlists of
+  its categories in late 2024, so a category says so instead of listing them.)
+- **Artist pages**: two tabs, **Top tracks** and **Discography**: the artist's albums, singles and
+  EPs, compilations and the releases they appear on, each a row of covers, newest first.
+  <kbd>Tab</kbd> (or <kbd>→</kbd> from the top tracks) switches tabs; the discography loads the
+  first time it's shown, and more of a row as you scroll along it. Play and Shuffle in the header
+  play the top tracks.
 - **Up next**: the queue, grouped by where songs were queued from. <kbd>Return</kbd> plays,
   <kbd>D</kbd> removes, <kbd>Shift</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> moves songs.
 - **Lyrics**: time-synced lyrics from [LRCLIB](https://lrclib.net), following the song; click a line
@@ -287,6 +298,7 @@ Note: \<FOO\> - mandatory arg; [BAR] - optional arg
 | `sleep` [\<TIME\>\|`track`\|`off`] | Set the sleep timer, which pauses playback. `track` pauses when the current track ends, and the next one waits paused; `off` turns the timer off. Omit the argument to toggle `track`.<br/>\* TIME is a number of minutes, or a duration such as `1h 30m`, `45m` or `90s` (units: `ms`, `s`, `m`, `h`). |
 | `clear` | Clear the queue: asks whether to clear everything, or only what's up next and keep the current song playing, with autoplay after it. |
 | `autoplay` | Ask autoplay for songs like the last one in the queue now, and add them to the end of it, whatever the `autoplay` setting. Plays them if nothing's playing. |
+| `radio` [`current`] | Go to radio: replace the queue with a mix like the selected song, album or artist (`current`: the playing song) and play it. A song's radio starts with the song; Up next shows the rest as "Next from: \<Name\> Radio", leaving out songs you listened to lately, and autoplay carries on when it runs out. Also "Go to radio" in their menus. No key by default. |
 
 #### Library and playlists
 
