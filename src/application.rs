@@ -2,7 +2,7 @@ use std::error::Error;
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
 
-use log::{error, info, trace};
+use log::{debug, error, info, trace};
 
 #[cfg(unix)]
 use signal_hook::{consts::SIGHUP, consts::SIGTERM, iterator::Signals};
@@ -267,6 +267,11 @@ impl Application {
         match event {
             Event::Player(state) => {
                 trace!("event received: {state:?}");
+                if self.spotify.is_stale(&state) {
+                    // Else the track just picked would be noted as finished, and skipped.
+                    debug!("Ignoring {state:?} of the track before the one loading");
+                    return;
+                }
                 // Before the status says it's over, which leaves nothing to note.
                 if state == PlayerEvent::FinishedTrack {
                     self.queue.record_finished();
@@ -281,6 +286,9 @@ impl Application {
                 if state == PlayerEvent::FinishedTrack {
                     self.queue.next(false);
                 }
+            }
+            Event::Unplayable { uri, start_playing } => {
+                self.queue.skip_unplayable(&uri, start_playing);
             }
             Event::Queue(event) => {
                 if let Some(message) = self.queue.handle_event(event) {

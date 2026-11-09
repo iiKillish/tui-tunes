@@ -410,7 +410,10 @@ impl Spotify {
 
         if !track.is_playable() {
             warn!("track {track:?} can not be played, skipping..");
-            self.events.send(Event::Player(PlayerEvent::FinishedTrack));
+            self.events.send(Event::Unplayable {
+                uri: track.uri(),
+                start_playing,
+            });
             return;
         }
 
@@ -475,6 +478,19 @@ impl Spotify {
     /// playing once it's loaded.
     pub fn loading(&self) -> Option<bool> {
         *self.loading.read().unwrap()
+    }
+
+    /// Whether `event` is about the track before the one being loaded, so is to be ignored: when
+    /// another track is picked in the last moments of one, the player can say that one finished
+    /// after the other was loaded. Every track says it's playing or paused before it can finish.
+    pub fn is_stale(&self, event: &PlayerEvent) -> bool {
+        *event == PlayerEvent::FinishedTrack && self.loading().is_some()
+    }
+
+    /// The track being loaded won't be (it can't be played): no word of it will come from the
+    /// player.
+    pub fn cancel_loading(&self) {
+        *self.loading.write().unwrap() = None;
     }
 
     /// Start playback of the [Player].

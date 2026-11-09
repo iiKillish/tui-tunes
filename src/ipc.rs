@@ -56,9 +56,10 @@ impl IpcSocket {
         let (tx, rx) = tokio::sync::watch::channel(status);
         let listener_path = path.clone();
         handle.spawn(async move {
-            let listener =
-                UnixListener::bind(listener_path).expect("Could not create IPC domain socket");
-            Self::worker(listener, ev, rx.clone()).await;
+            match UnixListener::bind(&listener_path) {
+                Ok(listener) => Self::worker(listener, ev, rx).await,
+                Err(e) => error!("Could not create IPC domain socket at {listener_path:?}: {e}"),
+            }
         });
 
         Ok(Self { tx, path })
@@ -73,7 +74,8 @@ impl IpcSocket {
             mode: event.clone(),
             playable,
         };
-        self.tx.send(status).unwrap();
+        // Kept even without a receiver (there's none if the socket couldn't be made).
+        self.tx.send_replace(status);
     }
 
     async fn worker(listener: UnixListener, ev: EventManager, tx: Receiver<Status>) {
@@ -139,5 +141,28 @@ impl IpcSocket {
         } else {
             info!("socket already removed");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_socket_that_cant_be_made_leaves_player_events_be() {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        // In a directory that isn't there, so binding fails.
+        let path = std::env::temp_dir()
+            .join(format!("ttunes-ipc-test-{}", std::process::id()))
+            .join("missing")
+            .join("ttunes.sock");
+        let socket = IpcSocket::new(runtime.handle(), path, EventManager::new_for_test()).unwrap();
+        // Let the listener try, and give up.
+        runtime.block_on(async { tokio::time::sleep(std::time::Duration::from_millis(50)).await });
+        socket.publish(&PlayerEvent::Stopped, None);
+        socket.publish(&PlayerEvent::FinishedTrack, None);
     }
 }
