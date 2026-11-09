@@ -1,6 +1,5 @@
 use std::collections::{HashMap, HashSet};
 use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io::Write;
 use std::iter::Iterator;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
@@ -156,17 +155,12 @@ impl Library {
         if saved.get(cache_path) == Some(&hash) {
             return;
         }
-        let temp = cache_path.with_extension("db.tmp");
-        let written = std::fs::File::create(&temp)
-            .and_then(|mut file| file.write_all(&json))
-            .and_then(|()| std::fs::rename(&temp, cache_path));
-        match written {
+        match crate::serialization::write_atomically(cache_path, &json, false) {
             Ok(()) => {
                 saved.insert(cache_path.to_path_buf(), hash);
             }
             Err(e) => {
                 error!("could not write cache {}: {e}", cache_path.display());
-                let _ = std::fs::remove_file(&temp);
             }
         }
     }

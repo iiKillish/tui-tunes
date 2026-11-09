@@ -580,7 +580,10 @@ impl WebApi {
         let saved = std::fs::create_dir_all(cache.parent().unwrap())
             .map_err(|e| e.to_string())
             .and_then(|()| serde_json::to_string(&playlist).map_err(|e| e.to_string()))
-            .and_then(|json| std::fs::write(&cache, json).map_err(|e| e.to_string()));
+            .and_then(|json| {
+                crate::serialization::write_atomically(&cache, json.as_bytes(), false)
+                    .map_err(|e| e.to_string())
+            });
         if let Err(e) = saved {
             error!("Couldn't cache playlist {id}: {e}");
         }

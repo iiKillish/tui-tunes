@@ -252,33 +252,11 @@ fn write_token(path: &Path, token: &rspotify::Token) {
     }
 }
 
-/// Replace `path` with `contents`, readable only by the current user on unix.
-///
-/// The contents go to a temporary file in the same directory, created with those permissions
-/// from the start so no other user can open it in between, and then take the place of `path`,
-/// so a crash can't leave a truncated file behind.
+/// Replace `path` with `contents`, readable only by the current user on unix: created with those
+/// permissions from the start so no other user can open it in between, and written in a way a
+/// crash can't leave a truncated file behind (see [crate::serialization::write_atomically]).
 fn write_private_file(path: &Path, contents: &[u8]) -> std::io::Result<()> {
-    use std::io::Write;
-
-    let mut temp_name = path.file_name().unwrap_or_default().to_os_string();
-    temp_name.push(format!(".{}.tmp", std::process::id()));
-    let temp_path = path.with_file_name(temp_name);
-    // A file left by a crash would keep its permissions, so start over.
-    let _ = fs::remove_file(&temp_path);
-
-    let mut options = fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    let written = options.open(&temp_path).and_then(|mut file| {
-        file.write_all(contents)?;
-        file.sync_all()
-    });
-    let result = written.and_then(|()| fs::rename(&temp_path, path));
-    if result.is_err() {
-        let _ = fs::remove_file(&temp_path);
-    }
-    result
+    crate::serialization::write_atomically(path, contents, true)
 }
 
 /// Forget the saved logins: librespot's, and the Web API tokens of every client ID.
