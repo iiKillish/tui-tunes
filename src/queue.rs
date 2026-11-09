@@ -16,7 +16,7 @@ use crate::model::playable::Playable;
 use crate::model::track::Track;
 use crate::spotify::PlayerEvent;
 use crate::spotify::Spotify;
-use crate::traits::ListItem;
+use crate::traits::{ListItem, OpenTarget};
 
 /// Repeat behavior for the [Queue].
 #[derive(Display, Clone, Copy, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -51,6 +51,57 @@ pub enum QueueEvent {
         tracks: Vec<Playable>,
         manual: bool,
     },
+    /// The tracks of the radio seeded with `seed`; see [Queue::request_radio].
+    Radio {
+        seed: Box<RadioSeed>,
+        tracks: Vec<Playable>,
+    },
+}
+
+/// What a radio is made from, as with "Go to radio" in Spotify's apps: a song, album or artist.
+#[derive(Clone, Debug)]
+pub struct RadioSeed {
+    /// The Spotify URI of the song, album or artist.
+    pub uri: String,
+    /// Its name, which names the radio.
+    pub name: String,
+    /// The song, which plays first, when it's a song's radio.
+    pub track: Option<Track>,
+}
+
+impl RadioSeed {
+    /// The radio for `item`, if it can have one: a song on Spotify (not a local file), an album
+    /// or an artist. Not podcasts, playlists or anything else.
+    pub fn of(item: &dyn ListItem) -> Option<Self> {
+        match item.target() {
+            Some(OpenTarget::Album(album)) => Some(Self {
+                uri: format!("spotify:album:{}", album.id?),
+                name: album.title,
+                track: None,
+            }),
+            Some(OpenTarget::Artist(artist)) => Some(Self {
+                uri: format!("spotify:artist:{}", artist.id?),
+                name: artist.name,
+                track: None,
+            }),
+            Some(_) => None,
+            None => {
+                let track = item
+                    .track()
+                    .filter(|track| !track.is_local && track.uri.starts_with("spotify:track:"))?;
+                Some(Self {
+                    uri: track.uri.clone(),
+                    name: track.title.clone(),
+                    track: Some(track),
+                })
+            }
+        }
+    }
+
+    /// The radio's name, its tracks' source ("Next from: …").
+    pub fn label(&self) -> String {
+        format!("{} Radio", self.name)
+    }
 }
 
 /// How many recently listened to tracks autoplay is told to leave out.
@@ -114,6 +165,8 @@ pub struct Queue {
     /// The URIs of the tracks started this session, oldest first, skipped ones too, so autoplay
     /// can leave them out; see [recent_tracks].
     started: RwLock<Vec<String>>,
+    /// The URI of the radio last asked for, until it starts: an older one arriving late doesn't.
+    radio_pending: RwLock<Option<String>>,
     spotify: Spotify,
     cfg: Arc<Config>,
     /// Formats notifications.
@@ -153,6 +206,7 @@ impl Queue {
             autoplay_after: RwLock::new(None),
             waiting_for_autoplay: RwLock::new(false),
             started: RwLock::new(Vec::new()),
+            radio_pending: RwLock::new(None),
             unshuffled: RwLock::new(None),
             sources: RwLock::new(sources),
             cfg,
@@ -736,10 +790,10 @@ impl Queue {
         Ok(())
     }
 
-    fn ask_autoplay(&self, track: &Track, manual: bool) {
-        // The tracks listened to lately, so autoplay doesn't repeat them: the ones started this
-        // session, skipped or not and wherever they are in the queue (it may have been cleared,
-        // shuffled or repeated), then the listening history from before.
+    /// The tracks listened to lately, ending with `current`, so autoplay doesn't repeat them: the
+    /// ones started this session, skipped or not and wherever they are in the queue (it may have
+    /// been cleared, shuffled or repeated), then the listening history from before.
+    fn recent(&self, current: &str) -> Vec<String> {
         let history: Vec<String> = if cfg!(test) {
             Vec::new()
         } else {
@@ -748,12 +802,16 @@ impl Queue {
                 .map(|play| play.uri)
                 .collect()
         };
-        let recent = recent_tracks(
+        recent_tracks(
             &self.started.read().unwrap(),
             &history,
-            &track.uri,
+            current,
             AUTOPLAY_RECENT,
-        );
+        )
+    }
+
+    fn ask_autoplay(&self, track: &Track, manual: bool) {
+        let recent = self.recent(&track.uri);
         // Seeded with its album, or the track itself when that isn't known.
         let context = match &track.album_id {
             Some(album_id) => format!("spotify:album:{album_id}"),
@@ -823,6 +881,66 @@ impl Queue {
         if waiting {
             self.play(first, false, false);
         }
+        None
+    }
+
+    /// Ask for the radio seeded with `seed`, leaving out the tracks listened to lately and the
+    /// seed song, which is put first itself. It replaces the queue when its tracks arrive, as
+    /// [QueueEvent::Radio]; see [Queue::start_radio].
+    pub fn request_radio(&self, seed: RadioSeed) {
+        let recent = match &seed.track {
+            Some(track) => self.recent(&track.uri),
+            None => {
+                let mut recent = self.recent("");
+                recent.retain(|uri| !uri.is_empty());
+                recent
+            }
+        };
+        debug!("Asking for the radio of {}", seed.uri);
+        *self.radio_pending.write().unwrap() = Some(seed.uri.clone());
+        self.spotify.request_radio(seed, recent);
+    }
+
+    /// Replace the queue with the radio seeded with `seed` and play it: the seed song first, if
+    /// it's a song's radio, then `tracks`, all from "<name> Radio". Autoplay continues it when
+    /// they run out. If nothing came back the queue is left alone, with an error. A radio that
+    /// isn't the last one asked for is dropped.
+    fn start_radio(
+        &self,
+        seed: RadioSeed,
+        mut tracks: Vec<Playable>,
+    ) -> Option<Result<String, String>> {
+        {
+            let mut pending = self.radio_pending.write().unwrap();
+            if pending.as_deref() != Some(seed.uri.as_str()) {
+                return None;
+            }
+            *pending = None;
+        }
+        let mut seen = std::collections::HashSet::from([seed.uri.clone()]);
+        tracks.retain(|track| seen.insert(track.uri()));
+        if tracks.is_empty() {
+            return Some(Err(format!(
+                "Couldn't find a radio for {}: try again in a bit",
+                seed.name
+            )));
+        }
+        let label: Arc<str> = Arc::from(seed.label());
+        let tracks: Vec<Playable> = seed
+            .track
+            .map(Playable::Track)
+            .into_iter()
+            .chain(tracks)
+            .collect();
+        self.clear();
+        {
+            let mut q = self.queue.write().unwrap();
+            *self.sources.write().unwrap() = vec![Some(label); tracks.len()];
+            *q = tracks;
+        }
+        *self.autoplay_after.write().unwrap() = None;
+        *self.waiting_for_autoplay.write().unwrap() = false;
+        self.play(0, false, false);
         None
     }
 
@@ -1031,6 +1149,7 @@ impl Queue {
                 tracks,
                 manual,
             } => self.add_autoplay(&after, tracks, manual),
+            QueueEvent::Radio { seed, tracks } => self.start_radio(*seed, tracks),
         }
     }
 
@@ -1163,6 +1282,7 @@ mod tests {
             autoplay_after: RwLock::new(None),
             waiting_for_autoplay: RwLock::new(false),
             started: RwLock::new(Vec::new()),
+            radio_pending: RwLock::new(None),
             spotify,
             cfg,
             library,
@@ -1502,6 +1622,100 @@ mod tests {
         ));
         assert_eq!(ids(&q), ["id_0", "id_1"]);
         assert!(make_queue(Vec::new(), None).autoplay_now().is_err());
+    }
+
+    // --- radio ---
+
+    fn song_seed(id: u32) -> RadioSeed {
+        let Playable::Track(track) = make_track(id) else {
+            unreachable!()
+        };
+        RadioSeed {
+            uri: track.uri.clone(),
+            name: track.title.clone(),
+            track: Some(track),
+        }
+    }
+
+    fn album_seed() -> RadioSeed {
+        RadioSeed {
+            uri: "spotify:album:album".into(),
+            name: "Album".into(),
+            track: None,
+        }
+    }
+
+    fn radio(q: &Queue, seed: RadioSeed, tracks: Vec<Playable>) -> Option<Result<String, String>> {
+        q.request_radio(seed.clone());
+        q.handle_event(QueueEvent::Radio {
+            seed: Box::new(seed),
+            tracks,
+        })
+    }
+
+    #[test]
+    fn test_song_radio_replaces_the_queue_and_plays_the_song_first() {
+        let q = make_queue(make_tracks(3), Some(1));
+        // The song coming back among the radio's tracks isn't played twice.
+        let tracks = vec![make_track(10), make_track(7), make_track(11)];
+        assert_eq!(radio(&q, song_seed(7), tracks), None);
+        assert_eq!(ids(&q), ["id_7", "id_10", "id_11"]);
+        assert_eq!(q.get_current_index(), Some(0));
+        for id in ["id_7", "id_10", "id_11"] {
+            assert_eq!(source_of(&q, id).as_deref(), Some("Track 7 Radio"));
+        }
+    }
+
+    #[test]
+    fn test_album_radio_plays_its_tracks() {
+        let q = make_queue(make_tracks(3), None);
+        assert_eq!(radio(&q, album_seed(), autoplay_tracks()), None);
+        assert_eq!(ids(&q), ["id_10", "id_11"]);
+        assert_eq!(q.get_current_index(), Some(0));
+        assert_eq!(source_of(&q, "id_11").as_deref(), Some("Album Radio"));
+    }
+
+    #[test]
+    fn test_radio_that_found_nothing_leaves_the_queue_alone() {
+        let q = make_queue(make_tracks(3), Some(1));
+        // Only the song itself is nothing new.
+        let message = radio(&q, song_seed(7), vec![make_track(7)]);
+        assert!(matches!(message, Some(Err(e)) if e.contains("Track 7")));
+        assert_eq!(ids(&q), ["id_0", "id_1", "id_2"]);
+        assert_eq!(q.get_current_index(), Some(1));
+    }
+
+    #[test]
+    fn test_only_the_last_radio_asked_for_starts() {
+        let q = make_queue(make_tracks(3), Some(1));
+        q.request_radio(album_seed());
+        q.request_radio(song_seed(7));
+        let late = q.handle_event(QueueEvent::Radio {
+            seed: Box::new(album_seed()),
+            tracks: autoplay_tracks(),
+        });
+        assert_eq!(late, None);
+        assert_eq!(ids(&q), ["id_0", "id_1", "id_2"]);
+        q.handle_event(QueueEvent::Radio {
+            seed: Box::new(song_seed(7)),
+            tracks: autoplay_tracks(),
+        });
+        assert_eq!(ids(&q), ["id_7", "id_10", "id_11"]);
+    }
+
+    #[test]
+    fn test_autoplay_continues_a_radio_that_ran_out() {
+        let q = make_queue(Vec::new(), None);
+        radio(&q, song_seed(7), vec![make_track(10)]);
+        q.next(true);
+        assert_eq!(q.get_current_index(), Some(1));
+        assert_eq!(
+            q.autoplay_after.read().unwrap().as_deref(),
+            Some("spotify:track:id_10")
+        );
+        q.add_autoplay("spotify:track:id_10", vec![make_track(20)], false);
+        assert_eq!(ids(&q), ["id_7", "id_10", "id_20"]);
+        assert_eq!(source_of(&q, "id_20").as_deref(), Some(AUTOPLAY_SOURCE));
     }
 
     fn uris(ids: &[u32]) -> Vec<String> {

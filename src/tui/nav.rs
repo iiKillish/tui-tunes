@@ -114,11 +114,14 @@ pub fn is_item_command(cmd: &Command) -> bool {
     if matches!(cmd, Command::Share(crate::command::TargetMode::Selected)) {
         return true;
     }
-    matches!(cmd, Command::Save | Command::Add | Command::Goto(_))
+    matches!(
+        cmd,
+        Command::Save | Command::Add | Command::Goto(_) | Command::Radio
+    )
 }
 
 /// What a list does with its selected `item` for `cmd`: save it (`s`), add it to a playlist,
-/// go to its album or artist (`a`, `A`) or copy its link (`x`). [Outcome::Ignored] for other
+/// go to its album or artist (`a`, `A`), start its radio or copy its link (`x`). [Outcome::Ignored] for other
 /// commands.
 pub fn item_command(item: &mut dyn ListItem, cmd: &Command, ctx: &Ctx) -> Outcome {
     match cmd {
@@ -138,6 +141,7 @@ pub fn item_command(item: &mut dyn ListItem, cmd: &Command, ctx: &Ctx) -> Outcom
                 return go_to_artists(artists, ctx);
             }
         }
+        Command::Radio => return crate::tui::actions::radio(item, ctx),
         #[cfg(feature = "share_clipboard")]
         Command::Share(crate::command::TargetMode::Selected) => {
             if let Some(url) = item.share_url() {

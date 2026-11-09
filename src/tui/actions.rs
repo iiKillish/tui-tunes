@@ -11,7 +11,7 @@ use crate::model::episode::Episode;
 use crate::model::playable::Playable;
 use crate::model::show::Show;
 use crate::model::track::Track;
-use crate::queue::{RepeatSetting, SleepTimer};
+use crate::queue::{RadioSeed, RepeatSetting, SleepTimer};
 use crate::spotify::{UriType, VOLUME_PERCENT};
 use crate::spotify_url::SpotifyUrl;
 use crate::traits::ListItem;
@@ -80,6 +80,19 @@ fn find_link(url: &SpotifyUrl, spotify: &crate::spotify::Spotify) -> Option<Box<
             .ok()
             .map(|e| Episode::from(&e).as_listitem()),
         UriType::Show => api.show(&url.id).ok().map(|s| Show::from(&s).as_listitem()),
+    }
+}
+
+/// Replace the queue with a radio of `item` (a song, album or artist) and play it, once Spotify
+/// sends it (see [crate::queue::Queue::request_radio]).
+pub fn radio(item: &dyn ListItem, ctx: &Ctx) -> Outcome {
+    match RadioSeed::of(item) {
+        Some(seed) => {
+            let message = format!("Starting {} radio…", seed.name);
+            ctx.queue.request_radio(seed);
+            Outcome::Message(message)
+        }
+        None => Outcome::Error("Only songs, albums and artists have a radio".into()),
     }
 }
 
@@ -231,6 +244,16 @@ pub fn run(cmd: &Command, ctx: &Ctx) -> Outcome {
             if let Some(track) = queue.get_current().and_then(|t| t.track()) {
                 return nav::pick_playlist_for(vec![track], ctx);
             }
+        }
+        Command::RadioCurrent => {
+            return match queue.get_current() {
+                Some(item) => radio(item.as_listitem().as_ref(), ctx),
+                None => Outcome::Error("Play a song first: its radio follows it".into()),
+            };
+        }
+        // Lists handle it for the selected item.
+        Command::Radio => {
+            return Outcome::Error("Select a song, album or artist for its radio".into());
         }
         Command::Open(TargetMode::Current) => {
             if let Some(item) = queue.get_current() {
