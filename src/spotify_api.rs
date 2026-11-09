@@ -20,6 +20,7 @@ use tokio::task::JoinHandle;
 use crate::model::album::Album;
 use crate::model::artist::Artist;
 use crate::model::category::Category;
+use crate::model::discography::{Release, ReleaseGroup, ReleasePage};
 use crate::model::episode::Episode;
 use crate::model::playable::Playable;
 use crate::model::playlist::Playlist;
@@ -1028,6 +1029,48 @@ impl WebApi {
         }
         self.ask_worker(|reply| WorkerCommand::SessionArtistPictures(uris, reply))
             .unwrap_or_else(|| vec![None; ids.len()])
+    }
+
+    /// The page of the artist's releases in `group` starting at `offset`, as many as Spotify
+    /// gives at once (50), newest first; `None` if it couldn't be loaded. Spotify no longer says
+    /// which group a release is in (`album_group`), so each group is asked for on its own.
+    pub fn artist_releases(
+        &self,
+        artist_id: &str,
+        group: ReleaseGroup,
+        offset: u32,
+    ) -> Option<ReleasePage> {
+        use rspotify::model::AlbumType;
+        const LIMIT: u32 = 50;
+        let id = ArtistId::from_id(artist_id).ok()?;
+        let include = match group {
+            ReleaseGroup::Albums => AlbumType::Album,
+            ReleaseGroup::Singles => AlbumType::Single,
+            ReleaseGroup::Compilations => AlbumType::Compilation,
+            ReleaseGroup::AppearsOn => AlbumType::AppearsOn,
+        };
+        debug!("fetching artist {artist_id} {group:?}, offset: {offset}");
+        let page = self.api_with_retry(|api| {
+            api.artist_albums_manual(
+                id.clone(),
+                [include],
+                Some(Market::FromToken),
+                Some(LIMIT),
+                Some(offset),
+            )
+        })?;
+        Some(ReleasePage {
+            total: page.total as usize,
+            releases: page
+                .items
+                .iter()
+                .map(|album| Release {
+                    album: album.into(),
+                    release_date: album.release_date.clone().unwrap_or_default(),
+                    album_type: album.album_type.clone().unwrap_or_default(),
+                })
+                .collect(),
+        })
     }
 
     /// Get artists related to the artist with the given `id`.

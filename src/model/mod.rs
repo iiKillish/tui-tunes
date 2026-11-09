@@ -1,6 +1,7 @@
 pub mod album;
 pub mod artist;
 pub mod category;
+pub mod discography;
 pub mod episode;
 pub mod folder;
 pub mod playable;

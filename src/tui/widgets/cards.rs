@@ -277,6 +277,11 @@ impl CardGrid {
         self
     }
 
+    /// The selected section and card (as of the last draw or command).
+    pub fn selection(&self) -> (usize, usize) {
+        (self.section, self.card)
+    }
+
     fn sections(&self) -> Vec<Section> {
         let mut sections = (self.source)().unwrap_or_default();
         if self.layout == CardLayout::Grid {
