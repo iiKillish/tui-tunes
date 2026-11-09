@@ -469,10 +469,13 @@ impl Page for QueuePage {
     fn mouse(&mut self, event: MouseEvent, ctx: &Ctx) -> Outcome {
         match event.kind {
             MouseEventKind::Down(MouseButton::Left)
-                if let Some((rect, command)) = &self.button
-                    && rect.contains((event.column, event.row).into()) =>
+                if self
+                    .button
+                    .as_ref()
+                    .is_some_and(|(r, _)| r.contains((event.column, event.row).into())) =>
             {
-                return Outcome::Run(vec![command.clone()]);
+                let (_, command) = self.button.clone().expect("checked above");
+                return Outcome::Run(vec![command]);
             }
             MouseEventKind::Down(MouseButton::Left) => {
                 let row = event.row.checked_sub(self.area.y).map(usize::from);
