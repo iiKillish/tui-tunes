@@ -10,7 +10,7 @@ use crate::tui::header::{HeaderAction, PageHeader};
 use crate::tui::nav;
 use crate::tui::page::{Ctx, Outcome, Page};
 use crate::tui::style::songs_and_length;
-use crate::tui::widgets::list::ItemList;
+use crate::tui::widgets::list::{self, ItemList};
 
 /// A folder of music files: its subfolders (Enter goes into one) and its songs.
 pub struct FolderPage {
@@ -48,6 +48,9 @@ impl Page for FolderPage {
 
     /// Play or shuffle everything in the folder, subfolders too.
     fn header_action(&mut self, action: HeaderAction, ctx: &Ctx) -> Outcome {
+        if self.folder.tracks().is_empty() {
+            return list::nothing_to_play();
+        }
         ctx.queue.set_shuffle(action == HeaderAction::Shuffle);
         nav::play_item(Box::new(Entry::Folder(self.folder.clone())), ctx);
         Outcome::Consumed

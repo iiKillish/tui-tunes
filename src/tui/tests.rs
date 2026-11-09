@@ -1490,3 +1490,36 @@ fn test_a_wheel_notch_sent_as_several_events_scrolls_up_next_by_one_song() {
     notch(MouseEventKind::ScrollUp, &mut terminal);
     assert_eq!(shown(&terminal), [3]);
 }
+
+#[test]
+fn test_playing_a_list_with_nothing_loaded_keeps_the_queue() {
+    use crate::tui::header::HeaderAction;
+    use crate::tui::page::{Outcome, Page};
+
+    images::force_supported(false);
+    let app = full_app();
+    let ctx = app.ctx.clone();
+    let mut empty_album = album();
+    empty_album.tracks = Some(Vec::new());
+    let mut empty_playlist = playlist();
+    empty_playlist.tracks = Some(Vec::new());
+    let pages: Vec<Box<dyn Page>> = vec![
+        Box::new(pages::album::AlbumPage::new(empty_album, &ctx)),
+        Box::new(pages::playlist::PlaylistPage::new(empty_playlist, &ctx)),
+    ];
+    for mut page in pages {
+        let name = page.title();
+        let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
+        terminal
+            .draw(|frame| page.draw(frame, frame.area(), &ctx, true))
+            .unwrap();
+        let outcome = page.command(&Command::Play, &ctx);
+        assert!(matches!(outcome, Outcome::Message(_)), "{name}");
+        for action in [HeaderAction::Play, HeaderAction::Shuffle] {
+            page.header_action(action, &ctx);
+        }
+        assert_eq!(ctx.queue.len(), 25, "{name}: the queue was cleared");
+        assert_eq!(ctx.queue.get_current_index(), Some(0), "{name}");
+        assert!(!ctx.queue.get_shuffle(), "{name}: shuffle was left on");
+    }
+}
