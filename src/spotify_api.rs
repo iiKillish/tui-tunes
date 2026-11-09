@@ -425,17 +425,17 @@ impl WebApi {
         playables: &[Playable],
     ) -> Result<PlaylistResult, ()> {
         self.api_with_retry(move |api| {
-            let playable_ids: Vec<PlayableId> = playables
+            // Paired before those without an ID (local files) are left out, so each keeps its
+            // own position.
+            let ids_and_positions: Vec<(PlayableId, [u32; 1])> = playables
                 .iter()
-                .filter_map(|playable| playable.into())
+                .filter_map(|playable| {
+                    let id: Option<PlayableId> = playable.into();
+                    id.map(|id| (id, [playable.list_index() as u32]))
+                })
                 .collect();
-            let positions = playables
+            let item_pos: Vec<ItemPositions> = ids_and_positions
                 .iter()
-                .map(|playable| [playable.list_index() as u32])
-                .collect::<Vec<_>>();
-            let item_pos: Vec<ItemPositions> = playable_ids
-                .iter()
-                .zip(positions.iter())
                 .map(|(id, positions)| ItemPositions {
                     id: id.as_ref(),
                     positions,
@@ -786,27 +786,23 @@ impl WebApi {
                     Ok(page) => Ok(ApiPage {
                         offset: page.offset,
                         total: page.total,
+                        // Numbered before the items that can't be shown are left out, so each
+                        // keeps its position in the playlist on Spotify, which edits refer to.
                         items: page
                             .items
                             .iter()
-                            .filter(|pt| {
-                                if let Some(t) = pt.item.as_ref()
-                                    && !t.is_unknown()
-                                {
-                                    true
-                                } else {
-                                    error!("Could not process item {pt:?}, ignoring");
-                                    false
-                                }
-                            })
                             .enumerate()
-                            .flat_map(|(index, pt)| {
-                                pt.item.as_ref().map(|t| {
+                            .filter_map(|(index, pt)| match pt.item.as_ref() {
+                                Some(t) if !t.is_unknown() => {
                                     let mut playable: Playable = t.into();
                                     playable.set_added_at(pt.added_at);
                                     playable.set_list_index(page.offset as usize + index);
-                                    playable
-                                })
+                                    Some(playable)
+                                }
+                                _ => {
+                                    error!("Could not process item {pt:?}, ignoring");
+                                    None
+                                }
                             })
                             .collect(),
                     }),

@@ -25,12 +25,12 @@ impl Show {
             return;
         }
 
-        let episodes_result = spotify.api.show_episodes(&self.id);
-        while !episodes_result.at_end() {
-            episodes_result.next();
+        let mut episodes_result = spotify.api.show_episodes(&self.id);
+        if !episodes_result.fetch_all() {
+            log::warn!("not all the episodes of show {} loaded", self.id);
         }
 
-        let episodes = episodes_result.items.read().unwrap().clone();
+        let episodes = std::mem::take(&mut *episodes_result.items.write().unwrap());
         self.episodes = Some(episodes);
     }
 }

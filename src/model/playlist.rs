@@ -54,15 +54,17 @@ impl Playlist {
         }
     }
 
-    pub fn load_tracks(&mut self, spotify: &Spotify) {
+    /// Load the tracks, unless they're here already. Returns whether they all loaded: if some
+    /// failed, [Self::tracks] holds those that did.
+    pub fn load_tracks(&mut self, spotify: &Spotify) -> bool {
         if self.tracks.is_some() {
-            return;
+            return true;
         }
 
         // The Web API has none of the tracks of playlists Spotify makes: ask the session (also
         // when the Web API comes back empty, for ones that aren't recognized as Spotify's).
-        let mut tracks = if is_made_by_spotify(&self.id) {
-            Vec::new()
+        let (mut tracks, mut complete) = if is_made_by_spotify(&self.id) {
+            (Vec::new(), false)
         } else {
             self.get_all_tracks(spotify)
         };
@@ -70,8 +72,10 @@ impl Playlist {
             && let Some(playlist) = spotify.api.session_playlist(&self.id, true)
         {
             tracks = playlist.tracks.unwrap_or_default();
+            complete = true;
         }
         self.tracks = Some(tracks);
+        complete
     }
 
     /// A playlist loaded through the session (see [crate::spotify_api::WebApi::session_playlist]),
@@ -127,14 +131,12 @@ impl Playlist {
         }
     }
 
-    fn get_all_tracks(&self, spotify: &Spotify) -> Vec<Playable> {
-        let tracks_result = spotify.api.user_playlist_tracks(&self.id);
-        while !tracks_result.at_end() {
-            tracks_result.next();
-        }
-
-        let tracks = tracks_result.items.read().unwrap();
-        tracks.clone()
+    /// All the tracks from the Web API, and whether they all loaded.
+    fn get_all_tracks(&self, spotify: &Spotify) -> (Vec<Playable>, bool) {
+        let mut tracks_result = spotify.api.user_playlist_tracks(&self.id);
+        let complete = tracks_result.fetch_all();
+        let tracks = std::mem::take(&mut *tracks_result.items.write().unwrap());
+        (tracks, complete)
     }
 
     /// Remove the track at `index`: here at once, on Spotify in the background (see [sync]).
@@ -172,8 +174,8 @@ impl Playlist {
         true
     }
 
-    /// Move the track at `from` to `to`: here at once, on Spotify in the background (see [sync]).
-    /// The tracks must be in the playlist's own order (not sorted).
+    /// Move the track at `from` to `to` (indices in [Self::tracks]): here at once, on Spotify in
+    /// the background (see [sync]). The tracks must be in the playlist's own order (not sorted).
     pub fn move_track(
         &mut self,
         from: usize,
@@ -184,14 +186,9 @@ impl Playlist {
         let Some(tracks) = &mut self.tracks else {
             return false;
         };
-        if from >= tracks.len() || to >= tracks.len() {
+        let Some((from, to)) = move_positions(tracks, from, to) else {
             return false;
-        }
-        let track = tracks.remove(from);
-        tracks.insert(to, track);
-        for (position, track) in tracks.iter_mut().enumerate() {
-            track.set_list_index(position);
-        }
+        };
         let id = self.id.clone();
         self.sync(spotify, library, "move the song", move |api| {
             api.move_track(&id, None, from, to).map(|_| ())
@@ -300,6 +297,31 @@ impl Playlist {
             })
         }
     }
+}
+
+/// Move the track at `from` in `tracks` to `to`, along with its [Playable::list_index] and those
+/// of the tracks it passes. Returns the positions it moved from and to on Spotify, which differ
+/// from the indices here when the playlist has items on Spotify that aren't listed (ones Spotify
+/// no longer knows). `None` if either index is out of range.
+fn move_positions(tracks: &mut Vec<Playable>, from: usize, to: usize) -> Option<(usize, usize)> {
+    if from >= tracks.len() || to >= tracks.len() {
+        return None;
+    }
+    let old = tracks[from].list_index();
+    let new = tracks[to].list_index();
+    let track = tracks.remove(from);
+    tracks.insert(to, track);
+    for track in tracks.iter_mut() {
+        let position = track.list_index();
+        if position == old {
+            track.set_list_index(new);
+        } else if old < new && position > old && position <= new {
+            track.set_list_index(position - 1);
+        } else if new < old && position >= new && position < old {
+            track.set_list_index(position + 1);
+        }
+    }
+    Some((old, new))
 }
 
 impl From<&SimplifiedPlaylist> for Playlist {
@@ -430,6 +452,55 @@ impl ListItem for Playlist {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn tracks_at(positions: &[usize]) -> Vec<Playable> {
+        positions
+            .iter()
+            .map(|&position| {
+                Playable::Track(Track {
+                    id: Some(position.to_string()),
+                    uri: String::new(),
+                    title: String::new(),
+                    track_number: 0,
+                    disc_number: 0,
+                    duration: 0,
+                    artists: Vec::new(),
+                    artist_ids: Vec::new(),
+                    album: None,
+                    album_id: None,
+                    album_artists: Vec::new(),
+                    cover_url: None,
+                    url: String::new(),
+                    added_at: None,
+                    list_index: position,
+                    is_local: false,
+                    is_playable: None,
+                })
+            })
+            .collect()
+    }
+
+    fn positions(tracks: &[Playable]) -> Vec<(String, usize)> {
+        tracks
+            .iter()
+            .map(|t| (t.id().unwrap(), t.list_index()))
+            .collect()
+    }
+
+    #[test]
+    fn moves_use_spotify_positions_past_unlisted_items() {
+        // Spotify's item at 1 isn't listed (Spotify no longer knows the song).
+        let mut tracks = tracks_at(&[0, 2, 3, 4]);
+        // Down: the song at 2 goes where the one at 4 was.
+        assert_eq!(move_positions(&mut tracks, 1, 3), Some((2, 4)));
+        let expected = [("0", 0), ("3", 2), ("4", 3), ("2", 4)].map(|(id, p)| (id.into(), p));
+        assert_eq!(positions(&tracks), expected);
+        // And back up.
+        assert_eq!(move_positions(&mut tracks, 3, 1), Some((4, 2)));
+        let expected = [("0", 0), ("2", 2), ("3", 3), ("4", 4)].map(|(id, p)| (id.into(), p));
+        assert_eq!(positions(&tracks), expected);
+        assert_eq!(move_positions(&mut tracks, 0, 4), None);
+    }
 
     #[test]
     fn test_playlists_made_by_spotify() {
