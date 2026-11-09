@@ -126,6 +126,8 @@ pub fn group(commands: &[Command]) -> Group {
             | Command::Add
             | Command::AddCurrent
             | Command::Delete
+            | Command::Mark
+            | Command::MarkRange
             | Command::Shift(..)
             | Command::NewPlaylist(_)
             | Command::Rename(_)
@@ -170,6 +172,8 @@ pub fn describe(commands: &[Command]) -> String {
         Command::Add => "Add the selected song to a playlist".into(),
         Command::AddCurrent => "Add the playing song to a playlist".into(),
         Command::Delete => "Remove the selected item".into(),
+        Command::Mark => "Mark or unmark the song".into(),
+        Command::MarkRange => "Mark from the last marked song".into(),
         Command::Focus(screen) => format!("Go to {}", screen.label()),
         Command::Seek(SeekDirection::Relative(ms)) if *ms >= 0 => {
             format!("Forward {}", seconds(*ms))

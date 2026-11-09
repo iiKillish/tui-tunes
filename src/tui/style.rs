@@ -45,6 +45,14 @@ impl Styles<'_> {
         Style::new().fg(self.0.primary).bg(self.0.statusbar_bg)
     }
 
+    /// A marked song (to act on several at once): a background of its own, between the main one
+    /// and the selection's.
+    pub fn marked(&self) -> Style {
+        Style::new()
+            .fg(self.0.primary)
+            .bg(self.0.highlight_inactive_bg)
+    }
+
     /// The selection marker's style, on the selected row's background.
     pub fn marker(&self) -> Style {
         Style::new().fg(self.0.title).bg(self.0.statusbar_bg)

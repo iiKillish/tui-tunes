@@ -4,13 +4,14 @@
 //! Each row shows an optional number, an optional small cover, then the item's text from
 //! [ListItem::display_left], [ListItem::display_center] and [ListItem::display_right]. Handles
 //! the usual list commands (move, play, queue, play next, save, open, go to album/artist, share,
-//! `/` search) and loads more items from Spotify when scrolled to the end.
+//! `/` search) and loads more items from Spotify when scrolled to the end. Songs can be marked
+//! (see [crate::tui::marks]) for the commands to act on all of them.
 
-use std::cmp::min;
+use std::cmp::{max, min};
 use std::sync::{Arc, RwLock};
 
 use ratatui::Frame;
-use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 
 use crate::command::{Command, JumpMode, MoveAmount, MoveMode, TargetMode};
@@ -22,11 +23,15 @@ use crate::traits::{ListItem, OpenTarget};
 use crate::tui::drag::Drag;
 use crate::tui::hints;
 use crate::tui::images;
+use crate::tui::marks::{Marks, identity, songs};
 use crate::tui::nav;
 use crate::tui::page::{Ctx, Outcome};
 use crate::tui::pointer;
 use crate::tui::style::{SELECTION_MARKER, Styles, bold, fill, put, scroll_to, width};
 use crate::utils::search_text;
+
+/// At the left edge of a marked song.
+const MARK: &str = "✓";
 
 /// Narrowest list that shows covers before its items.
 const MIN_WIDTH_FOR_THUMBNAILS: u16 = 50;
@@ -66,6 +71,10 @@ pub struct ItemList<I: ListItem + Clone> {
     drag: Option<Drag>,
     /// A row dragged from one place to another and let go, for the page to move.
     dropped: Option<(usize, usize)>,
+    /// Songs marked to act on together.
+    marks: Marks,
+    /// What the menu of marked songs calls removing them, where the page can (with `delete`).
+    removable: Option<&'static str>,
 }
 
 impl<I: ListItem + Clone> ItemList<I> {
@@ -87,7 +96,129 @@ impl<I: ListItem + Clone> ItemList<I> {
             reorderable: false,
             drag: None,
             dropped: None,
+            marks: Marks::default(),
+            removable: None,
         }
+    }
+
+    /// Offer removing marked songs in their menu, as `label` (the page removes them, with
+    /// `delete`), or not.
+    pub fn set_removable(&mut self, label: Option<&'static str>) {
+        self.removable = label;
+    }
+
+    /// The marked positions, in order, after matching the marks up with the list as it is now.
+    pub fn marked(&mut self) -> Vec<usize> {
+        self.sync_marks();
+        self.marks.indices()
+    }
+
+    pub fn clear_marks(&mut self) {
+        self.marks.clear();
+    }
+
+    /// Match the marks up with the songs, which may have moved or gone since they were marked.
+    fn sync_marks(&mut self) {
+        if self.marks.is_empty() {
+            return;
+        }
+        let content = self.content.read().unwrap();
+        self.marks.sync(content.len(), |i| {
+            content.get(i).and_then(|item| identity(item))
+        });
+    }
+
+    /// The marked songs, in list order.
+    fn marked_items(&mut self) -> Vec<I> {
+        let marked = self.marked();
+        let content = self.content.read().unwrap();
+        marked
+            .into_iter()
+            .filter_map(|i| content.get(i).cloned())
+            .collect()
+    }
+
+    /// Mark or unmark the item at `index`, if it's a song.
+    fn toggle_mark(&mut self, index: usize) -> Outcome {
+        self.sync_marks();
+        let id = self.content.read().unwrap().get(index).and_then(identity);
+        match id {
+            Some(id) => {
+                self.marks.toggle(index, id);
+                self.marks_message()
+            }
+            None => Outcome::Error("Only songs can be marked".into()),
+        }
+    }
+
+    /// Mark the songs from the one marked last (or the selected one) to the one at `index`.
+    fn mark_range(&mut self, index: usize) -> Outcome {
+        self.sync_marks();
+        let from = self.marks.anchor().unwrap_or(self.selected);
+        {
+            let content = self.content.read().unwrap();
+            let last = content.len().saturating_sub(1);
+            // The one at `index` last: the next range starts from it.
+            let range = min(from, index)..=min(max(from, index), last);
+            for i in range.filter(|&i| i != index).chain([index]) {
+                if let Some(id) = content.get(i).and_then(identity) {
+                    self.marks.mark(i, id);
+                }
+            }
+        }
+        self.marks_message()
+    }
+
+    /// How many songs are marked, for the status line.
+    fn marks_message(&self) -> Outcome {
+        match self.marks.len() {
+            0 => Outcome::Message("No songs marked".into()),
+            n => Outcome::Message(format!("{} marked · Esc to unmark", songs(n))),
+        }
+    }
+
+    /// `cmd` acting on the marked songs rather than the selected one: play, queue, save, add,
+    /// and the menu. `None` for other commands, and when nothing's marked. They're unmarked once
+    /// they've been acted on.
+    fn marked_command(&mut self, cmd: &Command, ctx: &Ctx) -> Option<Outcome> {
+        if self.marks.is_empty() {
+            return None;
+        }
+        let items = self.marked_items();
+        if items.is_empty() {
+            return None;
+        }
+        let songs = songs(items.len());
+        let boxed = || items.iter().map(|item| item.as_listitem()).collect();
+        let tracks = || items.iter().filter_map(|item| item.track()).collect();
+        let outcome = match cmd {
+            Command::Play => {
+                nav::play_items(boxed(), ctx);
+                Outcome::Message(format!("Playing {songs}"))
+            }
+            Command::Queue => {
+                nav::queue_items(boxed(), false, ctx);
+                Outcome::Message(format!("Added {songs} to the queue"))
+            }
+            Command::PlayNext => {
+                nav::queue_items(boxed(), true, ctx);
+                Outcome::Message(format!("Playing {songs} next"))
+            }
+            Command::Save => nav::save_tracks(tracks(), ctx),
+            Command::Add => nav::add_tracks(tracks(), ctx),
+            Command::Open(TargetMode::Selected) => {
+                let items: Vec<Box<dyn ListItem>> = boxed();
+                return Some(Outcome::Overlay(nav::marked_menu(
+                    &items,
+                    false,
+                    self.removable,
+                    ctx,
+                )));
+            }
+            _ => return None,
+        };
+        self.marks.clear();
+        Some(outcome)
     }
 
     /// Let rows be dragged to other places (or not), for the page to move them (see
@@ -165,17 +296,6 @@ impl<I: ListItem + Clone> ItemList<I> {
         self.selected = min(index, self.len().saturating_sub(1));
     }
 
-    /// Remove the item at `index` (e.g. after deleting it from a playlist).
-    pub fn remove(&mut self, index: usize) {
-        let mut content = self.content.write().unwrap();
-        if index < content.len() {
-            content.remove(index);
-        }
-        if self.selected >= content.len() {
-            self.selected = content.len().saturating_sub(1);
-        }
-    }
-
     fn can_paginate(&self) -> bool {
         self.pagination
             .max_content()
@@ -207,6 +327,8 @@ impl<I: ListItem + Clone> ItemList<I> {
 
     pub fn draw(&mut self, frame: &mut Frame, area: Rect, ctx: &Ctx, focused: bool) {
         self.area = area;
+        self.sync_marks();
+        let preview = self.drag.filter(|d| d.moved);
         let styles = Styles(&ctx.palette);
         let rows = usize::from(area.height);
         let paginator = usize::from(self.can_paginate());
@@ -267,6 +389,12 @@ impl<I: ListItem + Clone> ItemList<I> {
                 break;
             };
             pointer::clickable(line);
+            // The item's own position, where a dragged one is shown elsewhere.
+            let position = match preview {
+                Some(drag) => drag.shown_at(index),
+                None => index,
+            };
+            let marked = self.marks.contains(position);
             let playing = item.is_playing(&ctx.queue) && current.is_some();
             let unplayable = item.track_ref().is_some_and(|t| {
                 t.is_playable == Some(false) || (t.is_local && t.is_playable.is_none())
@@ -277,6 +405,10 @@ impl<I: ListItem + Clone> ItemList<I> {
                 } else {
                     styles.selected_inactive()
                 }
+            } else if marked && playing {
+                styles.marked().fg(ctx.palette.playing)
+            } else if marked {
+                styles.marked()
             } else if playing {
                 styles.playing()
             } else if unplayable {
@@ -308,7 +440,9 @@ impl<I: ListItem + Clone> ItemList<I> {
                 let number_style = if index == self.selected || playing {
                     style
                 } else {
-                    styles.secondary()
+                    styles
+                        .secondary()
+                        .bg(style.bg.unwrap_or(ctx.palette.background))
                 };
                 let pad = number_width.saturating_sub(width(&label) + 1);
                 put(buf, x + pad as u16, y, &label, number_width, number_style);
@@ -377,13 +511,26 @@ impl<I: ListItem + Clone> ItemList<I> {
                 let center_style = if index == self.selected {
                     style
                 } else {
-                    styles.secondary()
+                    styles
+                        .secondary()
+                        .bg(style.bg.unwrap_or(ctx.palette.background))
                 };
                 put(buf, center_x, y, &center, center_room, center_style);
             }
 
+            // Marked songs have a check at their left edge (in place of the selection's marker).
+            if marked {
+                let check_style = if index == self.selected && focused {
+                    styles.marker()
+                } else {
+                    styles
+                        .accent()
+                        .bg(style.bg.unwrap_or(ctx.palette.background))
+                };
+                put(buf, area.x, y, MARK, 1, check_style);
+            }
             // `/` search matches stand out.
-            if self.matches.contains(&index) && index != self.selected {
+            if self.matches.contains(&position) && index != self.selected && !marked {
                 put(
                     buf,
                     area.x,
@@ -513,6 +660,9 @@ impl<I: ListItem + Clone> ItemList<I> {
     }
 
     pub fn command(&mut self, cmd: &Command, ctx: &Ctx) -> Outcome {
+        if let Some(outcome) = self.marked_command(cmd, ctx) {
+            return outcome;
+        }
         let page = usize::from(self.area.height).max(1);
         match cmd {
             Command::Move(MoveMode::Up, amount) => {
@@ -567,6 +717,21 @@ impl<I: ListItem + Clone> ItemList<I> {
             Command::Back if self.drag.is_some() => {
                 if let Some(drag) = self.drag.take() {
                     self.selected = drag.from;
+                }
+            }
+            // Then it unmarks songs, before going back.
+            Command::Back if !self.marks.is_empty() => {
+                self.marks.clear();
+                return Outcome::Message("Songs unmarked".into());
+            }
+            Command::Mark => {
+                if self.selected < self.len() {
+                    return self.toggle_mark(self.selected);
+                }
+            }
+            Command::MarkRange => {
+                if !self.is_empty() {
+                    return self.mark_range(self.selected);
                 }
             }
             _ => return Outcome::Ignored,
@@ -642,6 +807,11 @@ impl<I: ListItem + Clone> ItemList<I> {
                     return Outcome::Consumed;
                 };
                 self.selected = index;
+                // On a marked song: the menu for all of them.
+                self.sync_marks();
+                if self.marks.contains(index) {
+                    return self.command(&Command::Open(TargetMode::Selected), ctx);
+                }
                 if let Some(item) = self.selected_item() {
                     return Outcome::Overlay(nav::context_menu(item.as_listitem(), ctx));
                 }
@@ -650,6 +820,16 @@ impl<I: ListItem + Clone> ItemList<I> {
                 let Some(index) = self.row_at(&event) else {
                     return Outcome::Consumed;
                 };
+                // Ctrl+click marks or unmarks a song, Shift+click the songs up to it.
+                if event.modifiers.contains(KeyModifiers::CONTROL) {
+                    self.selected = index;
+                    return self.toggle_mark(index);
+                }
+                if event.modifiers.contains(KeyModifiers::SHIFT) {
+                    let outcome = self.mark_range(index);
+                    self.selected = index;
+                    return outcome;
+                }
                 let already = index == self.selected;
                 // Where rows can be moved, a press may start a drag: it's a click only if it's let
                 // go without moving to another row.

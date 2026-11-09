@@ -11,6 +11,7 @@ pub mod hints;
 pub mod icons;
 pub mod images;
 pub mod keys;
+pub mod marks;
 pub mod nav;
 pub mod overlays;
 pub mod page;

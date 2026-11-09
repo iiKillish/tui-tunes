@@ -112,6 +112,49 @@ impl PlaylistPage {
         None
     }
 
+    /// In the user's own playlists, songs can be removed, and dragged to other places when
+    /// they're in the playlist's own order.
+    fn allow_changes(&mut self, ctx: &Ctx) {
+        let editable = nav::can_edit(&self.playlist, ctx);
+        self.list.set_reorderable(editable && !self.is_sorted(ctx));
+        self.list
+            .set_removable(editable.then_some("Remove from this playlist"));
+    }
+
+    /// Remove the marked songs, or with none marked, the selected one.
+    fn delete(&mut self, ctx: &Ctx) -> Outcome {
+        if !nav::can_edit(&self.playlist, ctx) {
+            return Outcome::Error("Only your own playlists can be changed".into());
+        }
+        let marked = self.list.marked();
+        let indices = if marked.is_empty() {
+            vec![self.list.selected()]
+        } else {
+            marked
+        };
+        if !self
+            .playlist
+            .delete_tracks(&indices, &ctx.spotify, &ctx.library)
+        {
+            return Outcome::Error(if indices.len() == 1 {
+                "Could not delete the track".into()
+            } else {
+                "Couldn't remove those songs: local files can't be".into()
+            });
+        }
+        *self.list.content().write().unwrap() = self.playlist.tracks.clone().unwrap_or_default();
+        self.list.clear_marks();
+        self.list.select(indices[0]);
+        if indices.len() == 1 {
+            Outcome::Consumed
+        } else {
+            Outcome::Message(format!(
+                "Removed {}",
+                crate::tui::marks::songs(indices.len())
+            ))
+        }
+    }
+
     /// Move the selected track up or down `amount` places (negative turns the direction around).
     fn shift(&mut self, mode: &ShiftMode, amount: Option<i32>, ctx: &Ctx) -> Outcome {
         if let Some(outcome) = self.cant_move(ctx) {
@@ -206,27 +249,15 @@ impl Page for PlaylistPage {
             );
             return;
         }
-        // Songs can be dragged to other places in the user's own playlists, in their own order.
-        self.list
-            .set_reorderable(nav::can_edit(&self.playlist, ctx) && !self.is_sorted(ctx));
+        self.allow_changes(ctx);
         self.list.draw(frame, area, ctx, focused);
     }
 
     fn command(&mut self, cmd: &Command, ctx: &Ctx) -> Outcome {
         self.take_loaded(ctx);
+        self.allow_changes(ctx);
         match cmd {
-            Command::Delete => {
-                let index = self.list.selected();
-                if self
-                    .playlist
-                    .delete_track(index, &ctx.spotify, &ctx.library)
-                {
-                    self.list.remove(index);
-                    Outcome::Consumed
-                } else {
-                    Outcome::Error("Could not delete the track".into())
-                }
-            }
+            Command::Delete => self.delete(ctx),
             Command::Shift(mode, amount) => self.shift(mode, *amount, ctx),
             Command::Rename(name) => {
                 let outcome = nav::rename_playlist(&self.playlist, name, ctx);

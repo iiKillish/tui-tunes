@@ -44,6 +44,92 @@ pub fn play_item(mut item: Box<dyn ListItem>, ctx: &Ctx) {
     });
 }
 
+/// Queue `items` (marked songs) in their order, after the current track if `next` (see
+/// [QUEUEING]).
+pub fn queue_items(mut items: Vec<Box<dyn ListItem>>, next: bool, ctx: &Ctx) {
+    let queue = ctx.queue.clone();
+    QUEUEING.run(move || {
+        if next {
+            // Each goes straight after the current track: the last one first.
+            for item in items.iter_mut().rev() {
+                item.play_next(&queue);
+            }
+        } else {
+            for item in &mut items {
+                item.queue(&queue);
+            }
+        }
+        crate::tui::request_redraw();
+    });
+}
+
+/// Replace the queue with `items` (marked songs) and play them from the first (see
+/// [QUEUEING]).
+pub fn play_items(mut items: Vec<Box<dyn ListItem>>, ctx: &Ctx) {
+    let queue = ctx.queue.clone();
+    QUEUEING.run(move || {
+        queue.clear();
+        for item in &mut items {
+            item.queue(&queue);
+        }
+        if queue.len() > 0 {
+            queue.play(0, true, false);
+        }
+        crate::tui::request_redraw();
+    });
+}
+
+/// Save `tracks` (marked songs) to Liked Songs, or remove them if they're all there already, on
+/// a thread of its own. Local files are left out: they aren't on Spotify.
+pub fn save_tracks(tracks: Vec<Track>, ctx: &Ctx) -> Outcome {
+    let tracks: Vec<Track> = tracks
+        .into_iter()
+        .filter(|track| !track.is_local && track.id.is_some())
+        .collect();
+    if tracks.is_empty() {
+        return Outcome::Error("Local files can't be liked".into());
+    }
+    let saved = |track: &Track| ctx.library.is_saved_track_id(track.id.as_deref());
+    let remove = tracks.iter().all(saved);
+    let songs = crate::tui::marks::songs(tracks.len());
+    let library = ctx.library.clone();
+    std::thread::spawn(move || {
+        let tracks: Vec<&Track> = tracks.iter().collect();
+        if remove {
+            library.unsave_tracks(&tracks);
+        } else {
+            library.save_tracks(&tracks);
+        }
+        library.trigger_redraw();
+    });
+    Outcome::Message(if remove {
+        format!("Removed {songs} from Liked Songs")
+    } else {
+        format!("Saved {songs} to Liked Songs")
+    })
+}
+
+/// Pick a playlist to add `tracks` (marked songs) to, leaving out local files.
+pub fn add_tracks(tracks: Vec<Track>, ctx: &Ctx) -> Outcome {
+    let tracks: Vec<Track> = tracks.into_iter().filter(|t| !t.is_local).collect();
+    if tracks.is_empty() {
+        return Outcome::Error("Local files can't be added to Spotify playlists".into());
+    }
+    pick_playlist_for(tracks, ctx)
+}
+
+/// The menu for marked songs (`o`, or a right click on one of them): `in_queue` for Up next,
+/// where they're queued already, and with an entry `remove` saying how to remove them, where
+/// they can be.
+pub fn marked_menu(
+    items: &[Box<dyn ListItem>],
+    in_queue: bool,
+    remove: Option<&str>,
+    ctx: &Ctx,
+) -> Box<dyn Overlay> {
+    crate::tui::overlays::marked::menu(items, in_queue, remove, ctx)
+}
+
 /// Whether the user may change `playlist`: their own, or a collaborative one.
 pub fn can_edit(playlist: &Playlist, ctx: &Ctx) -> bool {
     playlist.collaborative || ctx.library.user_id.as_deref() == Some(playlist.owner_id.as_str())
