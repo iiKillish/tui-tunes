@@ -115,11 +115,20 @@ the title row). In
 terminals that support it (Kitty, Ghostty and foot), the mouse pointer turns into a hand over
 things you can click, and a text cursor over text fields.
 
+A right click on a song, album, playlist, artist, card, an Up next row or the playing track (its
+title or cover) opens its menu, the one <kbd>O</kbd> opens. In _Up next_ and in your own (or
+collaborative) playlists, drag a song up or down to move it: it shows where it'll go, the list
+scrolls while you hold it at the top or bottom, and <kbd>Escape</kbd> puts it back. A playlist
+sorted with `:sort` has to be in its own order (`:sort original`) for that. Let go without moving
+and it's a click.
+
 ### Playback
 | Key                           | Command                                                        |
 |-------------------------------|----------------------------------------------------------------|
 | <kbd>Return</kbd>             | Play track or playlist.                                        |
 | <kbd>Space</kbd>              | Play / pause.                                                  |
+| <kbd>V</kbd>                  | Mark or unmark the selected song, then select the next one (`mark`); see [marking songs](#marking-songs). |
+| <kbd>Shift</kbd>+<kbd>V</kbd> | Mark the songs from the last marked one to the selected one (`mark range`). |
 | <kbd>E</kbd>                  | Queue track or playlist, then select the next one.             |
 | <kbd>.</kbd>                  | Play the selected item after the currently playing track.      |
 | <kbd>P</kbd>                  | Move to the currently playing track in the list or queue.      |
@@ -202,14 +211,27 @@ default keys back.
 | <kbd>Ctrl</kbd>+<kbd>V</kbd>  | Open the context menu for a Spotify link in your clipboard (if built with the `share_clipboard` feature). |
 | <kbd>Backspace</kbd>          | Close the current view.                                                                                   |
 
-When pressing <kbd>O</kbd>:
+When pressing <kbd>O</kbd> (or right-clicking):
 
-- If the _selected item_ is **not** a track, it opens a detail view.
-- If the _selected item_ **is** a track, it opens a context menu with:
-  - "Artist(s)" (let's you show or (un)follow a track's artist(s))
-  - "Show Album"
-  - "Share" (if built with the `share_clipboard` feature)
-  - "Add to playlist" (type to filter your playlists)
+- If the _selected item_ is an album, playlist, artist or show in a list, it opens its page.
+- Otherwise (and for anything right-clicked) it opens a menu with what fits the item: Play, Play
+  next, Add to queue, Save to (or Remove from) Liked Songs, Add to playlist… (type to filter your
+  playlists), Go to album, Go to artist(s), Go to radio (songs, albums and artists) and Copy link.
+
+### Marking songs
+To act on several songs at once, mark them: <kbd>V</kbd> marks or unmarks the selected song and
+moves on, <kbd>Shift</kbd>+<kbd>V</kbd> marks every song from the last marked one to the selected
+one, <kbd>Ctrl</kbd>+click marks or unmarks a song and <kbd>Shift</kbd>+click marks the songs up
+to it (some terminals keep Shift+click and Ctrl+click for themselves). Marked songs have a ✓ at
+their left, and the status line says how many there are. Songs can be marked in every list of
+songs (playlists, albums, Liked Songs, search results…) and in _Up next_ (not the song playing).
+
+While songs are marked, <kbd>E</kbd>, <kbd>.</kbd>, <kbd>S</kbd> (like them, or unlike them if
+they're all liked), `add`, <kbd>Return</kbd> (play just them) and <kbd>D</kbd> (remove them from
+Up next, or from your own playlist) act on all of them, in list order, instead of the selected
+one; after that they're unmarked. <kbd>O</kbd>, or a right click on a marked song, opens one menu
+for them all ("3 songs"). <kbd>Escape</kbd> unmarks them; the next <kbd>Escape</kbd> goes back as
+usual. Marks stay with their songs when the list changes, and go when their songs do.
 
 ### Sharing
 (if built with the `share_clipboard` feature)
@@ -227,6 +249,7 @@ When pressing <kbd>O</kbd>:
 | <kbd>D</kbd>                 | Delete the currently selected track. |
 | <kbd>Shift</kbd>+<kbd>↑</kbd>/<kbd>↓</kbd> (or <kbd>Shift</kbd>+<kbd>K</kbd>/<kbd>J</kbd>) | Move the selected track up or down. |
 | <kbd>Ctrl</kbd>+<kbd>S</kbd> | Save the current queue as a playlist. |
+| Drag a song                  | Move it up or down (not the song playing). |
 
 ### Library
 Playlists (with a _Liked Songs_ card first), albums and artists are shown as grids of covers:
@@ -307,7 +330,8 @@ Note: \<FOO\> - mandatory arg; [BAR] - optional arg
 | `like` | Save the currently playing track to your library, or remove it if it's saved. |
 | `save` [`current`\|`queue`] | Save the selected item; `current` saves the playing item, `queue` saves the queue as a playlist. |
 | `add [current]` | Add selected track to playlist, if `current` is passed the currently playing track will be added |
-| `delete` | Remove the selected track from the playlist or the queue, or delete the selected playlist. |
+| `delete` | Remove the selected (or marked) tracks from the playlist or the queue, or delete the selected playlist. |
+| `mark` [`range`] | Mark or unmark the selected song; `range` marks the songs from the last marked one to it. |
 | `newplaylist` \<NAME\> | Create a new playlist. |
 | `rename` [NAME] | Rename the open playlist, or the one selected in the library. Omit NAME to type it in a dialog. Only your own and collaborative playlists can be renamed. |
 | `sort` \<SORT_KEY\> [SORT_DIRECTION] | Sort a playlist. `original` goes back to the playlist's own order.<br/>\* Valid values for SORT_KEY: `title`, `album`, `artist`, `duration`, `added`, `original`<br/>\* Valid values for SORT_DIRECTION: `ascending` (default; aliases: `a`, `asc`), `descending` (aliases: `d`, `desc`) |

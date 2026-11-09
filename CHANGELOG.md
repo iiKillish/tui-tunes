@@ -5,6 +5,88 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0]
+
+### Added
+
+- Right-clicking a song, album, playlist, artist, card, an Up next row or the
+  playing track (its title or cover) opens its menu, as on Home
+- Songs in Up next and in your own playlists can be dragged to another place:
+  the song shows where it'll go, the list scrolls when it's held at the top or
+  bottom, and Esc puts it back
+- Several songs can be marked to act on together: <kbd>v</kbd> marks or
+  unmarks a song, <kbd>Shift</kbd>+<kbd>V</kbd> marks the songs from the last
+  marked one, and Ctrl+click and Shift+click do the same. Queueing, playing
+  next, liking, adding to a playlist, removing (from Up next or your own
+  playlist) and the menu then take them all; Esc unmarks them
+- Artist pages have a Discography tab: the artist's albums, singles and EPs,
+  compilations and the releases they appear on, each a row of covers, newest
+  first, with versions Spotify lists twice shown once
+- Go to radio: "Go to radio" in the menu of a song, album or artist, or
+  `:radio` (`:radio current` for the playing song), replaces the queue with a
+  mix seeded with it. A song's radio starts with the song, and autoplay keeps
+  it going when it runs out
+- The Search screen lists your recent searches while its field is empty:
+  search one again, remove one, or clear them all
+- On Up next, <kbd>s</kbd>, <kbd>a</kbd>, <kbd>A</kbd>, <kbd>x</kbd> and
+  <kbd>/</kbd> work on the selected song like in other song lists
+
+### Changed
+
+- In Up next and your own playlists a click acts when the mouse button is let
+  go, so a press can start a drag
+- <kbd>D</kbd> in someone else's playlist says it can't be changed instead of
+  failing on Spotify
+- A browse category explains that Spotify no longer gives its playlists to
+  apps, instead of showing an empty page
+
+### Fixed
+
+- Deleting the song that's playing no longer crashes ttunes when it's the last
+  one in the queue, and the listening history notes that song rather than the
+  one after it
+- Autoplay keeps the music going after you remove the songs it added, or after
+  asking it by hand finds nothing
+- ttunes no longer freezes when a media key or other MPRIS control shuffles or
+  skips at the same moment as the queue changes
+- Songs that can't be played (say, not available in your country) are skipped
+  without showing up in your listening history, and a few in a row no longer
+  stop playback with "Spotify isn't letting songs play right now"; play works
+  again afterwards and media controls no longer say it's playing
+- Desktop media controls show the song that just started, not the one before
+- A song picked in the last moments of another is no longer skipped straight
+  away and noted as played to the end
+- ttunes no longer crashes when it can't create its IPC socket, or when a
+  queue saved with shuffle on by an older version is changed
+- A page of your library that fails to load no longer makes ttunes ask
+  Spotify for it endlessly, which used to stop saving, liking and following
+- A failed library update no longer empties your cached playlists, and a
+  playlist or album whose songs didn't all load is loaded again next time
+- Deleting or moving a song in a playlist that has songs Spotify no longer
+  knows changes the right song on Spotify
+- When renewing the Spotify login fails, ttunes says so and tries again later,
+  instead of quietly waiting for a browser login in the background
+- Artists you unfollow elsewhere are no longer shown as followed
+- Saved state, settings and caches can no longer be left half-written by a
+  crash or a full disk, a symlinked config file stays a symlink, and a
+  settings change that wouldn't load leaves the config file alone
+- A symlink back to a parent folder in your music folders no longer crashes
+  ttunes
+- Pressing Enter, Play or Shuffle on a playlist, album or Liked Songs that's
+  still loading no longer empties the queue or leaves shuffle on
+- In narrow windows the player bar keeps shuffle and previous beside the album
+  cover instead of under it
+- The search field and the command line keep the cursor in the right place
+  with Chinese, Japanese or Korean text and emoji, and clicking in the search
+  field puts the cursor where you clicked
+- Characters like ¬, ß and ç no longer run Alt shortcuts outside macOS
+- Clicking right after scrolling, or while a page reloads, opens what you
+  clicked instead of what was there before
+- `move pageup` and `move pagedown` without an amount move a whole page, and
+  keys bound to page moves or `repeat` are shown in a form that can be typed
+  back
+- The user docs match the keys, commands, config defaults and socket path
+
 ## [0.11.1]
 
 ### Fixed
