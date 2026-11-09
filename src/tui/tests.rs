@@ -145,7 +145,7 @@ fn print_layout() {
 // ---------------------------------------------------------------------------------------------
 // Layout at many sizes, with and without images, over a library with some content.
 
-fn track(n: usize) -> Track {
+pub(crate) fn track(n: usize) -> Track {
     serde_json::from_value(serde_json::json!({
         "id": format!("test{n}"),
         "uri": format!("spotify:track:test{n}"),

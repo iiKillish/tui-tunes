@@ -743,23 +743,45 @@ impl Player {
         let track = ctx.queue.get_current();
         let mid = area.y + area.height / 2;
 
-        let mut text_x = area.x + 2;
-        if show_cover
-            && images::supported()
-            && area.height >= 3
-            && let Some(url) = track.as_ref().and_then(Playable::cover_url)
-        {
-            let w = images::square_width(area.height);
-            images::cover(&url, Rect::new(area.x + 1, area.y, w, area.height));
-            text_x = area.x + w + 3;
-        }
+        let cover_url = track
+            .as_ref()
+            .and_then(Playable::cover_url)
+            .filter(|_| show_cover && images::supported() && area.height >= 3);
+        let mut cover_width = cover_url
+            .as_ref()
+            .map_or(0, |_| images::square_width(area.height));
 
         let center_width = (area.width * 2 / 5).clamp(30, 80).min(area.width);
         let center_x = area.x + area.width.saturating_sub(center_width) / 2;
-        let text_width = center_x.saturating_sub(text_x + 2);
         // Too narrow for the track beside the controls: the title goes on a row of its own
         // above them, when there are rows for it.
-        let stacked = text_width < MIN_BAR_TEXT_WIDTH;
+        let stacked = |cover_width: u16| {
+            let text_x = area.x + 2 + if cover_width > 0 { cover_width + 1 } else { 0 };
+            center_x.saturating_sub(text_x + 2) < MIN_BAR_TEXT_WIDTH
+        };
+        // Stacked, the controls and progress bar go beside the cover, if they fit there.
+        let beside_cover = |cover_width: u16| area.width.saturating_sub(cover_width + 1);
+        if cover_width > 0 && stacked(cover_width) && beside_cover(cover_width) < 5 * 3 + 4 * 2 + 2
+        {
+            cover_width = 0;
+        }
+        let stacked = stacked(cover_width);
+        let mut text_x = area.x + 2;
+        if let Some(url) = cover_url.filter(|_| cover_width > 0) {
+            images::cover(
+                &url,
+                Rect::new(area.x + 1, area.y, cover_width, area.height),
+            );
+            text_x = area.x + cover_width + 3;
+        }
+        let (center_x, center_width) = if stacked && cover_width > 0 {
+            let room = beside_cover(cover_width);
+            let width = center_width.min(room);
+            (area.right() - room + (room - width) / 2, width)
+        } else {
+            (center_x, center_width)
+        };
+        let text_width = center_x.saturating_sub(text_x + 2);
         let (controls_row, progress_row) = if stacked && area.height >= 3 {
             // The artists too, when there's a row for them.
             let rows = if area.height >= 4 { 2 } else { 1 };
@@ -789,9 +811,19 @@ impl Player {
         } else {
             (3, 1)
         };
-        let gap = if 5 * bw + 4 * 2 <= area.width { 2 } else { 0 };
+        // Centred over the progress bar: the whole width, or beside the cover when stacked.
+        let (controls_x, controls_room) = if stacked && cover_width > 0 {
+            (center_x, center_width)
+        } else {
+            (area.x, area.width)
+        };
+        let gap = if 5 * bw + 4 * 2 <= controls_room {
+            2
+        } else {
+            0
+        };
         let controls_width = 5 * bw + 4 * gap;
-        let cx = area.x + area.width.saturating_sub(controls_width) / 2;
+        let cx = controls_x + controls_room.saturating_sub(controls_width) / 2;
         let row = if bh > 1 {
             mid.saturating_sub(2).max(area.y)
         } else {
@@ -982,6 +1014,49 @@ mod tests {
                 let rows = Player::cover_rows_beside(area).max(Player::cover_rows_above(area));
                 assert!(rows >= last, "{width}x{height}: {rows} rows after {last}");
                 last = rows;
+            }
+        }
+    }
+
+    #[test]
+    fn test_the_bars_cover_leaves_the_controls_clear() {
+        use ratatui::Terminal;
+        use ratatui::backend::TestBackend;
+
+        images::force_supported(true);
+        let ctx = crate::tui::tests::app().ctx.clone();
+        ctx.queue
+            .append(Playable::Track(crate::tui::tests::track(1)));
+        ctx.queue.play(0, false, false);
+        for width in 25..=120 {
+            for height in 3..=BAR_ROWS {
+                let mut player = Player::new();
+                let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+                terminal
+                    .draw(|frame| player.draw(frame, frame.area(), &ctx, 0, true))
+                    .unwrap();
+                let buffer = terminal.backend().buffer();
+                // The title starts two columns right of the cover, or at 2 without one.
+                let title_x = (0..height)
+                    .flat_map(|y| (0..width).map(move |x| (x, y)))
+                    .find(|&(x, y)| {
+                        (x..width.min(x + 4))
+                            .map(|x| buffer[(x, y)].symbol())
+                            .collect::<String>()
+                            == "Song"
+                    })
+                    .map(|(x, _)| x);
+                let Some(title_x) = title_x else {
+                    continue;
+                };
+                let cover_end = title_x.saturating_sub(2);
+                assert_eq!(player.hits.controls.len(), 5, "{width}x{height}");
+                for (area, control) in &player.hits.controls {
+                    assert!(
+                        area.x >= cover_end || title_x <= 2,
+                        "{width}x{height}: {control:?} at {area:?} under the cover"
+                    );
+                }
             }
         }
     }
