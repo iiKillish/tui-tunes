@@ -238,6 +238,8 @@ impl Application {
         drop(self.splash.take());
         let mut terminal = tui::Terminal::start().map_err(|e| e.to_string())?;
         let mut app = tui::app::App::new(self.ctx.clone());
+        // A click held back until what came before it is drawn.
+        let mut click = None;
 
         while !app.quit {
             #[cfg(unix)]
@@ -253,8 +255,17 @@ impl Application {
             terminal.draw(&mut app).map_err(|e| e.to_string())?;
 
             // Wait for something to happen, or until something on screen changes with time.
-            let mut next = self.event_manager.recv_timeout(app.redraw_after());
+            let mut next = click
+                .take()
+                .or_else(|| self.event_manager.recv_timeout(app.redraw_after()));
+            let mut changed = false;
             while let Some(event) = next {
+                // Clicks hit what's on screen: draw what the events before it changed first.
+                if changed && tui::Terminal::is_click(&event) {
+                    click = Some(event);
+                    break;
+                }
+                changed |= tui::Terminal::may_change_screen(&event);
                 self.handle(event, &mut app, &mut terminal);
                 next = self.event_manager.msg_iter().next();
             }

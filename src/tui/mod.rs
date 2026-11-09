@@ -157,6 +157,31 @@ impl Terminal {
         Ok(())
     }
 
+    /// Whether `event` is a click, which is hit-tested against what was drawn last: anything
+    /// handled before it (see [may_change_screen]) has to be drawn first, or a click after a
+    /// burst of wheel events lands on whatever was at that spot before they scrolled.
+    pub fn is_click(event: &Event) -> bool {
+        matches!(
+            event,
+            Event::Input(InputEvent::Mouse(event::MouseEvent {
+                kind: event::MouseEventKind::Down(_),
+                ..
+            }))
+        )
+    }
+
+    /// Whether handling `event` may change what's on screen: anything but the pointer moving
+    /// (a redraw is asked for when something loaded in the background, like Home's lists).
+    pub fn may_change_screen(event: &Event) -> bool {
+        !matches!(
+            event,
+            Event::Input(InputEvent::Mouse(event::MouseEvent {
+                kind: event::MouseEventKind::Moved,
+                ..
+            }))
+        )
+    }
+
     pub fn input(&mut self, input: InputEvent, app: &mut App) {
         match input {
             // Not `if let` in a match guard, which older Rust (see rust-version) doesn't have.
