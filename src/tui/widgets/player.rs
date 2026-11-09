@@ -23,6 +23,7 @@ use crate::tui::icons::Icon;
 use crate::tui::images;
 #[cfg(feature = "cover")]
 use crate::tui::images::Source;
+use crate::tui::nav;
 use crate::tui::page::{Ctx, Outcome};
 use crate::tui::pointer;
 use crate::tui::style::{Styles, bold, duration, fill, put, width};
@@ -53,6 +54,8 @@ enum Control {
 #[derive(Default)]
 struct Hits {
     controls: Vec<(Rect, Control)>,
+    /// The playing track's cover and text, which a right click opens the menu of.
+    track: Vec<Rect>,
     like: Option<Rect>,
     progress: Option<Rect>,
     volume: Option<Rect>,
@@ -255,6 +258,12 @@ impl Player {
         (f64::from(x.saturating_sub(bar.x)) / f64::from(bar.width.max(1))).min(1.0)
     }
 
+    /// Show the playing track's cover in `area`.
+    fn cover(&mut self, url: &str, area: Rect) {
+        images::cover(url, area);
+        self.hits.track.push(area);
+    }
+
     /// Set the volume from a pointer at column `x`, for the volume bar starting at `bar_x`.
     fn set_volume_at(x: u16, bar_x: u16, ctx: &Ctx) {
         let fraction = if x < bar_x {
@@ -300,6 +309,11 @@ impl Player {
                 area.x
             }
         };
+        if track.is_some() {
+            self.hits
+                .track
+                .push(Rect::new(area.x, area.y, area.width, area.height.min(3)));
+        }
         let buf = frame.buffer_mut();
         let title_width = width(&title) + if liked.is_some() { 3 } else { 0 };
         let x = line_x(title_width);
@@ -478,7 +492,7 @@ impl Player {
         let track = ctx.queue.get_current();
         let cover_width = images::square_width(cover_rows);
         let cover_top = area.y + 1 + area.height.saturating_sub(2 + cover_rows) / 2;
-        images::cover(
+        self.cover(
             url,
             Rect::new(area.x + 2, cover_top, cover_width, cover_rows),
         );
@@ -651,7 +665,7 @@ impl Player {
             && let Some(url) = &cover_url
         {
             let w = images::square_width(cover_rows);
-            images::cover(
+            self.cover(
                 url,
                 Rect::new(area.x + (area.width - w) / 2, top + 1, w, cover_rows),
             );
@@ -768,7 +782,7 @@ impl Player {
         let stacked = stacked(cover_width);
         let mut text_x = area.x + 2;
         if let Some(url) = cover_url.filter(|_| cover_width > 0) {
-            images::cover(
+            self.cover(
                 &url,
                 Rect::new(area.x + 1, area.y, cover_width, area.height),
             );
@@ -961,6 +975,14 @@ impl Player {
                         Self::set_volume_at(at.x, bar_x, ctx);
                         self.dragging_volume = true;
                     }
+                }
+            }
+            // A right click on the playing track opens its menu, like `O`.
+            MouseEventKind::Down(MouseButton::Right)
+                if self.hits.track.iter().any(|r| r.contains(at)) =>
+            {
+                if let Some(item) = ctx.queue.get_current() {
+                    return Outcome::Overlay(nav::context_menu(item.as_listitem(), ctx));
                 }
             }
             MouseEventKind::Drag(MouseButton::Left) if self.dragging_volume => {

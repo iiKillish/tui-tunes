@@ -810,6 +810,26 @@ impl Page for CardGrid {
                     return self.activate(&self.drawn, ctx);
                 }
             }
+            // A right click selects the card and opens its menu, as on Home.
+            MouseEventKind::Down(MouseButton::Right) => {
+                let at = Position::new(event.column, event.row);
+                if let Some(&(_, section, card)) = self
+                    .card_areas
+                    .iter()
+                    .find(|(rect, _, _)| rect.contains(at))
+                {
+                    self.section = section;
+                    self.card = card;
+                    let item = self
+                        .drawn
+                        .get(section)
+                        .and_then(|s| s.cards.get(card))
+                        .and_then(|card| card.resolved(&ctx.library).as_listitem());
+                    if let Some(item) = item {
+                        return Outcome::Overlay(nav::context_menu(item, ctx));
+                    }
+                }
+            }
             MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
                 if !wheel::moves(&event, self.rows_shown()) => {}
             MouseEventKind::ScrollDown => {

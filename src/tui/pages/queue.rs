@@ -521,11 +521,13 @@ impl Page for QueuePage {
                 let (_, command) = self.button.clone().expect("checked above");
                 return Outcome::Run(vec![command]);
             }
-            MouseEventKind::Down(MouseButton::Left) => {
+            // A right click opens the song's menu (as a click does with `queue_click = "menu"`).
+            MouseEventKind::Down(button @ (MouseButton::Left | MouseButton::Right)) => {
                 let row = event.row.checked_sub(self.area.y).map(usize::from);
                 if let Some(index) = row.and_then(|row| self.row_items.get(row).copied().flatten())
                 {
-                    let menu = ctx.config.values().queue_click.as_deref() == Some("menu");
+                    let menu = button == MouseButton::Right
+                        || ctx.config.values().queue_click.as_deref() == Some("menu");
                     if !menu {
                         self.play(index, ctx);
                         return Outcome::Consumed;

@@ -521,6 +521,16 @@ impl<I: ListItem + Clone> ItemList<I> {
         Outcome::Consumed
     }
 
+    /// The item at the row clicked, if any: only rows of the list count (it may sit below
+    /// something else, like a tab row).
+    fn row_at(&self, event: &MouseEvent) -> Option<usize> {
+        if !self.area.contains((event.column, event.row).into()) {
+            return None;
+        }
+        let index = self.first + usize::from(event.row - self.area.y);
+        (index < self.len()).then_some(index)
+    }
+
     pub fn mouse(&mut self, event: MouseEvent, ctx: &Ctx) -> Outcome {
         match event.kind {
             MouseEventKind::ScrollDown => {
@@ -539,16 +549,20 @@ impl<I: ListItem + Clone> ItemList<I> {
                     self.selected = last_visible;
                 }
             }
+            // A right click selects the row and opens its menu, as on Home.
+            MouseEventKind::Down(MouseButton::Right) => {
+                let Some(index) = self.row_at(&event) else {
+                    return Outcome::Consumed;
+                };
+                self.selected = index;
+                if let Some(item) = self.selected_item() {
+                    return Outcome::Overlay(nav::context_menu(item.as_listitem(), ctx));
+                }
+            }
             MouseEventKind::Down(MouseButton::Left) => {
-                // Only rows of the list; it may sit below something else, like a tab row.
-                if !self.area.contains((event.column, event.row).into()) {
+                let Some(index) = self.row_at(&event) else {
                     return Outcome::Consumed;
-                }
-                let row = usize::from(event.row - self.area.y);
-                let index = self.first + row;
-                if index >= self.len() {
-                    return Outcome::Consumed;
-                }
+                };
                 // Clicking the selected track plays it (or any track opens its menu, with
                 // `track_click`); clicking an album or playlist opens it.
                 let already = index == self.selected;

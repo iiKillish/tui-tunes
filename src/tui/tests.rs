@@ -1667,3 +1667,121 @@ fn test_playing_a_list_with_nothing_loaded_keeps_the_queue() {
         assert!(!ctx.queue.get_shuffle(), "{name}: shuffle was left on");
     }
 }
+
+fn right_click(column: u16, row: u16) -> MouseEvent {
+    MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Right),
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    }
+}
+
+/// The text of the menu or dialog `outcome` opens, drawn on its own.
+fn overlay_text(outcome: crate::tui::page::Outcome, ctx: &Ctx) -> String {
+    let crate::tui::page::Outcome::Overlay(mut overlay) = outcome else {
+        panic!("no menu");
+    };
+    let mut terminal = Terminal::new(TestBackend::new(70, 24)).unwrap();
+    terminal
+        .draw(|frame| {
+            overlay.draw(frame, frame.area(), ctx);
+        })
+        .unwrap();
+    screen_text(&terminal)
+}
+
+#[test]
+fn test_right_clicking_a_row_selects_it_and_opens_its_menu() {
+    use crate::tui::widgets::list::ItemList;
+    use std::sync::RwLock;
+
+    images::force_supported(false);
+    let ctx = app().ctx.clone();
+    // Songs, and albums, which a left click opens instead.
+    let mut songs = ItemList::new(Arc::new(RwLock::new(tracks(5))));
+    let mut albums = ItemList::new(Arc::new(RwLock::new(vec![album(), album()])));
+    let mut terminal = Terminal::new(TestBackend::new(60, 10)).unwrap();
+    terminal
+        .draw(|frame| songs.draw(frame, frame.area(), &ctx, true))
+        .unwrap();
+    let third = find(&terminal, "Song number 3").expect("the third song");
+    let menu = overlay_text(songs.mouse(right_click(third.x, third.y), &ctx), &ctx);
+    assert_eq!(songs.selected(), 2);
+    assert!(
+        menu.contains("Song number 3") && menu.contains("Add to queue"),
+        "{menu}"
+    );
+    assert_eq!(ctx.queue.get_current_index(), None, "it played");
+
+    terminal
+        .draw(|frame| albums.draw(frame, frame.area(), &ctx, true))
+        .unwrap();
+    let menu = overlay_text(albums.mouse(right_click(5, 1), &ctx), &ctx);
+    assert_eq!(albums.selected(), 1);
+    assert!(menu.contains("Play next"), "{menu}");
+}
+
+#[test]
+fn test_right_clicking_a_card_opens_its_menu() {
+    use crate::tui::page::Page;
+    use crate::tui::widgets::cards::{Card, CardGrid, CardLayout, Section};
+
+    images::force_supported(false);
+    let ctx = app().ctx.clone();
+    let source = Box::new(|| {
+        let mut second = album();
+        second.title = "Album 2".into();
+        Some(vec![Section::new(
+            "",
+            vec![Card::album(album()), Card::album(second)],
+        )])
+    });
+    let mut grid = CardGrid::new("Albums", CardLayout::Grid, source);
+    let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
+    terminal
+        .draw(|frame| grid.draw(frame, frame.area(), &ctx, true))
+        .unwrap();
+    let second = find(&terminal, "Album 2").expect("the second album");
+    let menu = overlay_text(grid.mouse(right_click(second.x, second.y), &ctx), &ctx);
+    assert_eq!(grid.selection(), (0, 1));
+    assert!(
+        menu.contains("Album 2") && menu.contains("Add to queue"),
+        "{menu}"
+    );
+}
+
+#[test]
+fn test_right_clicking_up_next_or_the_player_opens_the_songs_menu() {
+    use crate::tui::page::Page;
+
+    images::force_supported(false);
+    let mut app = app();
+    let ctx = app.ctx.clone();
+    let songs: Vec<Playable> = tracks(3).into_iter().map(Playable::Track).collect();
+    ctx.queue.append_next(&songs);
+    ctx.queue.play(0, false, false);
+
+    let mut page = pages::queue::new(&ctx);
+    let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
+    terminal
+        .draw(|frame| page.draw(frame, frame.area(), &ctx, true))
+        .unwrap();
+    // Up next, and the song playing.
+    for n in [3, 1] {
+        let row = find(&terminal, &format!("Song number {n}")).expect("the song");
+        let menu = overlay_text(page.mouse(right_click(row.x, row.y), &ctx), &ctx);
+        assert!(menu.contains(&format!("Song number {n}")), "{menu}");
+        assert_eq!(ctx.queue.get_current_index(), Some(0), "it played");
+    }
+
+    // The player's title.
+    let mut terminal = Terminal::new(TestBackend::new(80, 40)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let title = find(&terminal, "Song number 1").expect("the playing song");
+    assert!(app.player_area().contains(title));
+    app.mouse(right_click(title.x, title.y));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert_eq!(app.overlay_areas().len(), 1, "no menu");
+    assert!(find(&terminal, "Add to queue").is_some());
+}
