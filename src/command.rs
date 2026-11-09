@@ -487,8 +487,11 @@ impl fmt::Display for Command {
             Self::Seek(direction) => vec![direction.to_string()],
             Self::VolumeUp(amount) => vec![amount.to_string()],
             Self::VolumeDown(amount) => vec![amount.to_string()],
+            // As the command takes it, not as RepeatSetting shows itself.
             Self::Repeat(mode) => match mode {
-                Some(mode) => vec![mode.to_string()],
+                Some(RepeatSetting::None) => vec!["off".into()],
+                Some(RepeatSetting::RepeatPlaylist) => vec!["playlist".into()],
+                Some(RepeatSetting::RepeatTrack) => vec!["track".into()],
                 None => vec![],
             },
             Self::Shuffle(on) => match on {
@@ -505,10 +508,20 @@ impl fmt::Display for Command {
                 (MoveMode::Down, MoveAmount::Extreme) => vec!["bottom".to_string()],
                 (MoveMode::Left, MoveAmount::Extreme) => vec!["leftmost".to_string()],
                 (MoveMode::Right, MoveAmount::Extreme) => vec!["rightmost".to_string()],
-                (mode, MoveAmount::Float(amount)) => vec![mode.to_string(), amount.to_string()],
+                (mode, MoveAmount::Float(amount)) => {
+                    let page = format!("page{mode}");
+                    if *amount == 1.0 {
+                        vec![page]
+                    } else {
+                        vec![page, amount.to_string()]
+                    }
+                }
                 (mode, MoveAmount::Integer(amount)) => vec![mode.to_string(), amount.to_string()],
             },
-            Self::Shift(mode, amount) => vec![mode.to_string(), amount.unwrap_or(1).to_string()],
+            Self::Shift(mode, amount) => match amount {
+                Some(amount) => vec![mode.to_string(), amount.to_string()],
+                None => vec![mode.to_string()],
+            },
             Self::Search(term) => vec![term.to_owned()],
             Self::Jump(mode) => match mode {
                 JumpMode::Previous | JumpMode::Next => vec![],
@@ -1002,7 +1015,8 @@ pub fn parse(input: &str) -> Result<Vec<Command>, CommandParseError> {
                                         arg: amount_raw.into(),
                                         err: err.to_string(),
                                     })?,
-                                None => MoveAmount::default(),
+                                // A whole page, not a row.
+                                None => MoveAmount::Float(1.0),
                             };
                             Ok(amount)
                         }
@@ -1298,6 +1312,107 @@ mod tests {
             SleepMode::After(90),
         ] {
             assert_eq!(sleep(&Command::Sleep(mode).to_string()), Some(mode));
+        }
+    }
+
+    #[test]
+    fn page_moves_without_an_amount_move_a_page() {
+        assert!(matches!(
+            parse("move pagedown").as_deref(),
+            Ok([Command::Move(MoveMode::Down, MoveAmount::Float(1.0))])
+        ));
+        assert!(matches!(
+            parse("move pageup 0.5").as_deref(),
+            Ok([Command::Move(MoveMode::Up, MoveAmount::Float(0.5))])
+        ));
+        assert!(matches!(
+            parse("move down").as_deref(),
+            Ok([Command::Move(MoveMode::Down, MoveAmount::Integer(1))])
+        ));
+    }
+
+    #[test]
+    fn commands_shown_parse_back_the_same() {
+        let commands = [
+            Command::Quit,
+            Command::TogglePlay,
+            Command::Stop,
+            Command::Previous,
+            Command::Next,
+            Command::Clear,
+            Command::Autoplay,
+            Command::Queue,
+            Command::PlayNext,
+            Command::Play,
+            Command::UpdateLibrary,
+            Command::Save,
+            Command::SaveCurrent,
+            Command::SaveQueue,
+            Command::Add,
+            Command::AddCurrent,
+            Command::Delete,
+            Command::Focus(ScreenId::Library),
+            Command::Seek(SeekDirection::Relative(5000)),
+            Command::Seek(SeekDirection::Relative(-5000)),
+            Command::Seek(SeekDirection::Absolute(30000)),
+            Command::VolumeUp(5),
+            Command::VolumeDown(5),
+            Command::Repeat(None),
+            Command::Repeat(Some(RepeatSetting::RepeatTrack)),
+            Command::Repeat(Some(RepeatSetting::RepeatPlaylist)),
+            Command::Repeat(Some(RepeatSetting::None)),
+            Command::Shuffle(None),
+            Command::Shuffle(Some(true)),
+            Command::Shuffle(Some(false)),
+            Command::Back,
+            Command::Open(TargetMode::Selected),
+            Command::Open(TargetMode::Current),
+            Command::Goto(GotoMode::Album),
+            Command::Move(MoveMode::Up, MoveAmount::Integer(1)),
+            Command::Move(MoveMode::Down, MoveAmount::Integer(5)),
+            Command::Move(MoveMode::Left, MoveAmount::Integer(1)),
+            Command::Move(MoveMode::Right, MoveAmount::Integer(2)),
+            Command::Move(MoveMode::Up, MoveAmount::Float(0.5)),
+            Command::Move(MoveMode::Down, MoveAmount::Float(1.0)),
+            Command::Move(MoveMode::Left, MoveAmount::Float(2.0)),
+            Command::Move(MoveMode::Right, MoveAmount::Float(1.0)),
+            Command::Move(MoveMode::Up, MoveAmount::Extreme),
+            Command::Move(MoveMode::Down, MoveAmount::Extreme),
+            Command::Move(MoveMode::Left, MoveAmount::Extreme),
+            Command::Move(MoveMode::Right, MoveAmount::Extreme),
+            Command::Move(MoveMode::Playing, MoveAmount::Integer(1)),
+            Command::Shift(ShiftMode::Up, None),
+            Command::Shift(ShiftMode::Down, Some(3)),
+            Command::Search("daft punk".into()),
+            Command::Jump(JumpMode::Next),
+            Command::Jump(JumpMode::Previous),
+            Command::Jump(JumpMode::Query("tron".into())),
+            Command::Help,
+            Command::Hints,
+            Command::Settings,
+            Command::ReloadConfig,
+            Command::Noop,
+            Command::NewPlaylist("Road trip".into()),
+            Command::Rename("Road trip".into()),
+            Command::Sort(SortKey::Artist, SortDirection::Descending),
+            Command::Logout,
+            Command::Redraw,
+            Command::Execute("notify-send hi".into()),
+            Command::Reconnect,
+            Command::Like,
+            Command::Panel(PanelAction::Lyrics),
+            Command::Tab(true),
+            Command::Screen(false),
+            Command::Sleep(SleepMode::After(90)),
+        ];
+        for command in commands {
+            let shown = command.to_string();
+            let parsed = parse(&shown);
+            assert_eq!(
+                format!("{parsed:?}"),
+                format!("{:?}", Ok::<_, CommandParseError>(vec![command])),
+                "{shown}"
+            );
         }
     }
 
