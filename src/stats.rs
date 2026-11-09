@@ -34,7 +34,7 @@ pub struct Play {
 pub fn record(track: &Track, listened: Duration) {
     // Tests mustn't write to the real history.
     if cfg!(test) {
-        return;
+        return noted_in_test(track, listened);
     }
     let length = Duration::from_millis(u64::from(track.duration));
     if listened < MIN_LISTEN.min(length * 4 / 5) || listened.is_zero() {
@@ -66,6 +66,22 @@ pub fn record(track: &Track, listened: Duration) {
         error!("Couldn't note a play in {}: {e}", path.display());
     }
 }
+
+#[cfg(test)]
+thread_local! {
+    /// The URIs and listened lengths [record] was given on this thread, in tests (which have a
+    /// thread each), instead of writing them to the history.
+    pub static RECORDED: std::cell::RefCell<Vec<(String, Duration)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[cfg(test)]
+fn noted_in_test(track: &Track, listened: Duration) {
+    RECORDED.with_borrow_mut(|recorded| recorded.push((track.uri.clone(), listened)));
+}
+
+#[cfg(not(test))]
+fn noted_in_test(_: &Track, _: Duration) {}
 
 /// Every play noted so far, oldest first. Lines that can't be read are skipped.
 pub fn load() -> Vec<Play> {

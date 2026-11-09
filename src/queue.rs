@@ -316,51 +316,48 @@ impl Queue {
     /// Remove the item at `index`. This doesn't take into account shuffle
     /// status, and will literally remove the item at `index` in `self.queue`.
     pub fn remove(&self, index: usize) {
-        {
+        let removing_current = self.get_current_index() == Some(index);
+        if removing_current {
+            // Noted while it's still the current track, as far as it was listened to: what's
+            // played next isn't noted again, as there's no current track until then.
+            self.record_listened();
+        }
+        let len = {
             let mut q = self.queue.write().unwrap();
-            if q.is_empty() {
-                info!("queue is empty");
+            let mut sources = self.sources.write().unwrap();
+            let mut current = self.current_track.write().unwrap();
+            if index >= q.len() {
+                info!("nothing to remove at {index}");
                 return;
             }
             q.remove(index);
-            let mut sources = self.sources.write().unwrap();
             if index < sources.len() {
                 sources.remove(index);
             }
-        }
+            // The current track's index follows it, or there's none if it was removed.
+            *current = match *current {
+                Some(c) => match c.cmp(&index) {
+                    Ordering::Less => Some(c),
+                    Ordering::Equal => None,
+                    Ordering::Greater => Some(c - 1),
+                },
+                None => None,
+            };
+            q.len()
+        };
 
-        // if the queue is empty stop playback
-        let len = self.queue.read().unwrap().len();
-        if len == 0 {
-            self.stop();
-            return;
-        }
-
-        // if we are deleting the currently playing track, play the track with
-        // the same index again, because the next track is now at the position
-        // of the one we deleted
-        let current = *self.current_track.read().unwrap();
-        if let Some(current_track) = current {
-            match current_track.cmp(&index) {
-                Ordering::Equal => {
-                    // if we have deleted the last item and it was playing
-                    // stop playback, unless repeat playlist is on, play next
-                    if current_track == len {
-                        if self.get_repeat() == RepeatSetting::RepeatPlaylist {
-                            self.next(false);
-                        } else {
-                            self.stop();
-                        }
-                    } else {
-                        self.play(index, false, false);
-                    }
-                }
-                Ordering::Greater => {
-                    let mut current = self.current_track.write().unwrap();
-                    current.replace(current_track - 1);
-                }
-                _ => (),
+        if removing_current {
+            if index < len {
+                // What came after it is now where it was.
+                self.play(index, false, false);
+            } else if len > 0 && self.get_repeat() == RepeatSetting::RepeatPlaylist {
+                // It was the last: back to the start.
+                self.play(0, false, false);
+            } else {
+                self.stop();
             }
+        } else if len == 0 {
+            self.stop();
         }
 
         // Shuffling reorders the queue itself, so a removal leaves the remaining (already
@@ -1579,6 +1576,80 @@ mod tests {
         q.remove(0);
         assert_eq!(q.len(), 2);
         assert_eq!(q.get_current_index(), Some(1));
+    }
+
+    /// What would have been noted in the listening history so far.
+    fn recorded() -> Vec<(String, std::time::Duration)> {
+        crate::stats::RECORDED.with_borrow(Clone::clone)
+    }
+
+    /// Have the player say it's paused `secs` into the current track.
+    fn listened_for(q: &Queue, secs: u64) {
+        q.spotify
+            .update_status(PlayerEvent::Paused(std::time::Duration::from_secs(secs)));
+    }
+
+    #[test]
+    fn test_removing_the_only_track_while_it_plays_stops() {
+        let q = make_queue(make_tracks(1), Some(0));
+        listened_for(&q, 60);
+        q.remove(0);
+        assert_eq!(q.len(), 0);
+        assert_eq!(q.get_current_index(), None);
+        assert_eq!(
+            recorded(),
+            [(
+                "spotify:track:id_0".into(),
+                std::time::Duration::from_secs(60)
+            )]
+        );
+    }
+
+    #[test]
+    fn test_removing_the_last_track_while_it_plays_stops() {
+        let q = make_queue(make_tracks(3), Some(2));
+        listened_for(&q, 60);
+        q.remove(2);
+        assert_eq!(ids(&q), ["id_0", "id_1"]);
+        assert_eq!(q.get_current_index(), None);
+        assert_eq!(recorded().len(), 1);
+        assert_eq!(recorded()[0].0, "spotify:track:id_2");
+    }
+
+    #[test]
+    fn test_removing_the_last_track_while_it_plays_with_repeat_goes_back_to_the_start() {
+        let q = make_queue(make_tracks(3), Some(2));
+        q.set_repeat(RepeatSetting::RepeatPlaylist);
+        listened_for(&q, 60);
+        q.remove(2);
+        assert_eq!(q.get_current_index(), Some(0));
+        assert_eq!(recorded().len(), 1);
+        assert_eq!(recorded()[0].0, "spotify:track:id_2");
+    }
+
+    #[test]
+    fn test_removing_the_playing_track_plays_the_next_and_notes_the_removed_one() {
+        let q = make_queue(make_tracks(3), Some(1));
+        listened_for(&q, 60);
+        q.remove(1);
+        assert_eq!(ids(&q), ["id_0", "id_2"]);
+        assert_eq!(q.get_current_index(), Some(1));
+        // The removed track is noted, not the one that took its place.
+        assert_eq!(
+            recorded(),
+            [(
+                "spotify:track:id_1".into(),
+                std::time::Duration::from_secs(60)
+            )]
+        );
+    }
+
+    #[test]
+    fn test_removing_past_the_end_does_nothing() {
+        let q = make_queue(make_tracks(2), Some(0));
+        q.remove(5);
+        assert_eq!(q.len(), 2);
+        assert_eq!(q.get_current_index(), Some(0));
     }
 
     // --- shift ---
