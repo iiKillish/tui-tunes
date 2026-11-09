@@ -499,8 +499,9 @@ impl Queue {
 
         let track = self.queue.read().unwrap().get(index).cloned();
         if let Some(track) = &track {
-            self.spotify.load(track, start_playing, 0);
+            // Before loading, which has MPRIS announce the current track.
             self.current_track.write().unwrap().replace(index);
+            self.spotify.load(track, start_playing, 0);
             if let Playable::Track(track) = track {
                 let mut started = self.started.write().unwrap();
                 started.push(track.uri.clone());
@@ -543,7 +544,10 @@ impl Queue {
             self.generate_random_order()
         }
         *self.waiting_for_autoplay.write().unwrap() = false;
-        self.request_autoplay(index);
+        // Shuffling moves the current track to the start.
+        if let Some(index) = self.get_current_index() {
+            self.request_autoplay(index);
+        }
     }
 
     /// Toggle the playback. If playback is currently stopped, this will either
