@@ -4,22 +4,25 @@
 //!
 //! Items take two rows (title, then artists) next to a two-row cover, with a blank row between
 //! them. The selection moves over the current track and the upcoming ones; play, delete and shift
-//! work on it (upcoming items only shift among themselves). Clicking an item plays it. A Clear
-//! button at the top right clears what's up next.
+//! work on it (upcoming items only shift among themselves). Clicking an item plays it, and
+//! dragging an upcoming one moves it. Upcoming songs can be marked (see [crate::tui::marks]) to
+//! remove, save or add several at once. A Clear button at the top right clears what's up next.
 
 use std::sync::Arc;
 
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
-use ratatui::crossterm::event::{MouseButton, MouseEvent, MouseEventKind};
+use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 
 use crate::command::{Command, JumpMode, MoveAmount, MoveMode, ShiftMode, TargetMode};
 use crate::model::playable::Playable;
 use crate::traits::ListItem;
+use crate::tui::drag::Drag;
 use crate::tui::hints;
 use crate::tui::images;
+use crate::tui::marks::{Marks, songs};
 use crate::tui::nav;
 use crate::tui::page::{Ctx, Outcome, Page};
 use crate::tui::pointer;
@@ -35,6 +38,9 @@ const MAX_UPCOMING: usize = 200;
 const ITEM_ROWS: usize = 3;
 /// Columns the headings and items are indented by.
 const INDENT: u16 = 2;
+/// At the left edge of a marked song.
+const MARK: &str = "✓";
+
 /// Narrowest page that shows covers before its items.
 const MIN_WIDTH_FOR_THUMBNAILS: u16 = 32;
 
@@ -51,6 +57,14 @@ pub struct QueuePage {
     /// there (for clicks).
     area: Rect,
     row_items: Vec<Option<usize>>,
+    /// For each row drawn last, the position (in the selection) of the item shown there.
+    row_positions: Vec<Option<usize>>,
+    /// An upcoming item pressed, while it is, and where it's been dragged to (positions in the
+    /// selection), with its queue index and URI when pressed, so a queue that changed meanwhile
+    /// isn't reordered by mistake.
+    drag: Option<(Drag, usize, String)>,
+    /// Upcoming songs marked, by their queue index.
+    marks: Marks,
     /// Where the button at the top (Clear, or Autoplay when nothing's up next) was drawn last,
     /// if it was, and what it runs.
     button: Option<(Rect, Command)>,
@@ -70,6 +84,9 @@ pub fn new(_ctx: &Ctx) -> QueuePage {
         max_scroll: 0,
         area: Rect::default(),
         row_items: Vec::new(),
+        row_positions: Vec::new(),
+        drag: None,
+        marks: Marks::default(),
         button: None,
         upcoming_shown: 0,
         subtitle: String::new(),
@@ -159,6 +176,7 @@ fn scroll_to_item(sources: &[Option<Arc<str>>], scroll: usize, item: usize, rows
 struct ItemLook<'a> {
     item: &'a Playable,
     selected: bool,
+    marked: bool,
     focused: bool,
     title_style: Style,
 }
@@ -229,6 +247,171 @@ impl QueuePage {
         }
     }
 
+    /// Match the marks up with the queue, which may have changed since: they follow their songs,
+    /// and go once their songs aren't up next.
+    fn sync_marks(&mut self, items: &Items, ctx: &Ctx) {
+        if self.marks.is_empty() {
+            return;
+        }
+        {
+            let queue = ctx.queue.queue.read().unwrap();
+            self.marks
+                .sync(queue.len(), |i| queue.get(i).map(Playable::uri));
+        }
+        self.marks
+            .retain(|index| items.upcoming.iter().any(|(i, _)| *i == index));
+    }
+
+    /// The marked songs, in the order they're up next, with their queue indices.
+    fn marked_items(&mut self, ctx: &Ctx) -> Vec<(usize, Playable)> {
+        let items = Items::load(ctx);
+        self.sync_marks(&items, ctx);
+        items
+            .upcoming
+            .into_iter()
+            .filter(|(index, _)| self.marks.contains(*index))
+            .collect()
+    }
+
+    /// Mark or unmark the item at `position`, if it's up next.
+    fn toggle_mark(&mut self, position: usize, ctx: &Ctx) -> Outcome {
+        let items = Items::load(ctx);
+        self.sync_marks(&items, ctx);
+        match items.index(position).zip(items.get(position)) {
+            Some((index, item)) if position >= items.first_upcoming() => {
+                self.marks.toggle(index, item.uri());
+                self.marks_message()
+            }
+            _ => Outcome::Error("Only songs up next can be marked".into()),
+        }
+    }
+
+    /// Mark the items up next from the one marked last (or the selected one) to the one at
+    /// `position`.
+    fn mark_range(&mut self, position: usize, ctx: &Ctx) -> Outcome {
+        let items = Items::load(ctx);
+        self.sync_marks(&items, ctx);
+        let anchor = self
+            .marks
+            .anchor()
+            .and_then(|anchor| (0..=items.last()).find(|&p| items.index(p) == Some(anchor)));
+        let from = anchor.unwrap_or(self.selected);
+        let (low, high) = (from.min(position), from.max(position));
+        // The one at `position` last: the next range starts from it.
+        let range = (low.max(items.first_upcoming())..=high).filter(|&p| p != position);
+        for p in range.chain([position]) {
+            if p >= items.first_upcoming()
+                && let Some((index, item)) = items.index(p).zip(items.get(p))
+            {
+                self.marks.mark(index, item.uri());
+            }
+        }
+        self.marks_message()
+    }
+
+    /// How many songs are marked, for the status line.
+    fn marks_message(&self) -> Outcome {
+        match self.marks.len() {
+            0 => Outcome::Message("No songs marked".into()),
+            n => Outcome::Message(format!("{} marked · Esc to unmark", songs(n))),
+        }
+    }
+
+    /// `cmd` acting on the marked songs: remove, save, add, and the menu. `None` for other
+    /// commands, and when nothing's marked. They're unmarked once they've been acted on.
+    fn marked_command(&mut self, cmd: &Command, ctx: &Ctx) -> Option<Outcome> {
+        if self.marks.is_empty() {
+            return None;
+        }
+        let marked = self.marked_items(ctx);
+        if marked.is_empty() {
+            return None;
+        }
+        let songs = songs(marked.len());
+        let tracks = || marked.iter().filter_map(|(_, item)| item.track()).collect();
+        let outcome = match cmd {
+            Command::Delete => {
+                // From the end, so the indices of the others stay as they are.
+                for (index, _) in marked.iter().rev() {
+                    ctx.queue.remove(*index);
+                }
+                Outcome::Message(format!("Removed {songs} from Up next"))
+            }
+            Command::Save => nav::save_tracks(tracks(), ctx),
+            Command::Add => nav::add_tracks(tracks(), ctx),
+            Command::Open(TargetMode::Selected) => {
+                let items: Vec<Box<dyn ListItem>> =
+                    marked.iter().map(|(_, item)| item.as_listitem()).collect();
+                return Some(Outcome::Overlay(nav::marked_menu(
+                    &items,
+                    true,
+                    Some("Remove from Up next"),
+                    ctx,
+                )));
+            }
+            _ => return None,
+        };
+        self.marks.clear();
+        Some(outcome)
+    }
+
+    /// The position of the item shown at screen row `row`, or the nearest one to it (the first or
+    /// last shown, for rows above or below the page).
+    fn position_at(&self, row: u16) -> Option<usize> {
+        let rows = &self.row_positions;
+        let row = usize::from(row.saturating_sub(self.area.y)).min(rows.len().checked_sub(1)?);
+        (0..rows.len()).find_map(|distance| {
+            [row.checked_sub(distance), row.checked_add(distance)]
+                .into_iter()
+                .flatten()
+                .find_map(|r| rows.get(r).copied().flatten())
+        })
+    }
+
+    /// A click on the item at queue `index`: play it, or open its menu (with
+    /// `queue_click = "menu"`, or `menu`).
+    fn click(&mut self, index: usize, menu: bool, ctx: &Ctx) -> Outcome {
+        let menu = menu || ctx.config.values().queue_click.as_deref() == Some("menu");
+        if !menu {
+            self.play(index, ctx);
+            return Outcome::Consumed;
+        }
+        // Select it, so the menu is seen to be for that song.
+        let items = Items::load(ctx);
+        let position = (0..=items.last()).find(|&p| items.index(p) == Some(index));
+        if let Some(position) = position {
+            self.selected = position;
+        }
+        match position.and_then(|p| items.get(p)) {
+            Some(item) => Outcome::Overlay(nav::context_menu(item.as_listitem(), ctx)),
+            None => Outcome::Consumed,
+        }
+    }
+
+    /// The pressed item let go: moved where it was dragged, or clicked if it wasn't dragged.
+    fn drop(&mut self, ctx: &Ctx) -> Outcome {
+        let Some((drag, index, uri)) = self.drag.take() else {
+            return Outcome::Consumed;
+        };
+        let items = Items::load(ctx);
+        // The queue changed under the pointer (a song ended): leave it be.
+        let same = items.index(drag.from) == Some(index)
+            && items.get(drag.from).is_some_and(|item| item.uri() == uri);
+        if !same {
+            return Outcome::Consumed;
+        }
+        if !drag.moved {
+            return self.click(index, false, ctx);
+        }
+        if let Some(to) = items.index(drag.to)
+            && to != index
+        {
+            ctx.queue.shift(index, to);
+        }
+        self.select(drag.to, &items);
+        Outcome::Consumed
+    }
+
     /// Play the item at queue `index` unless it's already the current one.
     fn play(&mut self, index: usize, ctx: &Ctx) {
         if Some(index) != ctx.queue.get_current_index() {
@@ -256,9 +439,25 @@ impl QueuePage {
                 }
             }
             (style, styles.selected_inactive().fg(ctx.palette.secondary))
+        } else if look.marked {
+            let style = styles.marked();
+            fill(buf, Rect::new(area.x, y, area.width, rows), style);
+            (
+                look.title_style.bg(ctx.palette.highlight_inactive_bg),
+                style.fg(ctx.palette.secondary),
+            )
         } else {
             (look.title_style, styles.secondary())
         };
+        // Marked songs have a check at their left edge.
+        if look.marked {
+            let check_style = if look.selected && look.focused {
+                styles.marker()
+            } else {
+                styles.accent().bg(details_style.bg.unwrap_or_default())
+            };
+            put(buf, area.x, y, MARK, 1, check_style);
+        }
 
         let mut x = area.x + INDENT;
         let thumb = thumbnail_width(area.width);
@@ -310,8 +509,28 @@ impl Page for QueuePage {
         self.area = area;
         let styles = Styles(&ctx.palette);
         let heading = bold(styles.accent());
-        let items = Items::load(ctx);
+        let mut items = Items::load(ctx);
+        let first_upcoming = items.first_upcoming();
+        // A dragged item shows where it would go (scrolling while it's held at an edge).
+        if let Some((mut drag, index, uri)) = self.drag.take() {
+            if drag.moved {
+                self.scroll = self.scroll.saturating_add_signed(drag.scroll_step(area));
+                let from = drag.from.checked_sub(first_upcoming);
+                let to = drag.to.checked_sub(first_upcoming);
+                let len = items.upcoming.len();
+                if let (Some(from), Some(to)) = (from, to)
+                    && from < len
+                    && to < len
+                {
+                    let item = items.upcoming.remove(from);
+                    items.upcoming.insert(to, item);
+                }
+                self.selected = drag.to;
+            }
+            self.drag = Some((drag, index, uri));
+        }
         self.selected = self.selected.min(items.last());
+        self.sync_marks(&items, ctx);
         self.subtitle = if items.upcoming.len() >= MAX_UPCOMING {
             format!("{MAX_UPCOMING}+ songs")
         } else if items.upcoming.is_empty() {
@@ -324,6 +543,7 @@ impl Page for QueuePage {
         let x = area.x + INDENT;
         let text_width = usize::from(area.width.saturating_sub(2 * INDENT));
         let mut rows: Vec<Option<usize>> = vec![None; height];
+        let mut positions: Vec<Option<usize>> = vec![None; height];
         // Rows within the page, from the top.
         let mut y = 0;
         let buf = frame.buffer_mut();
@@ -363,6 +583,7 @@ impl Page for QueuePage {
             let look = ItemLook {
                 item: current,
                 selected: self.selected == 0,
+                marked: false,
                 focused,
                 title_style: bold(
                     Style::new()
@@ -375,6 +596,11 @@ impl Page for QueuePage {
                 .skip(y)
                 .take(2)
                 .for_each(|r| *r = Some(*index));
+            positions
+                .iter_mut()
+                .skip(y)
+                .take(2)
+                .for_each(|p| *p = Some(0));
             y += ITEM_ROWS;
         }
 
@@ -435,6 +661,7 @@ impl Page for QueuePage {
             let look = ItemLook {
                 item,
                 selected: self.selected == u + items.first_upcoming(),
+                marked: self.marks.contains(*index),
                 focused,
                 title_style: styles.primary(),
             };
@@ -444,15 +671,35 @@ impl Page for QueuePage {
                 .skip(y)
                 .take(2)
                 .for_each(|r| *r = Some(*index));
+            positions
+                .iter_mut()
+                .skip(y)
+                .take(2)
+                .for_each(|p| *p = Some(u + first_upcoming));
             y += ITEM_ROWS;
         }
         for (y, _) in rows.iter().enumerate().filter(|(_, item)| item.is_some()) {
             pointer::clickable(Rect::new(area.x, area.y + y as u16, area.width, 1));
         }
         self.row_items = rows;
+        self.row_positions = positions;
+        // After scrolling, the item under the pointer is another one.
+        if let Some(row) = self
+            .drag
+            .as_ref()
+            .filter(|(d, ..)| d.moved)
+            .map(|(d, ..)| d.row)
+            && let Some(to) = self.position_at(row)
+            && let Some((drag, ..)) = self.drag.as_mut()
+        {
+            drag.to = to.max(first_upcoming);
+        }
     }
 
     fn command(&mut self, cmd: &Command, ctx: &Ctx) -> Outcome {
+        if let Some(outcome) = self.marked_command(cmd, ctx) {
+            return outcome;
+        }
         match cmd {
             Command::Move(mode @ (MoveMode::Up | MoveMode::Down), amount) => {
                 let items = Items::load(ctx);
@@ -505,12 +752,29 @@ impl Page for QueuePage {
                 self.find(false, true, ctx);
             }
             Command::Jump(mode) => self.find(matches!(mode, JumpMode::Previous), false, ctx),
+            // Esc while dragging an item leaves it where it was.
+            Command::Back if self.drag.is_some() => {
+                if let Some((drag, ..)) = self.drag.take() {
+                    self.selected = drag.from;
+                }
+            }
+            // Then it unmarks songs, before going back.
+            Command::Back if !self.marks.is_empty() => {
+                self.marks.clear();
+                return Outcome::Message("Songs unmarked".into());
+            }
+            Command::Mark => return self.toggle_mark(self.selected, ctx),
+            Command::MarkRange => return self.mark_range(self.selected, ctx),
             _ => return Outcome::Ignored,
         }
         Outcome::Consumed
     }
 
     fn mouse(&mut self, event: MouseEvent, ctx: &Ctx) -> Outcome {
+        // A press while one is held means the release was missed: forget that one.
+        if let MouseEventKind::Down(_) = event.kind {
+            self.drag = None;
+        }
         match event.kind {
             MouseEventKind::Down(MouseButton::Left)
                 if self
@@ -521,26 +785,67 @@ impl Page for QueuePage {
                 let (_, command) = self.button.clone().expect("checked above");
                 return Outcome::Run(vec![command]);
             }
-            MouseEventKind::Down(MouseButton::Left) => {
+            // A right click opens the song's menu (as a click does with `queue_click = "menu"`).
+            MouseEventKind::Down(button @ (MouseButton::Left | MouseButton::Right)) => {
                 let row = event.row.checked_sub(self.area.y).map(usize::from);
-                if let Some(index) = row.and_then(|row| self.row_items.get(row).copied().flatten())
-                {
-                    let menu = ctx.config.values().queue_click.as_deref() == Some("menu");
-                    if !menu {
-                        self.play(index, ctx);
-                        return Outcome::Consumed;
-                    }
-                    // Select it, so the menu is seen to be for that song.
+                let Some(index) = row.and_then(|row| self.row_items.get(row).copied().flatten())
+                else {
+                    return Outcome::Consumed;
+                };
+                let position = row.and_then(|row| self.row_positions.get(row).copied().flatten());
+                if button == MouseButton::Right {
+                    // On a marked song: the menu for all of them.
                     let items = Items::load(ctx);
-                    let position = (0..=items.last()).find(|&p| items.index(p) == Some(index));
-                    if let Some(position) = position {
+                    self.sync_marks(&items, ctx);
+                    if self.marks.contains(index)
+                        && let Some(position) = position
+                    {
                         self.selected = position;
+                        return self.command(&Command::Open(TargetMode::Selected), ctx);
                     }
-                    if let Some(item) = position.and_then(|p| items.get(p)) {
-                        return Outcome::Overlay(nav::context_menu(item.as_listitem(), ctx));
+                    return self.click(index, true, ctx);
+                }
+                // Ctrl+click marks or unmarks a song, Shift+click the songs up to it.
+                if let Some(position) = position
+                    && event
+                        .modifiers
+                        .intersects(KeyModifiers::CONTROL | KeyModifiers::SHIFT)
+                {
+                    let outcome = if event.modifiers.contains(KeyModifiers::CONTROL) {
+                        self.toggle_mark(position, ctx)
+                    } else {
+                        self.mark_range(position, ctx)
+                    };
+                    self.selected = position;
+                    return outcome;
+                }
+                // An upcoming item may be dragged to another place: it's a click if it's let go
+                // without moving to another row. The one playing stays put.
+                let items = Items::load(ctx);
+                if let Some(position) = position.filter(|&p| p >= items.first_upcoming())
+                    && let Some(item) = items.get(position)
+                {
+                    let drag = Drag::new(position, event.row, position == self.selected);
+                    self.drag = Some((drag, index, item.uri()));
+                    self.selected = position;
+                    return Outcome::Consumed;
+                }
+                return self.click(index, false, ctx);
+            }
+            MouseEventKind::Drag(MouseButton::Left) if self.drag.is_some() => {
+                let first_upcoming = Items::load(ctx).first_upcoming();
+                let to = self.position_at(event.row);
+                if let Some((drag, ..)) = self.drag.as_mut() {
+                    drag.move_to(event.row);
+                    if drag.moved
+                        && let Some(to) = to
+                    {
+                        drag.to = to.max(first_upcoming);
+                        self.selected = drag.to;
                     }
                 }
             }
+            MouseEventKind::Up(_) if self.drag.is_some() => return self.drop(ctx),
             // Only while there's more below (or above).
             MouseEventKind::ScrollDown | MouseEventKind::ScrollUp
                 if !wheel::moves(&event, self.upcoming_shown) => {}
@@ -553,6 +858,10 @@ impl Page for QueuePage {
             _ => return Outcome::Ignored,
         }
         Outcome::Consumed
+    }
+
+    fn dragging(&self) -> bool {
+        self.drag.is_some()
     }
 
     fn on_show(&mut self, _ctx: &Ctx) {

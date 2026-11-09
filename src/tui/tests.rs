@@ -1584,7 +1584,11 @@ fn test_clicking_a_queued_song_plays_it_or_opens_its_menu() {
             .draw(|frame| page.draw(frame, frame.area(), &ctx, true))
             .unwrap();
         let third = find(&terminal, "Song number 3").expect("the third song");
+        // Pressed and let go: a press could start a drag.
         let outcome = page.mouse(click(third.x, third.y), &ctx);
+        assert!(matches!(outcome, Outcome::Consumed), "acted on press");
+        assert_eq!(ctx.queue.get_current_index(), Some(0), "played on press");
+        let outcome = page.mouse(mouse(RELEASE, third), &ctx);
         if menu {
             assert!(matches!(outcome, Outcome::Overlay(_)), "no menu");
             assert_eq!(ctx.queue.get_current_index(), Some(0), "it played");
@@ -1665,5 +1669,556 @@ fn test_playing_a_list_with_nothing_loaded_keeps_the_queue() {
         assert_eq!(ctx.queue.len(), 25, "{name}: the queue was cleared");
         assert_eq!(ctx.queue.get_current_index(), Some(0), "{name}");
         assert!(!ctx.queue.get_shuffle(), "{name}: shuffle was left on");
+    }
+}
+
+fn right_click(column: u16, row: u16) -> MouseEvent {
+    MouseEvent {
+        kind: MouseEventKind::Down(MouseButton::Right),
+        column,
+        row,
+        modifiers: KeyModifiers::NONE,
+    }
+}
+
+/// The text of the menu or dialog `outcome` opens, drawn on its own.
+fn overlay_text(outcome: crate::tui::page::Outcome, ctx: &Ctx) -> String {
+    let crate::tui::page::Outcome::Overlay(mut overlay) = outcome else {
+        panic!("no menu");
+    };
+    let mut terminal = Terminal::new(TestBackend::new(70, 24)).unwrap();
+    terminal
+        .draw(|frame| {
+            overlay.draw(frame, frame.area(), ctx);
+        })
+        .unwrap();
+    screen_text(&terminal)
+}
+
+#[test]
+fn test_right_clicking_a_row_selects_it_and_opens_its_menu() {
+    use crate::tui::widgets::list::ItemList;
+    use std::sync::RwLock;
+
+    images::force_supported(false);
+    let ctx = app().ctx.clone();
+    // Songs, and albums, which a left click opens instead.
+    let mut songs = ItemList::new(Arc::new(RwLock::new(tracks(5))));
+    let mut albums = ItemList::new(Arc::new(RwLock::new(vec![album(), album()])));
+    let mut terminal = Terminal::new(TestBackend::new(60, 10)).unwrap();
+    terminal
+        .draw(|frame| songs.draw(frame, frame.area(), &ctx, true))
+        .unwrap();
+    let third = find(&terminal, "Song number 3").expect("the third song");
+    let menu = overlay_text(songs.mouse(right_click(third.x, third.y), &ctx), &ctx);
+    assert_eq!(songs.selected(), 2);
+    assert!(
+        menu.contains("Song number 3") && menu.contains("Add to queue"),
+        "{menu}"
+    );
+    assert_eq!(ctx.queue.get_current_index(), None, "it played");
+
+    terminal
+        .draw(|frame| albums.draw(frame, frame.area(), &ctx, true))
+        .unwrap();
+    let menu = overlay_text(albums.mouse(right_click(5, 1), &ctx), &ctx);
+    assert_eq!(albums.selected(), 1);
+    assert!(menu.contains("Play next"), "{menu}");
+}
+
+#[test]
+fn test_right_clicking_a_card_opens_its_menu() {
+    use crate::tui::page::Page;
+    use crate::tui::widgets::cards::{Card, CardGrid, CardLayout, Section};
+
+    images::force_supported(false);
+    let ctx = app().ctx.clone();
+    let source = Box::new(|| {
+        let mut second = album();
+        second.title = "Album 2".into();
+        Some(vec![Section::new(
+            "",
+            vec![Card::album(album()), Card::album(second)],
+        )])
+    });
+    let mut grid = CardGrid::new("Albums", CardLayout::Grid, source);
+    let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
+    terminal
+        .draw(|frame| grid.draw(frame, frame.area(), &ctx, true))
+        .unwrap();
+    let second = find(&terminal, "Album 2").expect("the second album");
+    let menu = overlay_text(grid.mouse(right_click(second.x, second.y), &ctx), &ctx);
+    assert_eq!(grid.selection(), (0, 1));
+    assert!(
+        menu.contains("Album 2") && menu.contains("Add to queue"),
+        "{menu}"
+    );
+}
+
+#[test]
+fn test_right_clicking_up_next_or_the_player_opens_the_songs_menu() {
+    use crate::tui::page::Page;
+
+    images::force_supported(false);
+    let mut app = app();
+    let ctx = app.ctx.clone();
+    let songs: Vec<Playable> = tracks(3).into_iter().map(Playable::Track).collect();
+    ctx.queue.append_next(&songs);
+    ctx.queue.play(0, false, false);
+
+    let mut page = pages::queue::new(&ctx);
+    let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
+    terminal
+        .draw(|frame| page.draw(frame, frame.area(), &ctx, true))
+        .unwrap();
+    // Up next, and the song playing.
+    for n in [3, 1] {
+        let row = find(&terminal, &format!("Song number {n}")).expect("the song");
+        let menu = overlay_text(page.mouse(right_click(row.x, row.y), &ctx), &ctx);
+        assert!(menu.contains(&format!("Song number {n}")), "{menu}");
+        assert_eq!(ctx.queue.get_current_index(), Some(0), "it played");
+    }
+
+    // The player's title.
+    let mut terminal = Terminal::new(TestBackend::new(80, 40)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let title = find(&terminal, "Song number 1").expect("the playing song");
+    assert!(app.player_area().contains(title));
+    app.mouse(right_click(title.x, title.y));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert_eq!(app.overlay_areas().len(), 1, "no menu");
+    assert!(find(&terminal, "Add to queue").is_some());
+}
+
+fn mouse(kind: MouseEventKind, at: Position) -> MouseEvent {
+    MouseEvent {
+        kind,
+        column: at.x,
+        row: at.y,
+        modifiers: KeyModifiers::NONE,
+    }
+}
+
+const PRESS: MouseEventKind = MouseEventKind::Down(MouseButton::Left);
+const DRAG: MouseEventKind = MouseEventKind::Drag(MouseButton::Left);
+const RELEASE: MouseEventKind = MouseEventKind::Up(MouseButton::Left);
+
+/// Where song `n`'s title is on screen.
+fn song(terminal: &Terminal<TestBackend>, n: usize) -> Position {
+    find(terminal, &format!("Song number {n} with"))
+        .unwrap_or_else(|| panic!("song {n} isn't shown:\n{}", screen_text(terminal)))
+}
+
+/// The numbers of the songs in the queue, in order.
+fn queued(ctx: &Ctx) -> Vec<usize> {
+    ctx.queue
+        .queue
+        .read()
+        .unwrap()
+        .iter()
+        .map(|item| item.id().unwrap()["test".len()..].parse().unwrap())
+        .collect()
+}
+
+#[test]
+fn test_dragging_a_song_up_next_moves_it() {
+    images::force_supported(false);
+    let mut app = app();
+    let ctx = app.ctx.clone();
+    let songs: Vec<Playable> = tracks(5).into_iter().map(Playable::Track).collect();
+    ctx.queue.append_next(&songs);
+    ctx.queue.play(0, false, false);
+    app.run(&Command::Focus(ScreenId::Queue));
+    let mut terminal = Terminal::new(TestBackend::new(80, 40)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let (two, four) = (song(&terminal, 2), song(&terminal, 4));
+
+    // Dragged onto the fourth song, the second shows there.
+    app.mouse(mouse(PRESS, two));
+    app.mouse(mouse(DRAG, four));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert_eq!(song(&terminal, 2).y, four.y, "\n{}", screen_text(&terminal));
+    assert_eq!(queued(&ctx), [1, 2, 3, 4, 5], "moved before it was let go");
+    // Let go anywhere, even over the player, it goes there.
+    app.mouse(mouse(RELEASE, Position::new(0, 0)));
+    assert_eq!(queued(&ctx), [1, 3, 4, 2, 5]);
+    assert_eq!(ctx.queue.get_current_index(), Some(0), "it played");
+
+    // Esc while dragging leaves it.
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    app.mouse(mouse(PRESS, song(&terminal, 5)));
+    app.mouse(mouse(DRAG, song(&terminal, 3)));
+    key(&mut app, KeyCode::Esc);
+    app.mouse(mouse(RELEASE, song(&terminal, 3)));
+    assert_eq!(queued(&ctx), [1, 3, 4, 2, 5]);
+    assert_eq!(app.current_screen(), ScreenId::Queue);
+
+    // The song playing stays put.
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    app.mouse(mouse(PRESS, song(&terminal, 1)));
+    app.mouse(mouse(DRAG, song(&terminal, 4)));
+    app.mouse(mouse(RELEASE, song(&terminal, 4)));
+    assert_eq!(queued(&ctx), [1, 3, 4, 2, 5]);
+
+    // Pressed and let go without moving, it's a click: it plays.
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let four = song(&terminal, 4);
+    app.mouse(mouse(PRESS, four));
+    app.mouse(mouse(DRAG, Position::new(four.x + 3, four.y)));
+    app.mouse(mouse(RELEASE, four));
+    assert_eq!(queued(&ctx), [1, 3, 4, 2, 5]);
+    assert_eq!(ctx.queue.get_current_index(), Some(2));
+}
+
+/// A playlist page of 30 songs, `own` (collaborative) or someone else's.
+fn playlist_page(own: bool, ctx: &Ctx) -> pages::playlist::PlaylistPage {
+    let mut playlist = playlist();
+    playlist.collaborative = own;
+    pages::playlist::PlaylistPage::new(playlist, ctx)
+}
+
+#[test]
+fn test_dragging_a_song_in_an_own_playlist_moves_it() {
+    use crate::tui::page::Page;
+
+    images::force_supported(false);
+    let ctx = app().ctx.clone();
+    let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
+    for own in [true, false] {
+        let mut page = playlist_page(own, &ctx);
+        terminal
+            .draw(|frame| page.draw(frame, frame.area(), &ctx, true))
+            .unwrap();
+        let (two, four) = (song(&terminal, 2), song(&terminal, 4));
+        page.mouse(mouse(PRESS, two), &ctx);
+        assert_eq!(page.dragging(), own);
+        page.mouse(mouse(DRAG, four), &ctx);
+        terminal
+            .draw(|frame| page.draw(frame, frame.area(), &ctx, true))
+            .unwrap();
+        page.mouse(mouse(RELEASE, four), &ctx);
+        terminal
+            .draw(|frame| page.draw(frame, frame.area(), &ctx, true))
+            .unwrap();
+        let order: Vec<u16> = (1..=4).map(|n| song(&terminal, n).y).collect();
+        if own {
+            assert_eq!(order, [0, 3, 1, 2], "own: \n{}", screen_text(&terminal));
+        } else {
+            assert_eq!(order, [0, 1, 2, 3], "someone else's");
+        }
+    }
+
+    // Pressed and let go without moving, it selects, then plays.
+    let mut page = playlist_page(true, &ctx);
+    terminal
+        .draw(|frame| page.draw(frame, frame.area(), &ctx, true))
+        .unwrap();
+    let three = song(&terminal, 3);
+    for _ in 0..2 {
+        page.mouse(mouse(PRESS, three), &ctx);
+        page.mouse(mouse(RELEASE, three), &ctx);
+    }
+    assert!(!page.dragging());
+    assert_eq!(
+        ctx.queue.get_current().and_then(|t| t.id()).as_deref(),
+        Some("test3")
+    );
+}
+
+#[test]
+fn test_a_song_dragged_to_the_bottom_edge_scrolls_the_list() {
+    use crate::tui::page::Page;
+
+    images::force_supported(false);
+    let ctx = app().ctx.clone();
+    let mut page = playlist_page(true, &ctx);
+    let mut terminal = Terminal::new(TestBackend::new(80, 10)).unwrap();
+    let mut draw = |page: &mut pages::playlist::PlaylistPage| {
+        terminal
+            .draw(|frame| page.draw(frame, frame.area(), &ctx, true))
+            .unwrap();
+        screen_text(&terminal)
+    };
+    draw(&mut page);
+    page.mouse(mouse(PRESS, Position::new(10, 1)), &ctx);
+    page.mouse(mouse(DRAG, Position::new(10, 9)), &ctx);
+    for _ in 0..4 {
+        draw(&mut page);
+        std::thread::sleep(std::time::Duration::from_millis(70));
+    }
+    page.mouse(mouse(RELEASE, Position::new(10, 9)), &ctx);
+    let text = draw(&mut page);
+    let line = text
+        .lines()
+        .find(|line| line.contains("Song number 2 with"))
+        .expect("the song dragged is in view");
+    // After the selection's marker.
+    let number: usize = line
+        .split_whitespace()
+        .find_map(|word| word.parse().ok())
+        .unwrap();
+    assert!(number > 10, "it didn't go past the first rows:\n{text}");
+    assert!(
+        !text.contains("Song number 1 with"),
+        "it didn't scroll:\n{text}"
+    );
+}
+
+/// Wait for the queue, changed in the background, to have `len` items.
+fn wait_for_queue(ctx: &Ctx, len: usize) {
+    for _ in 0..200 {
+        if ctx.queue.len() == len {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    panic!("the queue has {} items, not {len}", ctx.queue.len());
+}
+
+fn shift_v(app: &mut App) {
+    app.key(KeyEvent::new(KeyCode::Char('V'), KeyModifiers::SHIFT));
+}
+
+/// The songs with a mark (✓) at their left edge.
+fn marked_songs(terminal: &Terminal<TestBackend>) -> Vec<usize> {
+    screen_text(terminal)
+        .lines()
+        .filter(|line| line.trim_start().starts_with('✓'))
+        .filter_map(|line| {
+            let at = line.find("Song number ")? + "Song number ".len();
+            line[at..].split_whitespace().next()?.parse().ok()
+        })
+        .collect()
+}
+
+#[test]
+fn test_v_and_shift_v_mark_songs_for_e_to_queue_them_all() {
+    images::force_supported(false);
+    let mut app = app();
+    let ctx = app.ctx.clone();
+    app.open_page(Box::new(playlist_page(false, &ctx)));
+    let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    // Mark the first song, then the third; then the fifth, and Shift+v the ones between.
+    key(&mut app, KeyCode::Char('v'));
+    key(&mut app, KeyCode::Char('j'));
+    key(&mut app, KeyCode::Char('v'));
+    key(&mut app, KeyCode::Char('j'));
+    shift_v(&mut app);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert_eq!(marked_songs(&terminal), [1, 3, 4, 5]);
+    assert!(find(&terminal, "4 songs marked").is_some(), "no count");
+
+    // `v` again unmarks.
+    key(&mut app, KeyCode::Char('k'));
+    key(&mut app, KeyCode::Char('v'));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert_eq!(marked_songs(&terminal), [1, 3, 5]);
+
+    key(&mut app, KeyCode::Char('e'));
+    wait_for_queue(&ctx, 3);
+    assert_eq!(queued(&ctx), [1, 3, 5]);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(find(&terminal, "Added 3 songs to the queue").is_some());
+    assert!(marked_songs(&terminal).is_empty(), "still marked");
+
+    // Play next puts them after the current song, in order.
+    ctx.queue.play(0, false, false);
+    key(&mut app, KeyCode::Char('g'));
+    shift_v(&mut app);
+    key(&mut app, KeyCode::Char('j'));
+    shift_v(&mut app);
+    key(&mut app, KeyCode::Char('.'));
+    wait_for_queue(&ctx, 5);
+    assert_eq!(queued(&ctx), [1, 1, 2, 3, 5]);
+}
+
+#[test]
+fn test_ctrl_and_shift_click_mark_songs_for_one_menu() {
+    use crate::tui::widgets::list::ItemList;
+    use std::sync::RwLock;
+
+    images::force_supported(false);
+    let ctx = app().ctx.clone();
+    let mut list = ItemList::new(Arc::new(RwLock::new(tracks(6))));
+    let mut terminal = Terminal::new(TestBackend::new(60, 10)).unwrap();
+    let mut draw = |list: &mut ItemList<Track>| {
+        terminal
+            .draw(|frame| list.draw(frame, frame.area(), &ctx, true))
+            .unwrap();
+        terminal.clone()
+    };
+    let shown = draw(&mut list);
+    let at = |n| song(&shown, n);
+    let with = |modifiers, n| MouseEvent {
+        modifiers,
+        ..mouse(PRESS, at(n))
+    };
+    list.mouse(with(KeyModifiers::CONTROL, 2), &ctx);
+    list.mouse(with(KeyModifiers::SHIFT, 4), &ctx);
+    list.mouse(with(KeyModifiers::CONTROL, 6), &ctx);
+    list.mouse(with(KeyModifiers::CONTROL, 3), &ctx);
+    assert_eq!(list.selected(), 2);
+    assert_eq!(marked_songs(&draw(&mut list)), [2, 4, 6]);
+    assert_eq!(ctx.queue.get_current_index(), None, "a click played");
+
+    // Right on a marked song, or `o`: the menu for all of them.
+    for outcome in [
+        list.mouse(right_click(at(4).x, at(4).y), &ctx),
+        list.command(&Command::Open(TargetMode::Selected), &ctx),
+    ] {
+        let menu = overlay_text(outcome, &ctx);
+        assert!(menu.contains("3 songs"), "{menu}");
+        assert!(menu.contains("Add to queue") && menu.contains("Add to playlist…"));
+    }
+    // On another, its own menu.
+    let menu = overlay_text(list.mouse(right_click(at(1).x, at(1).y), &ctx), &ctx);
+    assert!(menu.contains("Song number 1"), "{menu}");
+}
+
+#[test]
+fn test_marked_songs_can_be_removed_from_up_next() {
+    images::force_supported(false);
+    let mut app = app();
+    let ctx = app.ctx.clone();
+    let songs: Vec<Playable> = tracks(6).into_iter().map(Playable::Track).collect();
+    ctx.queue.append_next(&songs);
+    ctx.queue.play(0, false, false);
+    app.run(&Command::Focus(ScreenId::Queue));
+    let mut terminal = Terminal::new(TestBackend::new(80, 40)).unwrap();
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    // Not the one playing.
+    key(&mut app, KeyCode::Char('v'));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(find(&terminal, "Only songs up next can be marked").is_some());
+    // The second and fourth (the selection moved down to the second).
+    key(&mut app, KeyCode::Char('v'));
+    key(&mut app, KeyCode::Char('j'));
+    key(&mut app, KeyCode::Char('v'));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert_eq!(marked_songs(&terminal), [2, 4]);
+
+    // Their menu has no queueing (they're queued), but has removing.
+    app.run(&Command::Open(TargetMode::Selected));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(find(&terminal, "2 songs").is_some());
+    assert!(find(&terminal, "Add to queue").is_none());
+    let remove = find(&terminal, "Remove from Up next").expect("removing them");
+    app.mouse(click(remove.x, remove.y));
+    assert_eq!(queued(&ctx), [1, 3, 5, 6]);
+    assert_eq!(ctx.queue.get_current_index(), Some(0));
+
+    // With `d`, after the queue changed under the marks: they follow their songs.
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    app.mouse(MouseEvent {
+        modifiers: KeyModifiers::CONTROL,
+        ..mouse(PRESS, song(&terminal, 6))
+    });
+    ctx.queue.remove(1);
+    key(&mut app, KeyCode::Char('d'));
+    assert_eq!(queued(&ctx), [1, 5]);
+}
+
+#[test]
+fn test_marked_songs_can_be_removed_from_an_own_playlist() {
+    use crate::tui::page::Page;
+
+    images::force_supported(false);
+    let ctx = app().ctx.clone();
+    let mut terminal = Terminal::new(TestBackend::new(80, 20)).unwrap();
+    for own in [true, false] {
+        let mut page = playlist_page(own, &ctx);
+        terminal
+            .draw(|frame| page.draw(frame, frame.area(), &ctx, true))
+            .unwrap();
+        for _ in 0..2 {
+            page.command(&Command::Mark, &ctx);
+            page.command(&Command::Move(MoveMode::Down, MoveAmount::Integer(2)), &ctx);
+        }
+        let outcome = page.command(&Command::Delete, &ctx);
+        terminal
+            .draw(|frame| page.draw(frame, frame.area(), &ctx, true))
+            .unwrap();
+        let shown = |n| find(&terminal, &format!("Song number {n} with")).is_some();
+        if own {
+            assert!(matches!(outcome, crate::tui::page::Outcome::Message(_)));
+            assert!(!shown(1) && shown(2) && !shown(3) && shown(4));
+            assert!(marked_songs(&terminal).is_empty());
+        } else {
+            assert!(matches!(outcome, crate::tui::page::Outcome::Error(_)));
+            assert!(shown(1) && shown(3));
+            assert_eq!(marked_songs(&terminal), [1, 3]);
+        }
+    }
+}
+
+#[test]
+fn test_esc_unmarks_songs_then_goes_back() {
+    images::force_supported(false);
+    let mut app = app();
+    let ctx = app.ctx.clone();
+    app.open_page(Box::new(playlist_page(true, &ctx)));
+    let mut terminal = Terminal::new(TestBackend::new(100, 40)).unwrap();
+    key(&mut app, KeyCode::Char('v'));
+    key(&mut app, KeyCode::Char('v'));
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert_eq!(marked_songs(&terminal), [1, 2]);
+    key(&mut app, KeyCode::Esc);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(marked_songs(&terminal).is_empty());
+    assert!(find(&terminal, "A Playlist").is_some(), "it went back");
+    key(&mut app, KeyCode::Esc);
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    assert!(find(&terminal, "A Playlist").is_none(), "it didn't go back");
+}
+
+#[test]
+fn test_marking_dragging_and_right_clicks_in_tiny_windows_dont_panic() {
+    for images_on in [false, true] {
+        images::force_supported(images_on);
+        for (width, height) in [(20, 5), (40, 10), (80, 15)] {
+            let mut app = app();
+            let ctx = app.ctx.clone();
+            let songs: Vec<Playable> = tracks(8).into_iter().map(Playable::Track).collect();
+            ctx.queue.append_next(&songs);
+            ctx.queue.play(0, false, false);
+            let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
+            for queue in [true, false] {
+                if queue {
+                    app.run(&Command::Focus(ScreenId::Queue));
+                } else {
+                    app.run(&Command::Focus(ScreenId::Home));
+                    app.open_page(Box::new(playlist_page(true, &ctx)));
+                }
+                for row in 0..height {
+                    for column in (0..width).step_by(7) {
+                        let at = Position::new(column, row);
+                        terminal.draw(|frame| app.draw(frame)).unwrap();
+                        for modifiers in [KeyModifiers::CONTROL, KeyModifiers::SHIFT] {
+                            app.mouse(MouseEvent {
+                                modifiers,
+                                ..mouse(PRESS, at)
+                            });
+                        }
+                        app.mouse(right_click(column, row));
+                        key(&mut app, KeyCode::Esc);
+                        app.mouse(mouse(PRESS, at));
+                        app.mouse(mouse(DRAG, Position::new(column, height - 1 - row)));
+                        terminal.draw(|frame| app.draw(frame)).unwrap();
+                        app.mouse(mouse(DRAG, Position::new(column, 0)));
+                        terminal.draw(|frame| app.draw(frame)).unwrap();
+                        app.mouse(mouse(RELEASE, at));
+                        key(&mut app, KeyCode::Esc);
+                    }
+                }
+                for c in ['v', 'j', 'v', 'V', 'o'] {
+                    key(&mut app, KeyCode::Char(c));
+                    terminal.draw(|frame| app.draw(frame)).unwrap();
+                }
+                key(&mut app, KeyCode::Esc);
+                key(&mut app, KeyCode::Char('d'));
+                terminal.draw(|frame| app.draw(frame)).unwrap();
+            }
+        }
     }
 }

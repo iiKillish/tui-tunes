@@ -4,12 +4,14 @@
 pub mod actions;
 pub mod app;
 pub mod completion;
+pub mod drag;
 pub mod header;
 pub mod hints;
 #[cfg(feature = "cover")]
 pub mod icons;
 pub mod images;
 pub mod keys;
+pub mod marks;
 pub mod nav;
 pub mod overlays;
 pub mod page;

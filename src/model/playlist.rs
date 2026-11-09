@@ -146,31 +146,42 @@ impl Playlist {
         spotify: &Spotify,
         library: &Arc<Library>,
     ) -> bool {
-        let Some(playable) = self.tracks.as_ref().and_then(|t| t.get(index)).cloned() else {
+        self.delete_tracks(&[index], spotify, library)
+    }
+
+    /// Remove the tracks at `indices` (in [Self::tracks]): here at once, on Spotify in the
+    /// background (see [sync]). Nothing is removed if one of them isn't there, or is a local
+    /// file, which can't be.
+    pub fn delete_tracks(
+        &mut self,
+        indices: &[usize],
+        spotify: &Spotify,
+        library: &Arc<Library>,
+    ) -> bool {
+        debug!("deleting tracks: {indices:?}");
+        let Some(mut removed) = self
+            .tracks
+            .as_mut()
+            .and_then(|tracks| remove_positions(tracks, indices))
+        else {
             return false;
         };
-        debug!("deleting track: {index} {playable:?}");
 
-        if playable.track().map(|t| t.is_local) == Some(true) {
-            warn!("track is a local file, can't delete");
-            return false;
+        // Spotify takes up to 100 at a time. The last ones first, so the positions of the
+        // others stay as they were.
+        removed.sort_by_key(|playable| std::cmp::Reverse(playable.list_index()));
+        let what = if removed.len() == 1 {
+            "remove the song"
+        } else {
+            "remove the songs"
+        };
+        for chunk in removed.chunks(100) {
+            let id = self.id.clone();
+            let chunk = chunk.to_vec();
+            self.sync(spotify, library, what, move |api| {
+                api.delete_tracks(&id, None, &chunk).map(|_| ())
+            });
         }
-
-        if let Some(tracks) = &mut self.tracks {
-            tracks.remove(index);
-            // The tracks after it move up one place (in the playlist's own order, which a sorted
-            // list doesn't show).
-            for track in tracks.iter_mut() {
-                let position = track.list_index();
-                if position > playable.list_index() {
-                    track.set_list_index(position - 1);
-                }
-            }
-        }
-        let id = self.id.clone();
-        self.sync(spotify, library, "remove the song", move |api| {
-            api.delete_tracks(&id, None, &[playable]).map(|_| ())
-        });
         true
     }
 
@@ -297,6 +308,37 @@ impl Playlist {
             })
         }
     }
+}
+
+/// Remove the tracks at `indices` from `tracks`, moving the [Playable::list_index] of those after
+/// them up. Returns those removed (with their positions on Spotify), or `None`, removing
+/// nothing, if an index is out of range or a track is a local file, which can't be removed.
+fn remove_positions(tracks: &mut Vec<Playable>, indices: &[usize]) -> Option<Vec<Playable>> {
+    let mut indices = indices.to_vec();
+    indices.sort_unstable();
+    indices.dedup();
+    if indices.is_empty() || indices.iter().any(|&i| i >= tracks.len()) {
+        return None;
+    }
+    let removed: Vec<Playable> = indices.iter().map(|&i| tracks[i].clone()).collect();
+    if removed
+        .iter()
+        .any(|playable| playable.track().is_some_and(|t| t.is_local))
+    {
+        warn!("track is a local file, can't delete");
+        return None;
+    }
+    for &index in indices.iter().rev() {
+        tracks.remove(index);
+    }
+    // In the playlist's own order, which a sorted list doesn't show.
+    let mut gone: Vec<usize> = removed.iter().map(Playable::list_index).collect();
+    gone.sort_unstable();
+    for track in tracks.iter_mut() {
+        let position = track.list_index();
+        track.set_list_index(position - gone.partition_point(|&g| g < position));
+    }
+    Some(removed)
 }
 
 /// Move the track at `from` in `tracks` to `to`, along with its [Playable::list_index] and those
@@ -485,6 +527,19 @@ mod tests {
             .iter()
             .map(|t| (t.id().unwrap(), t.list_index()))
             .collect()
+    }
+
+    #[test]
+    fn removing_several_moves_the_rest_up() {
+        // Spotify's item at 1 isn't listed.
+        let mut tracks = tracks_at(&[0, 2, 3, 4, 5]);
+        let removed = remove_positions(&mut tracks, &[3, 1]).unwrap();
+        let removed: Vec<usize> = removed.iter().map(Playable::list_index).collect();
+        assert_eq!(removed, [2, 4]);
+        let expected = [("0", 0), ("3", 2), ("5", 3)].map(|(id, p)| (id.into(), p));
+        assert_eq!(positions(&tracks), expected);
+        assert!(remove_positions(&mut tracks, &[0, 3]).is_none());
+        assert_eq!(tracks.len(), 3, "removed some of them");
     }
 
     #[test]

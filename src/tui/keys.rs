@@ -238,6 +238,15 @@ pub fn default_keybindings() -> HashMap<String, Vec<Command>> {
     kb.insert("s".into(), vec![Command::Save]);
     kb.insert("Ctrl+s".into(), vec![Command::SaveQueue]);
     kb.insert("d".into(), vec![Command::Delete]);
+    // Mark songs to act on several at once.
+    kb.insert(
+        "v".into(),
+        vec![
+            Command::Mark,
+            Command::Move(MoveMode::Down, Default::default()),
+        ],
+    );
+    kb.insert("Shift+v".into(), vec![Command::MarkRange]);
     kb.insert(
         "f".into(),
         vec![Command::Seek(SeekDirection::Relative(1000))],

@@ -290,6 +290,11 @@ impl App {
         const COUNTDOWN: Duration = Duration::from_secs(1);
         // Often enough that Home's retry after Spotify didn't answer (30s) isn't much late.
         const IDLE: Duration = Duration::from_secs(10);
+        // Often, so a row dragged to the top or bottom edge keeps scrolling the list.
+        const DRAGGING: Duration = Duration::from_millis(50);
+        if self.screens[self.current].top_ref().dragging() {
+            return DRAGGING;
+        }
         let ctx = &self.ctx;
         if matches!(
             ctx.spotify.get_current_status(),
@@ -703,6 +708,12 @@ impl App {
         if let Some(overlay) = self.overlays.last_mut() {
             let outcome = overlay.mouse(event, &ctx);
             self.apply(outcome, true);
+            return;
+        }
+        // A row being dragged follows the mouse anywhere, and is let go anywhere.
+        if self.screens[self.current].top_ref().dragging() {
+            let outcome = self.screen().top().mouse(event, &ctx);
+            self.apply(outcome, false);
             return;
         }
         let click = matches!(event.kind, MouseEventKind::Down(MouseButton::Left));

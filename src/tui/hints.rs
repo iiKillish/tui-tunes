@@ -128,6 +128,8 @@ pub fn group(commands: &[Command]) -> Group {
             | Command::Radio
             | Command::RadioCurrent
             | Command::Delete
+            | Command::Mark
+            | Command::MarkRange
             | Command::Shift(..)
             | Command::NewPlaylist(_)
             | Command::Rename(_)
@@ -174,6 +176,8 @@ pub fn describe(commands: &[Command]) -> String {
         Command::Radio => "Radio of the selected item".into(),
         Command::RadioCurrent => "Radio of the playing song".into(),
         Command::Delete => "Remove the selected item".into(),
+        Command::Mark => "Mark or unmark the song".into(),
+        Command::MarkRange => "Mark from the last marked song".into(),
         Command::Focus(screen) => format!("Go to {}", screen.label()),
         Command::Seek(SeekDirection::Relative(ms)) if *ms >= 0 => {
             format!("Forward {}", seconds(*ms))

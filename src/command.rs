@@ -24,6 +24,8 @@ const ADD_CURRENT_CMD: &str = "add current";
 const RADIO_CMD: &str = "radio";
 const RADIO_CURRENT_CMD: &str = "radio current";
 const DELETE_CMD: &str = "delete";
+const MARK_CMD: &str = "mark";
+const MARK_RANGE_CMD: &str = "mark range";
 const FOCUS: &str = "focus";
 const SEEK: &str = "seek";
 const VOLUME_UP_CMD: &str = "volup";
@@ -150,6 +152,12 @@ pub const COMMANDS: &[CommandInfo] = &[
         &["current"],
     ),
     info(DELETE_CMD, "", "Remove the selected item", &[]),
+    info(
+        MARK_CMD,
+        "[range]",
+        "Mark the selected song, or the songs from the last marked one",
+        &["range"],
+    ),
     info(
         SHIFT_CMD,
         "<up|down> [amount]",
@@ -449,6 +457,10 @@ pub enum Command {
     /// Replace the queue with a radio of the playing song.
     RadioCurrent,
     Delete,
+    /// Mark the selected song, or unmark it, to act on several at once.
+    Mark,
+    /// Mark every song from the one marked last to the selected one.
+    MarkRange,
     Focus(ScreenId),
     Seek(SeekDirection),
     VolumeUp(u16),
@@ -568,6 +580,8 @@ impl fmt::Display for Command {
             | Self::Radio
             | Self::RadioCurrent
             | Self::Delete
+            | Self::Mark
+            | Self::MarkRange
             | Self::Back
             | Self::Help
             | Self::Hints
@@ -606,6 +620,8 @@ impl Command {
             Self::Radio => RADIO_CMD,
             Self::RadioCurrent => RADIO_CURRENT_CMD,
             Self::Delete => DELETE_CMD,
+            Self::Mark => MARK_CMD,
+            Self::MarkRange => MARK_RANGE_CMD,
             Self::Focus(_) => FOCUS,
             Self::Seek(_) => SEEK,
             Self::VolumeUp(_) => VOLUME_UP_CMD,
@@ -659,6 +675,7 @@ impl Command {
             Self::Move(_, _)
                 | Self::Queue
                 | Self::PlayNext
+                | Self::Mark
                 | Self::Next
                 | Self::Previous
                 | Self::Seek(_)
@@ -824,6 +841,15 @@ pub fn parse(input: &str) -> Result<Vec<Command>, CommandParseError> {
                     None => Ok(Command::Save),
                 }?,
                 DELETE_CMD => Command::Delete,
+                MARK_CMD => match args.first().cloned() {
+                    Some("range") => Ok(Command::MarkRange),
+                    Some(arg) => Err(E::BadEnumArg {
+                        arg: arg.into(),
+                        accept: vec!["range".into()],
+                        optional: true,
+                    }),
+                    None => Ok(Command::Mark),
+                }?,
                 FOCUS => {
                     let &target = args.first().ok_or(E::InsufficientArgs {
                         cmd: command.into(),
@@ -1306,6 +1332,23 @@ mod tests {
             parse("rename").as_deref(),
             Ok([Command::Rename(name)]) if name.is_empty()
         ));
+    }
+
+    #[test]
+    fn mark_takes_range_and_reads_back() {
+        assert!(matches!(parse("mark").as_deref(), Ok([Command::Mark])));
+        assert!(matches!(
+            parse("mark range").as_deref(),
+            Ok([Command::MarkRange])
+        ));
+        assert!(matches!(
+            parse("mark all").as_deref(),
+            Err(CommandParseError::BadEnumArg { .. })
+        ));
+        for command in [Command::Mark, Command::MarkRange] {
+            let text = command.to_string();
+            assert_eq!(parse(&text).unwrap()[0].to_string(), text);
+        }
     }
 
     #[test]

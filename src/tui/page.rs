@@ -111,6 +111,13 @@ pub trait Page {
         Outcome::Ignored
     }
 
+    /// Whether a row is pressed (and maybe being dragged to reorder it): until it's let go, the
+    /// page gets the mouse wherever it goes, and is drawn often, to scroll while it's held at an
+    /// edge.
+    fn dragging(&self) -> bool {
+        false
+    }
+
     /// Called each time the page is shown again (switched to, or returned to with back).
     fn on_show(&mut self, _ctx: &Ctx) {}
 
