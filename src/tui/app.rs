@@ -1135,15 +1135,9 @@ impl App {
                 usize::MAX,
                 style,
             );
-            let cursor_x = full.x
-                + 1
-                + line
-                    .text
-                    .chars()
-                    .take(line.cursor)
-                    .collect::<String>()
-                    .chars()
-                    .count() as u16;
+            // In columns, which wide characters (日本, emoji) take two of.
+            let before: String = line.text.chars().take(line.cursor).collect();
+            let cursor_x = full.x + 1 + width(&before) as u16;
             frame.set_cursor_position((cursor_x.min(full.right().saturating_sub(1)), row));
             if let Some(cell) = frame.buffer_mut().cell_mut((cursor_x, row)) {
                 cell.modifier.insert(Modifier::REVERSED);

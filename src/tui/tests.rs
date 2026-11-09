@@ -1240,6 +1240,21 @@ fn test_command_line_suggests_and_completes() {
 }
 
 #[test]
+fn test_command_line_cursor_follows_wide_characters() {
+    let mut app = app();
+    let mut terminal = Terminal::new(TestBackend::new(60, 20)).unwrap();
+    key(&mut app, KeyCode::Char('/'));
+    for c in "日本".chars() {
+        key(&mut app, KeyCode::Char(c));
+    }
+    terminal.draw(|frame| app.draw(frame)).unwrap();
+    let typed = find(&terminal, "/日").expect("the command line");
+    // After the two characters, two columns each.
+    let cursor = terminal.get_cursor_position().unwrap();
+    assert_eq!((cursor.x, cursor.y), (typed.x + 1 + 4, typed.y));
+}
+
+#[test]
 fn test_ctrl_c_quits_even_while_typing() {
     let ctrl_c = KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL);
     let mut app = app();
